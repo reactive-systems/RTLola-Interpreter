@@ -1,6 +1,7 @@
 mod config;
 mod csv_input;
 mod io_handler;
+#[cfg(feature = "pcap_interface")]
 mod pcap_input;
 
 pub(crate) type Time = Duration;
@@ -13,5 +14,6 @@ pub(crate) use self::io_handler::{create_event_source, EventSource, EventSourceC
 
 pub use self::csv_input::{CSVEventSource, CSVInputSource};
 
+#[cfg(feature = "pcap_interface")]
 pub use self::pcap_input::{PCAPEventSource, PCAPInputSource};
 use std::time::Duration;
