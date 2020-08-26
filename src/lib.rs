@@ -31,8 +31,8 @@ use rtlola_frontend::{FrontendConfig, TypeConfig};
 use std::fs;
 use std::sync::Arc;
 
-pub use crate::basics::{EvalConfig, TimeFormat, TimeRepresentation};
-pub use crate::coordination::Monitor;
+pub use crate::basics::{EvalConfig, Time, TimeFormat, TimeRepresentation};
+pub use crate::coordination::{monitor::Update, Monitor};
 pub use crate::storage::Value;
 
 // TODO add example to doc

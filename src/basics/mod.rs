@@ -4,7 +4,7 @@ mod io_handler;
 #[cfg(feature = "pcap_interface")]
 mod pcap_input;
 
-pub(crate) type Time = Duration;
+pub type Time = Duration;
 
 pub use self::config::{
     EvalConfig, EvaluatorChoice, ExecutionMode, Statistics, TimeFormat, TimeRepresentation, Verbosity,
