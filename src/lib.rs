@@ -22,8 +22,8 @@ mod tests;
 use crate::basics::OutputHandler;
 use crate::coordination::Controller;
 use basics::{
-    CSVInputSource, EvalConfig, EvaluatorChoice, EventSourceConfig, ExecutionMode, OutputChannel, PCAPInputSource,
-    Statistics, TimeFormat, TimeRepresentation, Verbosity,
+    CSVInputSource, EvaluatorChoice, EventSourceConfig, ExecutionMode, OutputChannel, PCAPInputSource, Statistics,
+    Verbosity,
 };
 use clap::{App, AppSettings, Arg, ArgGroup, SubCommand};
 use rtlola_frontend;
@@ -32,6 +32,7 @@ use rtlola_frontend::{FrontendConfig, TypeConfig};
 use std::fs;
 use std::sync::Arc;
 
+pub use crate::basics::{EvalConfig, TimeFormat, TimeRepresentation};
 pub use crate::coordination::Monitor;
 pub use crate::storage::Value;
 
