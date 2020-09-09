@@ -150,6 +150,8 @@ impl Expr for Expression {
                 }
             }
 
+            DiscreteWindowLookup(win_ref) => CompiledExpr::new(move |ctx| ctx.lookup_window(win_ref)),
+
             WindowLookup(win_ref) => CompiledExpr::new(move |ctx| ctx.lookup_window(win_ref)),
 
             Ite { condition, consequence, alternative, .. } => {

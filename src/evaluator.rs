@@ -438,6 +438,7 @@ impl<'a> ExpressionEvaluator<'a> {
                 }
             }
 
+            DiscreteWindowLookup(win_ref) => self.lookup_window(*win_ref, ts),
             WindowLookup(win_ref) => self.lookup_window(*win_ref, ts),
 
             Function(name, args, _ty) => {
@@ -1132,5 +1133,61 @@ mod tests {
         let expected = Unsigned(0);
         eval_stream!(eval, start, 0);
         assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_sum_window_discrete() {
+        let (_, eval, mut time) =
+            setup_time("input a: Int16\noutput b: Int16 @1Hz:= a.aggregate(over_discrete: 6, using: sum)");
+        let mut eval: Evaluator = eval.into_evaluator();
+        time += Duration::from_secs(45);
+        let out_ref = StreamReference::OutRef(0);
+        let in_ref = StreamReference::InRef(0);
+        let n = 25;
+        for v in 1..=n {
+            accept_input_timed!(eval, in_ref, Signed(v), time);
+            time += Duration::from_secs(1);
+        }
+        time += Duration::from_secs(1);
+        // 71 secs have passed. All values should be within the window.
+        eval_stream_timed!(eval, 0, time);
+        let expected = Signed(135);
+        //assert_eq!(eval.peek_value(in_ref, &Vec::new(), -1).unwrap(), Signed(24));
+        assert_eq!(eval.peek_value(in_ref, &Vec::new(), 0).unwrap(), Signed(25));
+        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_cases_window_discrete() {
+        for (aggr, exp, default) in &[
+            ("sum", Signed(115), false),
+            ("count", Unsigned(5), false),
+            ("min", Signed(21), true),
+            ("max", Signed(25), true),
+            ("avg", Signed(23), false),
+            ("integral", Value::new_float(92.0), false),
+        ] {
+            let mut spec = String::from("input a: Int16\noutput b @0.5Hz:= a.aggregate(over_discrete: 5, using: ");
+            spec += aggr;
+            spec += ")";
+            if *default {
+                spec += ".defaults(to:1337)"
+            }
+            let (_, eval, mut time) = setup_time(&spec);
+            let mut eval: Evaluator = eval.into_evaluator();
+            time += Duration::from_secs(45);
+            let out_ref = StreamReference::OutRef(0);
+            let in_ref = StreamReference::InRef(0);
+            let n = 25;
+            for v in 1..=n {
+                accept_input_timed!(eval, in_ref, Signed(v), time);
+                time += Duration::from_secs(1);
+            }
+            time += Duration::from_secs(1);
+            // 71 secs have passed. All values should be within the window.
+            eval_stream_timed!(eval, 0, time);
+            let expected = exp.clone();
+            assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
+        }
     }
 }
