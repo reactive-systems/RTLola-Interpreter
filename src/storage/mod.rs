@@ -1,3 +1,4 @@
+mod discrete_window;
 mod stores;
 mod value;
 mod window;

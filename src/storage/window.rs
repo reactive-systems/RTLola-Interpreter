@@ -1,3 +1,4 @@
+use super::discrete_window::DiscreteWindowInstance;
 use super::window_aggregations::*;
 use super::Value;
 use crate::basics::Time;
@@ -16,24 +17,42 @@ const SIZE: usize = 64;
 /// # Example:
 /// * The aggregation function 'count' is independent of the value type.
 /// * The aggregation function 'min' depends on the value type, e.g., the minimum value of unsigned values is 0, whereas the minimum value for signed values is negative.
+#[derive(Debug)]
 pub(crate) enum SlidingWindow {
     Count(WindowInstance<CountIV>),
+    CountDiscrete(DiscreteWindowInstance<CountIV>),
     MinUnsigned(WindowInstance<MinIV<WindowSigned>>),
+    MinUnsignedDiscrete(DiscreteWindowInstance<MinIV<WindowSigned>>),
     MinSigned(WindowInstance<MinIV<WindowUnsigned>>),
+    MinSignedDiscrete(DiscreteWindowInstance<MinIV<WindowUnsigned>>),
     MinFloat(WindowInstance<MinIV<WindowFloat>>),
+    MinFloatDiscrete(DiscreteWindowInstance<MinIV<WindowFloat>>),
     MaxUnsigned(WindowInstance<MaxIV<WindowSigned>>),
+    MaxUnsignedDiscrete(DiscreteWindowInstance<MaxIV<WindowSigned>>),
     MaxSigned(WindowInstance<MaxIV<WindowUnsigned>>),
+    MaxSignedDiscrete(DiscreteWindowInstance<MaxIV<WindowUnsigned>>),
     MaxFloat(WindowInstance<MaxIV<WindowFloat>>),
+    MaxFloatDiscrete(DiscreteWindowInstance<MaxIV<WindowFloat>>),
     SumUnsigned(WindowInstance<SumIV<WindowUnsigned>>),
+    SumUnsignedDiscrete(DiscreteWindowInstance<SumIV<WindowUnsigned>>),
     SumSigned(WindowInstance<SumIV<WindowSigned>>),
+    SumSignedDiscrete(DiscreteWindowInstance<SumIV<WindowSigned>>),
     SumFloat(WindowInstance<SumIV<WindowFloat>>),
+    SumFloatDiscrete(DiscreteWindowInstance<SumIV<WindowFloat>>),
     SumBool(WindowInstance<SumIV<WindowBool>>),
+    SumBoolDiscrete(DiscreteWindowInstance<SumIV<WindowBool>>),
     AvgUnsigned(WindowInstance<AvgIV<WindowUnsigned>>),
+    AvgUnsignedDiscrete(DiscreteWindowInstance<AvgIV<WindowUnsigned>>),
     AvgSigned(WindowInstance<AvgIV<WindowSigned>>),
+    AvgSignedDiscrete(DiscreteWindowInstance<AvgIV<WindowSigned>>),
     AvgFloat(WindowInstance<AvgIV<WindowFloat>>),
+    AvgFloatDiscrete(DiscreteWindowInstance<AvgIV<WindowFloat>>),
     Integral(WindowInstance<IntegralIV>),
+    IntegralDiscrete(DiscreteWindowInstance<IntegralIV>),
     Conjunction(WindowInstance<ConjIV>),
+    ConjunctionDiscrete(DiscreteWindowInstance<ConjIV>),
     Disjunction(WindowInstance<DisjIV>),
+    DisjunctionDiscrete(DiscreteWindowInstance<DisjIV>),
 }
 
 impl SlidingWindow {
@@ -44,7 +63,7 @@ impl SlidingWindow {
     /// * 'op' - the type of the aggregation function
     /// * 'ts' - the starting time of the window
     /// * 'ty' - the value type of the aggregated stream
-    pub(crate) fn new(dur: Duration, wait: bool, op: WinOp, ts: Time, ty: &Type) -> SlidingWindow {
+    pub(crate) fn from_sliding(dur: Duration, wait: bool, op: WinOp, ts: Time, ty: &Type) -> SlidingWindow {
         match (op, ty) {
             (WinOp::Count, _) => SlidingWindow::Count(WindowInstance::new(dur, wait, ts)),
             (WinOp::Min, Type::UInt(_)) => SlidingWindow::MinUnsigned(WindowInstance::new(dur, wait, ts)),
@@ -63,7 +82,53 @@ impl SlidingWindow {
             (WinOp::Integral, _) => SlidingWindow::Integral(WindowInstance::new(dur, wait, ts)),
             (WinOp::Conjunction, Type::Bool) => SlidingWindow::Conjunction(WindowInstance::new(dur, wait, ts)),
             (WinOp::Disjunction, Type::Bool) => SlidingWindow::Disjunction(WindowInstance::new(dur, wait, ts)),
-            (_, Type::Option(t)) => SlidingWindow::new(dur, wait, op, ts, t),
+            (_, Type::Option(t)) => SlidingWindow::from_sliding(dur, wait, op, ts, t),
+            _ => unimplemented!(),
+        }
+    }
+
+    pub(crate) fn from_discrete(size: u64, wait: bool, op: WinOp, ts: Time, ty: &Type) -> SlidingWindow {
+        match (op, ty) {
+            (WinOp::Count, _) => SlidingWindow::CountDiscrete(DiscreteWindowInstance::new(size, wait, ts)),
+            (WinOp::Min, Type::UInt(_)) => {
+                SlidingWindow::MinUnsignedDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+            }
+            (WinOp::Min, Type::Int(_)) => SlidingWindow::MinSignedDiscrete(DiscreteWindowInstance::new(size, wait, ts)),
+            (WinOp::Min, Type::Float(_)) => {
+                SlidingWindow::MinFloatDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+            }
+            (WinOp::Max, Type::UInt(_)) => {
+                SlidingWindow::MaxUnsignedDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+            }
+            (WinOp::Max, Type::Int(_)) => SlidingWindow::MaxSignedDiscrete(DiscreteWindowInstance::new(size, wait, ts)),
+            (WinOp::Max, Type::Float(_)) => {
+                SlidingWindow::MaxFloatDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+            }
+            (WinOp::Sum, Type::UInt(_)) => {
+                SlidingWindow::SumUnsignedDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+            }
+            (WinOp::Sum, Type::Int(_)) => SlidingWindow::SumSignedDiscrete(DiscreteWindowInstance::new(size, wait, ts)),
+            (WinOp::Sum, Type::Float(_)) => {
+                SlidingWindow::SumFloatDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+            }
+            (WinOp::Sum, Type::Bool) => SlidingWindow::SumBoolDiscrete(DiscreteWindowInstance::new(size, wait, ts)),
+            (WinOp::Average, Type::UInt(_)) => {
+                SlidingWindow::AvgUnsignedDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+            }
+            (WinOp::Average, Type::Int(_)) => {
+                SlidingWindow::AvgSignedDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+            }
+            (WinOp::Average, Type::Float(_)) => {
+                SlidingWindow::AvgFloatDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+            }
+            (WinOp::Integral, _) => SlidingWindow::IntegralDiscrete(DiscreteWindowInstance::new(size, wait, ts)),
+            (WinOp::Conjunction, Type::Bool) => {
+                SlidingWindow::ConjunctionDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+            }
+            (WinOp::Disjunction, Type::Bool) => {
+                SlidingWindow::DisjunctionDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+            }
+            (_, Type::Option(t)) => SlidingWindow::from_discrete(size, wait, op, ts, t),
             _ => unimplemented!(),
         }
     }
@@ -74,22 +139,39 @@ impl SlidingWindow {
     pub(crate) fn update(&mut self, ts: Time) {
         match self {
             SlidingWindow::Count(wi) => wi.update_buckets(ts),
+            SlidingWindow::CountDiscrete(wi) => wi.update_buckets(ts),
             SlidingWindow::MinUnsigned(wi) => wi.update_buckets(ts),
+            SlidingWindow::MinUnsignedDiscrete(wi) => wi.update_buckets(ts),
             SlidingWindow::MinSigned(wi) => wi.update_buckets(ts),
+            SlidingWindow::MinSignedDiscrete(wi) => wi.update_buckets(ts),
             SlidingWindow::MinFloat(wi) => wi.update_buckets(ts),
+            SlidingWindow::MinFloatDiscrete(wi) => wi.update_buckets(ts),
             SlidingWindow::MaxUnsigned(wi) => wi.update_buckets(ts),
+            SlidingWindow::MaxUnsignedDiscrete(wi) => wi.update_buckets(ts),
             SlidingWindow::MaxSigned(wi) => wi.update_buckets(ts),
+            SlidingWindow::MaxSignedDiscrete(wi) => wi.update_buckets(ts),
             SlidingWindow::MaxFloat(wi) => wi.update_buckets(ts),
+            SlidingWindow::MaxFloatDiscrete(wi) => wi.update_buckets(ts),
             SlidingWindow::SumUnsigned(wi) => wi.update_buckets(ts),
+            SlidingWindow::SumUnsignedDiscrete(wi) => wi.update_buckets(ts),
             SlidingWindow::SumSigned(wi) => wi.update_buckets(ts),
+            SlidingWindow::SumSignedDiscrete(wi) => wi.update_buckets(ts),
             SlidingWindow::SumFloat(wi) => wi.update_buckets(ts),
+            SlidingWindow::SumFloatDiscrete(wi) => wi.update_buckets(ts),
             SlidingWindow::SumBool(wi) => wi.update_buckets(ts),
+            SlidingWindow::SumBoolDiscrete(wi) => wi.update_buckets(ts),
             SlidingWindow::Conjunction(wi) => wi.update_buckets(ts),
+            SlidingWindow::ConjunctionDiscrete(wi) => wi.update_buckets(ts),
             SlidingWindow::Disjunction(wi) => wi.update_buckets(ts),
+            SlidingWindow::DisjunctionDiscrete(wi) => wi.update_buckets(ts),
             SlidingWindow::AvgUnsigned(wi) => wi.update_buckets(ts),
+            SlidingWindow::AvgUnsignedDiscrete(wi) => wi.update_buckets(ts),
             SlidingWindow::AvgSigned(wi) => wi.update_buckets(ts),
+            SlidingWindow::AvgSignedDiscrete(wi) => wi.update_buckets(ts),
             SlidingWindow::AvgFloat(wi) => wi.update_buckets(ts),
+            SlidingWindow::AvgFloatDiscrete(wi) => wi.update_buckets(ts),
             SlidingWindow::Integral(wi) => wi.update_buckets(ts),
+            SlidingWindow::IntegralDiscrete(wi) => wi.update_buckets(ts),
         }
     }
 
@@ -100,22 +182,39 @@ impl SlidingWindow {
     pub(crate) fn get_value(&self, ts: Time) -> Value {
         match self {
             SlidingWindow::Count(wi) => wi.get_value(ts),
+            SlidingWindow::CountDiscrete(wi) => wi.get_value(ts),
             SlidingWindow::MinUnsigned(wi) => wi.get_value(ts),
+            SlidingWindow::MinUnsignedDiscrete(wi) => wi.get_value(ts),
             SlidingWindow::MinSigned(wi) => wi.get_value(ts),
+            SlidingWindow::MinSignedDiscrete(wi) => wi.get_value(ts),
             SlidingWindow::MinFloat(wi) => wi.get_value(ts),
+            SlidingWindow::MinFloatDiscrete(wi) => wi.get_value(ts),
             SlidingWindow::MaxUnsigned(wi) => wi.get_value(ts),
+            SlidingWindow::MaxUnsignedDiscrete(wi) => wi.get_value(ts),
             SlidingWindow::MaxSigned(wi) => wi.get_value(ts),
+            SlidingWindow::MaxSignedDiscrete(wi) => wi.get_value(ts),
             SlidingWindow::MaxFloat(wi) => wi.get_value(ts),
+            SlidingWindow::MaxFloatDiscrete(wi) => wi.get_value(ts),
             SlidingWindow::SumUnsigned(wi) => wi.get_value(ts),
+            SlidingWindow::SumUnsignedDiscrete(wi) => wi.get_value(ts),
             SlidingWindow::SumSigned(wi) => wi.get_value(ts),
+            SlidingWindow::SumSignedDiscrete(wi) => wi.get_value(ts),
             SlidingWindow::SumFloat(wi) => wi.get_value(ts),
+            SlidingWindow::SumFloatDiscrete(wi) => wi.get_value(ts),
             SlidingWindow::SumBool(wi) => wi.get_value(ts),
+            SlidingWindow::SumBoolDiscrete(wi) => wi.get_value(ts),
             SlidingWindow::Conjunction(wi) => wi.get_value(ts),
+            SlidingWindow::ConjunctionDiscrete(wi) => wi.get_value(ts),
             SlidingWindow::Disjunction(wi) => wi.get_value(ts),
+            SlidingWindow::DisjunctionDiscrete(wi) => wi.get_value(ts),
             SlidingWindow::AvgUnsigned(wi) => wi.get_value(ts),
+            SlidingWindow::AvgUnsignedDiscrete(wi) => wi.get_value(ts),
             SlidingWindow::AvgSigned(wi) => wi.get_value(ts),
+            SlidingWindow::AvgSignedDiscrete(wi) => wi.get_value(ts),
             SlidingWindow::AvgFloat(wi) => wi.get_value(ts),
+            SlidingWindow::AvgFloatDiscrete(wi) => wi.get_value(ts),
             SlidingWindow::Integral(wi) => wi.get_value(ts),
+            SlidingWindow::IntegralDiscrete(wi) => wi.get_value(ts),
         }
     }
 
@@ -126,22 +225,39 @@ impl SlidingWindow {
     pub(crate) fn accept_value(&mut self, v: Value, ts: Time) {
         match self {
             SlidingWindow::Count(wi) => wi.accept_value(v, ts),
+            SlidingWindow::CountDiscrete(wi) => wi.accept_value(v, ts),
             SlidingWindow::MinUnsigned(wi) => wi.accept_value(v, ts),
+            SlidingWindow::MinUnsignedDiscrete(wi) => wi.accept_value(v, ts),
             SlidingWindow::MinSigned(wi) => wi.accept_value(v, ts),
+            SlidingWindow::MinSignedDiscrete(wi) => wi.accept_value(v, ts),
             SlidingWindow::MinFloat(wi) => wi.accept_value(v, ts),
+            SlidingWindow::MinFloatDiscrete(wi) => wi.accept_value(v, ts),
             SlidingWindow::MaxUnsigned(wi) => wi.accept_value(v, ts),
+            SlidingWindow::MaxUnsignedDiscrete(wi) => wi.accept_value(v, ts),
             SlidingWindow::MaxFloat(wi) => wi.accept_value(v, ts),
+            SlidingWindow::MaxFloatDiscrete(wi) => wi.accept_value(v, ts),
             SlidingWindow::MaxSigned(wi) => wi.accept_value(v, ts),
+            SlidingWindow::MaxSignedDiscrete(wi) => wi.accept_value(v, ts),
             SlidingWindow::SumUnsigned(wi) => wi.accept_value(v, ts),
+            SlidingWindow::SumUnsignedDiscrete(wi) => wi.accept_value(v, ts),
             SlidingWindow::SumSigned(wi) => wi.accept_value(v, ts),
+            SlidingWindow::SumSignedDiscrete(wi) => wi.accept_value(v, ts),
             SlidingWindow::SumFloat(wi) => wi.accept_value(v, ts),
+            SlidingWindow::SumFloatDiscrete(wi) => wi.accept_value(v, ts),
             SlidingWindow::SumBool(wi) => wi.accept_value(v, ts),
+            SlidingWindow::SumBoolDiscrete(wi) => wi.accept_value(v, ts),
             SlidingWindow::Conjunction(wi) => wi.accept_value(v, ts),
+            SlidingWindow::ConjunctionDiscrete(wi) => wi.accept_value(v, ts),
             SlidingWindow::Disjunction(wi) => wi.accept_value(v, ts),
+            SlidingWindow::DisjunctionDiscrete(wi) => wi.accept_value(v, ts),
             SlidingWindow::AvgUnsigned(wi) => wi.accept_value(v, ts),
+            SlidingWindow::AvgUnsignedDiscrete(wi) => wi.accept_value(v, ts),
             SlidingWindow::AvgSigned(wi) => wi.accept_value(v, ts),
+            SlidingWindow::AvgSignedDiscrete(wi) => wi.accept_value(v, ts),
             SlidingWindow::AvgFloat(wi) => wi.accept_value(v, ts),
+            SlidingWindow::AvgFloatDiscrete(wi) => wi.accept_value(v, ts),
             SlidingWindow::Integral(wi) => wi.accept_value(v, ts),
+            SlidingWindow::IntegralDiscrete(wi) => wi.accept_value(v, ts),
         }
     }
 }
@@ -155,6 +271,7 @@ pub(crate) trait WindowIV:
 }
 
 /// Struct to summarize common logic for the different window aggregations, e.g. iterating over the buckets to compute the result of an aggregation
+#[derive(Debug)]
 pub(crate) struct WindowInstance<IV: WindowIV> {
     buckets: VecDeque<IV>,
     time_per_bucket: Duration,
