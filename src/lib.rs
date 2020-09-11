@@ -21,10 +21,9 @@ mod tests;
 
 use crate::basics::OutputHandler;
 use crate::coordination::Controller;
-use basics::{
-    CSVInputSource, EvalConfig, EvaluatorChoice, EventSourceConfig, ExecutionMode, OutputChannel, PCAPInputSource,
-    Statistics, TimeFormat, TimeRepresentation, Verbosity,
-};
+#[cfg(feature = "pcap_interface")]
+use basics::PCAPInputSource;
+use basics::{CSVInputSource, EvaluatorChoice, EventSourceConfig, ExecutionMode, OutputChannel, Statistics, Verbosity};
 use clap::{App, AppSettings, Arg, ArgGroup, SubCommand};
 use rtlola_frontend;
 use rtlola_frontend::ir::RTLolaIR;
@@ -32,7 +31,8 @@ use rtlola_frontend::{FrontendConfig, TypeConfig};
 use std::fs;
 use std::sync::Arc;
 
-pub use crate::coordination::Monitor;
+pub use crate::basics::{EvalConfig, Time, TimeFormat, TimeRepresentation};
+pub use crate::coordination::{monitor::Update, Monitor};
 pub use crate::storage::Value;
 
 // TODO add example to doc
@@ -323,20 +323,22 @@ impl Config {
         };
 
         let src = if ids_mode {
-            let pcap_load = unsafe { pcap_on_demand::load_pcap_library() };
-            if let Err(err) = pcap_load {
-                eprintln!("Could not load PCAP library: {}", err.to_string());
-                std::process::exit(1);
-            }
-            let local_network = String::from(parse_matches.value_of("LOCAL_NETWORK").unwrap());
-            if let Some(file) = parse_matches.value_of("PCAP_INPUT_FILE") {
-                EventSourceConfig::PCAP {
-                    src: PCAPInputSource::File { path: String::from(file), delay, local_network },
+            #[cfg(not(feature = "pcap"))]
+            panic!("Cannot use PCAP interface;  Activate \"pcap\" feature.");
+            #[cfg(feature = "pcap_interface")]
+            {
+                let local_network = String::from(parse_matches.value_of("LOCAL_NETWORK").unwrap());
+                if let Some(file) = parse_matches.value_of("PCAP_INPUT_FILE") {
+                    EventSourceConfig::PCAP {
+                        src: PCAPInputSource::File { path: String::from(file), delay, local_network },
+                    }
+                } else if let Some(iface) = parse_matches.value_of("NETWORK_INTERFACE") {
+                    EventSourceConfig::PCAP {
+                        src: PCAPInputSource::Device { name: String::from(iface), local_network },
+                    }
+                } else {
+                    unreachable!(); //Excluded by CLAP
                 }
-            } else if let Some(iface) = parse_matches.value_of("NETWORK_INTERFACE") {
-                EventSourceConfig::PCAP { src: PCAPInputSource::Device { name: String::from(iface), local_network } }
-            } else {
-                unreachable!(); //Excluded by CLAP
             }
         } else if let Some(file) = parse_matches.value_of("CSV_INPUT_FILE") {
             EventSourceConfig::CSV { src: CSVInputSource::file(String::from(file), delay, csv_time_column) }

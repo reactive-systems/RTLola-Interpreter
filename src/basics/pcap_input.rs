@@ -8,7 +8,7 @@ use etherparse::{
     UdpHeader,
 };
 use ip_network::IpNetwork;
-use pcap_on_demand::{Activated, Capture, Device, Error as PCAPError};
+use pcap::{Activated, Capture, Device, Error as PCAPError};
 use rtlola_frontend::ir::RTLolaIR;
 use std::error::Error;
 use std::net::IpAddr;

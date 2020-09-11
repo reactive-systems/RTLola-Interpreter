@@ -1,6 +1,6 @@
 mod controller;
 mod event_driven_manager;
-mod monitor;
+pub mod monitor;
 mod time_driven_manager;
 
 // Re-exports
