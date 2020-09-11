@@ -16,6 +16,7 @@ cargo:check-format:
   stage: check
   image: rust:latest
   before_script:
+    - sed -i s/'git@projects'/"gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
     - rustup component add rustfmt-preview
   script:
     - rustc --version && cargo --version      # Print version info for debugging
@@ -26,6 +27,7 @@ cargo:clippy:
   stage: check
   image: rust:latest
   before_script:
+    - sed -i s/'git@projects'/"gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
     - rustup component add clippy-preview
   script:
     - rustc --version && cargo --version      # Print version info for debugging
@@ -36,6 +38,7 @@ check-ignored-tests:
   stage: check
   image: alpine:latest
   before_script:
+    - sed -i s/'git@projects'/"gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
     - apk update && apk add --no-cache bash
   script:
     - ./check_ignored_tests_without_comment.sh
@@ -46,6 +49,7 @@ cargo:test:
   stage: test
   image: rust:latest
   before_script:
+    - sed -i s/'git@projects'/"gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev
   script:
@@ -58,6 +62,8 @@ cargo:test:windows:
   tags:
     - windows
     - rust
+  before_script:
+    - get-content Cargo.toml | %{$_ -replace "git@projects","gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content Cargo.toml
   script:
     - rustup update
     - rustc --version && cargo --version      # Print version info for debugging
@@ -73,6 +79,7 @@ cargo:test-nightly:
     RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort"
     RUSTDOCFLAGS: "-Cpanic=abort"
   before_script:
+    - sed -i s/'git@projects'/"gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev python3-pip
     - pip3 install junit-xml
@@ -100,6 +107,7 @@ integration_tests:
   stage: test
   image: rust:latest
   before_script:
+    - sed -i s/'git@projects'/"gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev python3-pip
     - pip3 install junit-xml
@@ -121,6 +129,7 @@ cargo:bench:
   before_script:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev
+    - sed -i s/'git@projects'/"gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
   script:
     - rustc --version && cargo --version      # Print version info for debugging
     - cargo bench --quiet | grep -e 'bench:' | tee bench_results.txt # TODO: actually compare the results
@@ -151,7 +160,7 @@ release-windows:
   variables:
     RUSTFLAGS: "-C target-feature=+crt-static"
   before_script:
-    - cd evaluator
+    - get-content Cargo.toml | %{$_ -replace "git@projects","gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content Cargo.toml
     - rustup update
     - rustc --version && cargo --version      # Print version info for debugging
   script:

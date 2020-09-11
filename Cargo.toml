@@ -21,7 +21,7 @@ name = "rtlola-interpreter"
 path = "src/bin/rtlola.rs"
 
 [dependencies]
-rtlola-frontend = "0.3.2"
+rtlola-frontend = { git="https://git@projects.cispa.saarland/RTLola/RTLola-Frontend.git", branch = "development" }
 ordered-float = "1.0.2"
 csv = "1.1.1"
 pcap = { version = "0.7.0", optional = true } # pcap file parsing
