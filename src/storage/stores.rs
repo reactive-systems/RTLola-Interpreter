@@ -20,6 +20,9 @@ pub(crate) struct GlobalStore {
 
     /// Non-parametrized windows, access by WindowReference.
     np_windows: Vec<SlidingWindow>,
+
+    /// Non-parametrized discrete windows, access by WindowReference,
+    np_discrete_windows: Vec<SlidingWindow>,
 }
 
 /// A stream instance for non-parametrized streams is defined as the reference in the IR
@@ -51,10 +54,18 @@ impl GlobalStore {
         let index_map = index_map.into_iter().flatten().collect();
         let np_outputs = nps.iter().map(|o| InstanceStore::new(&o.ty, o.memory_bound)).collect();
         let inputs = ir.inputs.iter().map(|i| InstanceStore::new(&i.ty, i.memory_bound)).collect();
-        let np_windows =
-            ir.sliding_windows.iter().map(|w| SlidingWindow::new(w.duration, w.wait, w.op, ts, &w.ty)).collect();
+        let np_windows = ir
+            .sliding_windows
+            .iter()
+            .map(|w| SlidingWindow::from_sliding(w.duration, w.wait, w.op, ts, &w.ty))
+            .collect();
+        let np_discrete_windows = ir
+            .discrete_windows
+            .iter()
+            .map(|w| SlidingWindow::from_discrete(w.duration, w.wait, w.op, ts, &w.ty))
+            .collect();
 
-        GlobalStore { inputs, index_map, np_outputs, np_windows }
+        GlobalStore { inputs, index_map, np_outputs, np_windows, np_discrete_windows }
     }
 
     /// Returns the storage of an input stream instance
@@ -83,14 +94,18 @@ impl GlobalStore {
 
     /// Returns the storage of a sliding window instance
     pub(crate) fn get_window(&self, window: WindowReference) -> &SlidingWindow {
-        let ix = window.idx();
-        &self.np_windows[ix]
+        match window {
+            WindowReference::SlidingWindow(x) => &self.np_windows[x],
+            WindowReference::DiscreteWindow(x) => &self.np_discrete_windows[x],
+        }
     }
 
     /// Returns the storage of a sliding window instance (mutable)
     pub(crate) fn get_window_mut(&mut self, window: WindowReference) -> &mut SlidingWindow {
-        let ix = window.idx();
-        &mut self.np_windows[ix]
+        match window {
+            WindowReference::SlidingWindow(x) => &mut self.np_windows[x],
+            WindowReference::DiscreteWindow(x) => &mut self.np_discrete_windows[x],
+        }
     }
 }
 

@@ -31,6 +31,7 @@ pub(crate) struct EvaluatorData {
     time_last_event: Option<Time>, // only valid in offline mode
     fresh_inputs: BitSet,
     fresh_outputs: BitSet,
+    fresh_triggers: BitSet,
     triggers: Vec<Option<Trigger>>,
     ir: RTLolaIR,
     handler: Arc<OutputHandler>,
@@ -52,6 +53,7 @@ pub(crate) struct Evaluator {
     time_last_event: &'static mut Option<Time>, // only valid in offline mode
     fresh_inputs: &'static mut BitSet,
     fresh_outputs: &'static mut BitSet,
+    fresh_triggers: &'static mut BitSet,
     triggers: &'static Vec<Option<Trigger>>,
     ir: &'static RTLolaIR,
     handler: &'static OutputHandler,
@@ -92,6 +94,7 @@ impl EvaluatorData {
         let global_store = GlobalStore::new(&ir, Time::default());
         let fresh_inputs = BitSet::with_capacity(ir.inputs.len());
         let fresh_outputs = BitSet::with_capacity(ir.outputs.len());
+        let fresh_triggers = BitSet::with_capacity(ir.triggers.len());
         let mut triggers = vec![None; ir.outputs.len()];
         for t in &ir.triggers {
             triggers[t.reference.out_ix()] = Some(t.clone());
@@ -105,6 +108,7 @@ impl EvaluatorData {
             time_last_event: None,
             fresh_inputs,
             fresh_outputs,
+            fresh_triggers,
             triggers,
             ir,
             handler,
@@ -134,6 +138,7 @@ impl EvaluatorData {
             time_last_event: &mut leaked_data.time_last_event,
             fresh_inputs: &mut leaked_data.fresh_inputs,
             fresh_outputs: &mut leaked_data.fresh_outputs,
+            fresh_triggers: &mut leaked_data.fresh_triggers,
             triggers: &leaked_data.triggers,
             ir: &leaked_data.ir,
             handler: &leaked_data.handler,
@@ -170,6 +175,7 @@ impl Evaluator {
         self.fresh_outputs
             .iter()
             .map(|elem| (elem, self.peek_value(StreamReference::OutRef(elem), &[], 0).expect("Marked as fresh.")))
+            .chain(self.fresh_triggers.iter().map(|ix| (ix, Value::Bool(true))))
             .collect()
     }
 
@@ -258,14 +264,14 @@ impl Evaluator {
                 // Register value in global store.
                 self.global_store.get_out_instance_mut(output).unwrap().push_value(res.clone()); // TODO: unsafe unwrap.
                 self.fresh_outputs.insert(ix);
-
                 self.handler.output(|| format!("OutputStream[{}] := {:?}.", ix, res.clone()));
             }
 
             Some(trig) => {
                 // Check if we have to emit a warning.
                 if let Value::Bool(true) = res {
-                    self.handler.trigger(|| format!("Trigger: {}", trig.message), trig.trigger_idx, ts)
+                    self.handler.trigger(|| format!("Trigger: {}", trig.message), trig.trigger_idx, ts);
+                    self.fresh_triggers.insert(ix);
                 }
             }
         }
@@ -281,6 +287,7 @@ impl Evaluator {
     fn clear_freshness(&mut self) {
         self.fresh_inputs.clear();
         self.fresh_outputs.clear();
+        self.fresh_triggers.clear();
     }
 
     fn is_trigger(&self, ix: OutputReference) -> Option<&Trigger> {
@@ -438,6 +445,7 @@ impl<'a> ExpressionEvaluator<'a> {
                 }
             }
 
+            DiscreteWindowLookup(win_ref) => self.lookup_window(*win_ref, ts),
             WindowLookup(win_ref) => self.lookup_window(*win_ref, ts),
 
             Function(name, args, _ty) => {
@@ -1132,5 +1140,61 @@ mod tests {
         let expected = Unsigned(0);
         eval_stream!(eval, start, 0);
         assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_sum_window_discrete() {
+        let (_, eval, mut time) =
+            setup_time("input a: Int16\noutput b: Int16 @1Hz:= a.aggregate(over_discrete: 6, using: sum)");
+        let mut eval: Evaluator = eval.into_evaluator();
+        time += Duration::from_secs(45);
+        let out_ref = StreamReference::OutRef(0);
+        let in_ref = StreamReference::InRef(0);
+        let n = 25;
+        for v in 1..=n {
+            accept_input_timed!(eval, in_ref, Signed(v), time);
+            time += Duration::from_secs(1);
+        }
+        time += Duration::from_secs(1);
+        // 71 secs have passed. All values should be within the window.
+        eval_stream_timed!(eval, 0, time);
+        let expected = Signed(135);
+        //assert_eq!(eval.peek_value(in_ref, &Vec::new(), -1).unwrap(), Signed(24));
+        assert_eq!(eval.peek_value(in_ref, &Vec::new(), 0).unwrap(), Signed(25));
+        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_cases_window_discrete() {
+        for (aggr, exp, default) in &[
+            ("sum", Signed(115), false),
+            ("count", Unsigned(5), false),
+            ("min", Signed(21), true),
+            ("max", Signed(25), true),
+            ("avg", Signed(23), false),
+            ("integral", Value::new_float(92.0), false),
+        ] {
+            let mut spec = String::from("input a: Int16\noutput b @0.5Hz:= a.aggregate(over_discrete: 5, using: ");
+            spec += aggr;
+            spec += ")";
+            if *default {
+                spec += ".defaults(to:1337)"
+            }
+            let (_, eval, mut time) = setup_time(&spec);
+            let mut eval: Evaluator = eval.into_evaluator();
+            time += Duration::from_secs(45);
+            let out_ref = StreamReference::OutRef(0);
+            let in_ref = StreamReference::InRef(0);
+            let n = 25;
+            for v in 1..=n {
+                accept_input_timed!(eval, in_ref, Signed(v), time);
+                time += Duration::from_secs(1);
+            }
+            time += Duration::from_secs(1);
+            // 71 secs have passed. All values should be within the window.
+            eval_stream_timed!(eval, 0, time);
+            let expected = exp.clone();
+            assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
+        }
     }
 }
