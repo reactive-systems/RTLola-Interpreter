@@ -31,6 +31,7 @@ pub(crate) struct EvaluatorData {
     time_last_event: Option<Time>, // only valid in offline mode
     fresh_inputs: BitSet,
     fresh_outputs: BitSet,
+    fresh_triggers: BitSet,
     triggers: Vec<Option<Trigger>>,
     ir: RTLolaIR,
     handler: Arc<OutputHandler>,
@@ -52,6 +53,7 @@ pub(crate) struct Evaluator {
     time_last_event: &'static mut Option<Time>, // only valid in offline mode
     fresh_inputs: &'static mut BitSet,
     fresh_outputs: &'static mut BitSet,
+    fresh_triggers: &'static mut BitSet,
     triggers: &'static Vec<Option<Trigger>>,
     ir: &'static RTLolaIR,
     handler: &'static OutputHandler,
@@ -92,6 +94,7 @@ impl EvaluatorData {
         let global_store = GlobalStore::new(&ir, Time::default());
         let fresh_inputs = BitSet::with_capacity(ir.inputs.len());
         let fresh_outputs = BitSet::with_capacity(ir.outputs.len());
+        let fresh_triggers = BitSet::with_capacity(ir.triggers.len());
         let mut triggers = vec![None; ir.outputs.len()];
         for t in &ir.triggers {
             triggers[t.reference.out_ix()] = Some(t.clone());
@@ -105,6 +108,7 @@ impl EvaluatorData {
             time_last_event: None,
             fresh_inputs,
             fresh_outputs,
+            fresh_triggers,
             triggers,
             ir,
             handler,
@@ -134,6 +138,7 @@ impl EvaluatorData {
             time_last_event: &mut leaked_data.time_last_event,
             fresh_inputs: &mut leaked_data.fresh_inputs,
             fresh_outputs: &mut leaked_data.fresh_outputs,
+            fresh_triggers: &mut leaked_data.fresh_triggers,
             triggers: &leaked_data.triggers,
             ir: &leaked_data.ir,
             handler: &leaked_data.handler,
@@ -170,6 +175,7 @@ impl Evaluator {
         self.fresh_outputs
             .iter()
             .map(|elem| (elem, self.peek_value(StreamReference::OutRef(elem), &[], 0).expect("Marked as fresh.")))
+            .chain(self.fresh_triggers.iter().map(|ix| (ix, Value::Bool(true))))
             .collect()
     }
 
@@ -258,14 +264,14 @@ impl Evaluator {
                 // Register value in global store.
                 self.global_store.get_out_instance_mut(output).unwrap().push_value(res.clone()); // TODO: unsafe unwrap.
                 self.fresh_outputs.insert(ix);
-
                 self.handler.output(|| format!("OutputStream[{}] := {:?}.", ix, res.clone()));
             }
 
             Some(trig) => {
                 // Check if we have to emit a warning.
                 if let Value::Bool(true) = res {
-                    self.handler.trigger(|| format!("Trigger: {}", trig.message), trig.trigger_idx, ts)
+                    self.handler.trigger(|| format!("Trigger: {}", trig.message), trig.trigger_idx, ts);
+                    self.fresh_triggers.insert(ix);
                 }
             }
         }
@@ -281,6 +287,7 @@ impl Evaluator {
     fn clear_freshness(&mut self) {
         self.fresh_inputs.clear();
         self.fresh_outputs.clear();
+        self.fresh_triggers.clear();
     }
 
     fn is_trigger(&self, ix: OutputReference) -> Option<&Trigger> {
