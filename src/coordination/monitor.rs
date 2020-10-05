@@ -4,7 +4,7 @@ use crate::evaluator::{Evaluator, EvaluatorData};
 use crate::storage::Value;
 use rtlola_frontend::ir::{Deadline, InputReference, OutputReference, RTLolaIR};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 pub type StateSlice = Vec<(OutputReference, Value)>;
 

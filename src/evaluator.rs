@@ -710,7 +710,7 @@ mod tests {
         config.verbosity = crate::basics::Verbosity::WarningsOnly;
         let handler = Arc::new(OutputHandler::new(&config, ir.triggers.len()));
         let now = Instant::now();
-        let eval = EvaluatorData::new(ir.clone(), config, handler, now);
+        let eval = EvaluatorData::new(ir.clone(), config, handler, Some(now));
         (ir, eval, now)
     }
 
