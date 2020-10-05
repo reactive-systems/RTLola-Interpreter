@@ -35,7 +35,7 @@ pub struct Monitor {
 impl Monitor {
     pub(crate) fn setup(ir: RTLolaIR, output_handler: Arc<OutputHandler>, config: EvalConfig) -> Monitor {
         // Note: start_time only accessed in online mode.
-        let eval_data = EvaluatorData::new(ir.clone(), config.clone(), output_handler.clone(), Instant::now());
+        let eval_data = EvaluatorData::new(ir.clone(), config.clone(), output_handler.clone(), None);
 
         let deadlines: Vec<Deadline> = if ir.time_driven.is_empty() {
             vec![]
@@ -77,7 +77,6 @@ impl Monitor {
             return vec![];
         }
         assert!(self.deadlines.len() > 0);
-        assert!(self.next_dl.is_some() || self.dl_ix == 0);
 
         if self.next_dl.is_none() {
             assert_eq!(self.dl_ix, 0);
@@ -92,10 +91,10 @@ impl Monitor {
             let dl = &self.deadlines[self.dl_ix];
             self.output_handler.debug(|| format!("Schedule Timed-Event {:?}.", (&dl.due, next_deadline)));
             self.output_handler.new_event();
-            self.eval.eval_time_driven_outputs(&dl.due, ts);
+            self.eval.eval_time_driven_outputs(&dl.due, next_deadline);
             self.dl_ix = (self.dl_ix + 1) % self.deadlines.len();
-            let dl = &self.deadlines[self.dl_ix];
             timed_changes.push((next_deadline.clone(), self.eval.peek_fresh()));
+            let dl = &self.deadlines[self.dl_ix];
             assert!(dl.pause > Duration::from_secs(0));
             next_deadline += dl.pause;
         }

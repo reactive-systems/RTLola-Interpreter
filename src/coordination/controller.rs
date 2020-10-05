@@ -72,7 +72,7 @@ impl Controller {
         });
 
         let copy_output_handler = self.output_handler.clone();
-        let evaluatordata = EvaluatorData::new(self.ir.clone(), self.config.clone(), copy_output_handler, now);
+        let evaluatordata = EvaluatorData::new(self.ir.clone(), self.config.clone(), copy_output_handler, Some(now));
 
         let mut evaluator = evaluatordata.into_evaluator();
 
@@ -139,7 +139,7 @@ impl Controller {
 
         let output_copy_handler = self.output_handler.clone();
         let evaluatordata =
-            EvaluatorData::new(self.ir.clone(), self.config.clone(), output_copy_handler, Instant::now());
+            EvaluatorData::new(self.ir.clone(), self.config.clone(), output_copy_handler, Some(Instant::now()));
 
         let mut evaluator = evaluatordata.into_evaluator();
 
