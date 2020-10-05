@@ -4,7 +4,7 @@ use crate::evaluator::{Evaluator, EvaluatorData};
 use crate::storage::Value;
 use rtlola_frontend::ir::{Deadline, InputReference, OutputReference, RTLolaIR};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 pub type StateSlice = Vec<(OutputReference, Value)>;
 
@@ -27,14 +27,15 @@ pub struct Monitor {
     eval: Evaluator,
     pub(crate) output_handler: Arc<OutputHandler>,
     deadlines: Vec<Deadline>,
-    current_time: Duration,
+    next_dl: Option<Duration>,
+    dl_ix: usize,
 }
 
 // Crate-public interface
 impl Monitor {
     pub(crate) fn setup(ir: RTLolaIR, output_handler: Arc<OutputHandler>, config: EvalConfig) -> Monitor {
         // Note: start_time only accessed in online mode.
-        let eval_data = EvaluatorData::new(ir.clone(), config.clone(), output_handler.clone(), Instant::now());
+        let eval_data = EvaluatorData::new(ir.clone(), config.clone(), output_handler.clone(), None);
 
         let deadlines: Vec<Deadline> = if ir.time_driven.is_empty() {
             vec![]
@@ -42,7 +43,7 @@ impl Monitor {
             ir.compute_schedule().expect("Creation of schedule failed.").deadlines
         };
 
-        Monitor { ir, eval: eval_data.into_evaluator(), output_handler, deadlines, current_time: Time::default() }
+        Monitor { ir, eval: eval_data.into_evaluator(), output_handler, deadlines, next_dl: None, dl_ix: 0 }
     }
 }
 
@@ -64,8 +65,6 @@ impl Monitor {
         self.eval.eval_event(ev.as_slice(), ts);
         let event_change = self.eval.peek_fresh();
 
-        self.current_time = ts;
-
         Update { timed, event: event_change }
     }
 
@@ -74,27 +73,32 @@ impl Monitor {
 
     */
     pub fn accept_time(&mut self, ts: Time) -> Vec<(Time, StateSlice)> {
-        let mut next_deadline = Duration::default();
-        let mut timed_changes: Vec<(Time, StateSlice)> = vec![];
-
         if self.deadlines.is_empty() {
-            return timed_changes;
+            return vec![];
         }
         assert!(self.deadlines.len() > 0);
-        let mut due_ix = self.deadlines.len() - 1;
+
+        if self.next_dl.is_none() {
+            assert_eq!(self.dl_ix, 0);
+            self.next_dl = Some(ts + self.deadlines[0].pause);
+        }
+
+        let mut next_deadline = self.next_dl.clone().expect("monitor lacks start time");
+        let mut timed_changes: Vec<(Time, StateSlice)> = vec![];
 
         while ts > next_deadline {
             // Go back in time and evaluate,...
-            let dl = &self.deadlines[due_ix];
+            let dl = &self.deadlines[self.dl_ix];
             self.output_handler.debug(|| format!("Schedule Timed-Event {:?}.", (&dl.due, next_deadline)));
             self.output_handler.new_event();
-            self.eval.eval_time_driven_outputs(&dl.due, ts);
-            due_ix = (due_ix + 1) % self.deadlines.len();
-            let dl = &self.deadlines[due_ix];
-            timed_changes.push((next_deadline, self.eval.peek_fresh()));
+            self.eval.eval_time_driven_outputs(&dl.due, next_deadline);
+            self.dl_ix = (self.dl_ix + 1) % self.deadlines.len();
+            timed_changes.push((next_deadline.clone(), self.eval.peek_fresh()));
+            let dl = &self.deadlines[self.dl_ix];
             assert!(dl.pause > Duration::from_secs(0));
             next_deadline += dl.pause;
         }
+        self.next_dl = Some(next_deadline);
         timed_changes
     }
 
