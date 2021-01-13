@@ -27,8 +27,8 @@ pub(crate) struct EvaluatorData {
     // Indexed by stream reference.
     exprs: Vec<Expression>,
     global_store: GlobalStore,
-    start_time: Instant,           // only valid in online mode
-    time_last_event: Option<Time>, // only valid in offline mode
+    start_time: Instant,
+    first_event: Option<Time>,
     fresh_inputs: BitSet,
     fresh_outputs: BitSet,
     fresh_triggers: BitSet,
@@ -49,8 +49,8 @@ pub(crate) struct Evaluator {
     // Indexed by stream reference.
     compiled_exprs: Vec<CompiledExpr>,
     global_store: &'static mut GlobalStore,
-    start_time: &'static Instant,               // only valid in online mode
-    time_last_event: &'static mut Option<Time>, // only valid in offline mode
+    start_time: &'static Instant,
+    first_event: &'static mut Option<Time>,
     fresh_inputs: &'static mut BitSet,
     fresh_outputs: &'static mut BitSet,
     fresh_triggers: &'static mut BitSet,
@@ -75,7 +75,12 @@ pub(crate) struct EvaluationContext<'e> {
 }
 
 impl EvaluatorData {
-    pub(crate) fn new(ir: RTLolaIR, config: EvalConfig, handler: Arc<OutputHandler>, start_time: Instant) -> Self {
+    pub(crate) fn new(
+        ir: RTLolaIR,
+        config: EvalConfig,
+        handler: Arc<OutputHandler>,
+        start_time: Option<Instant>,
+    ) -> Self {
         // Layers of event based output streams
         let layers = ir.get_event_driven_layers();
         handler.debug(|| format!("Evaluation layers: {:?}", layers));
@@ -99,13 +104,14 @@ impl EvaluatorData {
         for t in &ir.triggers {
             triggers[t.reference.out_ix()] = Some(t.clone());
         }
+        let start_time = start_time.unwrap_or(Instant::now());
         EvaluatorData {
             layers,
             activation_conditions,
             exprs,
             global_store,
             start_time,
-            time_last_event: None,
+            first_event: None,
             fresh_inputs,
             fresh_outputs,
             fresh_triggers,
@@ -135,7 +141,7 @@ impl EvaluatorData {
             compiled_exprs,
             global_store: &mut leaked_data.global_store,
             start_time: &leaked_data.start_time,
-            time_last_event: &mut leaked_data.time_last_event,
+            first_event: &mut leaked_data.first_event,
             fresh_inputs: &mut leaked_data.fresh_inputs,
             fresh_outputs: &mut leaked_data.fresh_outputs,
             fresh_triggers: &mut leaked_data.fresh_triggers,
@@ -156,19 +162,14 @@ impl Drop for Evaluator {
 }
 
 impl Evaluator {
-    pub(crate) fn eval_event(&mut self, event: &[Value], mut ts: Time) {
-        if self.config.mode == ExecutionMode::Offline || self.config.mode == ExecutionMode::API {
-            assert!(
-                self.time_last_event.is_none() || self.time_last_event.unwrap() <= ts,
-                "time does not behave monotonically"
-            );
-            *self.time_last_event = Some(ts);
-        } else {
-            ts = self.start_time.elapsed();
+    pub(crate) fn eval_event(&mut self, event: &[Value], ts: Time) {
+        if self.first_event.is_none() {
+            *self.first_event = Some(ts.clone());
         }
+        let relative_ts = self.relative_time(ts);
         self.clear_freshness();
-        self.accept_inputs(event, ts);
-        self.eval_all_event_driven_outputs(ts);
+        self.accept_inputs(event, relative_ts);
+        self.eval_all_event_driven_outputs(relative_ts);
     }
 
     pub(crate) fn peek_fresh(&self) -> Vec<(OutputReference, Value)> {
@@ -177,6 +178,18 @@ impl Evaluator {
             .map(|elem| (elem, self.peek_value(StreamReference::OutRef(elem), &[], 0).expect("Marked as fresh.")))
             .chain(self.fresh_triggers.iter().map(|ix| (ix, Value::Bool(true))))
             .collect()
+    }
+
+    fn relative_time(&self, ts: Time) -> Time {
+        if self.is_online() {
+            self.start_time.elapsed()
+        } else {
+            ts - self.first_event.expect("time can only be computed after receiving the first event").clone()
+        }
+    }
+
+    fn is_online(&self) -> bool {
+        self.config.mode == ExecutionMode::Online
     }
 
     fn accept_inputs(&mut self, event: &[Value], ts: Time) {
@@ -217,22 +230,13 @@ impl Evaluator {
         }
     }
 
-    pub(crate) fn eval_time_driven_outputs(&mut self, outputs: &[OutputReference], mut ts: Time) {
-        if self.config.mode == ExecutionMode::Offline || self.config.mode == ExecutionMode::API {
-            assert!(
-                self.time_last_event.is_none() || self.time_last_event.unwrap() <= ts,
-                "time does not behave monotonic"
-            );
-            *self.time_last_event = Some(ts);
-        } else {
-            ts = self.start_time.elapsed();
-        }
+    pub(crate) fn eval_time_driven_outputs(&mut self, outputs: &[OutputReference], ts: Time) {
+        let relative_ts = self.relative_time(ts);
         self.clear_freshness();
-        self.prepare_evaluation(ts);
+        self.prepare_evaluation(relative_ts);
         for output in outputs {
-            self.eval_stream(*output, ts);
+            self.eval_stream(*output, relative_ts);
         }
-        self.clear_freshness();
     }
 
     fn prepare_evaluation(&mut self, ts: Time) {
@@ -706,7 +710,7 @@ mod tests {
         config.verbosity = crate::basics::Verbosity::WarningsOnly;
         let handler = Arc::new(OutputHandler::new(&config, ir.triggers.len()));
         let now = Instant::now();
-        let eval = EvaluatorData::new(ir.clone(), config, handler, now);
+        let eval = EvaluatorData::new(ir.clone(), config, handler, Some(now));
         (ir, eval, now)
     }
 
