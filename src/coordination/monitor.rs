@@ -2,7 +2,7 @@ use crate::basics::{EvalConfig, OutputHandler, Time};
 use crate::coordination::Event;
 use crate::evaluator::{Evaluator, EvaluatorData};
 use crate::storage::Value;
-use rtlola_frontend::ir::{Deadline, InputReference, OutputReference, RTLolaIR};
+use rtlola_frontend::ir::{Deadline, InputReference, OutputReference, RTLolaIR, Type};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -118,5 +118,73 @@ impl Monitor {
     */
     pub fn name_for_output(&self, id: OutputReference) -> &str {
         self.ir.outputs[id].name.as_str()
+    }
+
+    /**
+    Get the message of a trigger based on its index
+
+    The reference is valid for the lifetime of the monitor.
+    */
+    pub fn trigger_message(&self, id: usize) -> &str {
+        self.ir.triggers[id].message.as_str()
+    }
+
+    /**
+    Get the `OutputReference` of a trigger based on its index
+    */
+    pub fn trigger_stream_index(&self, id: usize) -> usize {
+        self.ir.triggers[id].reference.out_ix()
+    }
+
+    /**
+    Get the number of input streams
+    */
+    pub fn number_of_input_streams(&self) -> usize {
+        self.ir.inputs.len()
+    }
+
+    /**
+    Get the number of output streams (this includes one output stream for each trigger)
+    */
+    pub fn number_of_output_streams(&self) -> usize {
+        self.ir.outputs.len()
+    }
+
+    /**
+    Get the number of triggers
+    */
+    pub fn number_of_triggers(&self) -> usize {
+        self.ir.triggers.len()
+    }
+
+    /**
+    Get the type of an input stream based on its `InputReference`
+
+    The reference is valid for the lifetime of the monitor.
+    */
+    pub fn type_of_input(&self, id: InputReference) -> &Type {
+        &self.ir.inputs[id].ty
+    }
+
+    /**
+    Get the type of an output stream based on its `OutputReference`
+
+    The reference is valid for the lifetime of the monitor.
+    */
+    pub fn type_of_output(&self, id: OutputReference) -> &Type {
+        &self.ir.outputs[id].ty
+    }
+
+    /**
+    Get the extend rate of an output stream based on its `OutputReference`
+
+    The reference is valid for the lifetime of the monitor.
+    */
+    pub fn extend_rate_of_output(&self, id: OutputReference) -> Option<Duration> {
+        self.ir
+            .time_driven
+            .iter()
+            .find(|time_driven_stream| time_driven_stream.reference.out_ix() == id)
+            .map(|time_driven_stream| time_driven_stream.extend_rate.clone())
     }
 }
