@@ -14,6 +14,8 @@ stages:
 # Use cargo to check the source code formatting
 cargo:check-format:
   stage: check
+  tags:
+    - docker
   image: rust:latest
   before_script:
     - sed -i s/'git@projects'/"gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
@@ -25,6 +27,8 @@ cargo:check-format:
 # Use cargo to run clippy (Rust linter)
 cargo:clippy:
   stage: check
+  tags:
+    - docker
   image: rust:latest
   before_script:
     - sed -i s/'git@projects'/"gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
@@ -36,6 +40,8 @@ cargo:clippy:
 # Check that every ignored test has an accompanying comment
 check-ignored-tests:
   stage: check
+  tags:
+    - docker
   image: alpine:latest
   before_script:
     - sed -i s/'git@projects'/"gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
@@ -47,6 +53,8 @@ check-ignored-tests:
 # Use cargo to test the project on stable toolchain
 cargo:test:
   stage: test
+  tags:
+    - docker
   image: rust:latest
   before_script:
     - sed -i s/'git@projects'/"gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
@@ -64,15 +72,18 @@ cargo:test:windows:
     - rust
   before_script:
     - get-content Cargo.toml | %{$_ -replace "git@projects","gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content Cargo.toml
-  script:
     - rustup update
-    - rustc --version && cargo --version      # Print version info for debugging
+    - rustc --version
+    - cargo --version
+  script:
     - cargo test --all --verbose
   allow_failure: true
 
 # Use cargo to test the project on nightly toolchain
 cargo:test-nightly:
   stage: test
+  tags:
+    - docker
   image: rustlang/rust:nightly
   variables:
     CARGO_INCREMENTAL: 0
@@ -105,6 +116,8 @@ cargo:test-nightly:
 # Run the tool by checking the number of triggers fired
 integration_tests:
   stage: test
+  tags:
+    - docker
   image: rust:latest
   before_script:
     - sed -i s/'git@projects'/"gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
@@ -160,9 +173,11 @@ release-windows:
   variables:
     RUSTFLAGS: "-C target-feature=+crt-static"
   before_script:
-    - get-content Cargo.toml | %{$_ -replace "git@projects","gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content Cargo.toml
+    - move-item -Path .\Cargo.toml -Destination .\Cargo.toml.bak
+    - get-content Cargo.toml.bak | %{$_ -replace "git@projects","gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content Cargo.toml
     - rustup update
-    - rustc --version && cargo --version      # Print version info for debugging
+    - rustc --version 
+    - cargo --version
   script:
     - rustup run stable-msvc cargo build --release --target x86_64-pc-windows-msvc --features public
   artifacts:
@@ -196,6 +211,8 @@ release-windows:
 
 release-linux:
   stage: release
+  tags:
+    - docker
   image: rust:latest
   only:
     - tags
