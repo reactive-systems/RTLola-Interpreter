@@ -71,7 +71,7 @@ cargo:test:windows:
     - windows
     - rust
   before_script:
-    - get-content Cargo.toml | %{$_ -replace "git@projects","gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content Cargo.toml
+    - (get-content Cargo.toml) | %{$_ -replace "git@projects","gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content Cargo.toml
     - rustup update
     - rustc --version
     - cargo --version
@@ -173,8 +173,7 @@ release-windows:
   variables:
     RUSTFLAGS: "-C target-feature=+crt-static"
   before_script:
-    - move-item -Path .\Cargo.toml -Destination .\Cargo.toml.bak
-    - get-content Cargo.toml.bak | %{$_ -replace "git@projects","gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content Cargo.toml
+    - (get-content Cargo.toml) | %{$_ -replace "git@projects","gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content Cargo.toml
     - rustup update
     - rustc --version 
     - cargo --version
