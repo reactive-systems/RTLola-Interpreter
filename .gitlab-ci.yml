@@ -159,6 +159,11 @@ integration_tests:
 # Use cargo to run the benchmarks
 cargo:bench:
   stage: bench
+  only:
+    - merge_requests
+    - pipelines
+    - tags
+    - web
   tags:
     - docker
   image: rustlang/rust:nightly
