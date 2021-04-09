@@ -118,7 +118,7 @@ cargo:test-nightly:
     - rustc --version && cargo --version      # Print version info for debugging
     - (cargo test -- -Z unstable-options --format json | $CARGO_HOME/bin/cargo2junit > results.xml) || true # ignore the return code so that we can show the complete output (including ignored tests)
     - python3 ./tests/rtlola-interpreter-e2e-tests.py || true        # count the e2e test for coverage but keep going
-    - ./grcov . --binary-path ./target/debug/ -s ./src -t html --branch --ignore-not-existing --llvm -o ./target/debug/coverage/
+    - ./grcov . --ignore ".cargo/*" --binary-path ./target/debug/ -s . -t html --branch --ignore-not-existing --llvm -o ./target/debug/coverage/
     - cat ./target/debug/coverage/index.html
     - cargo test --all --verbose
   allow_failure: true
