@@ -174,7 +174,6 @@ cargo:bench:
     - sed -i s/'git@projects'/"gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
   script:
     - rustc --version && cargo --version      # Print version info for debugging
-    - cargo bench
     - cargo bench --quiet | grep -e 'bench:' | tee bench_results.txt # TODO: actually compare the results
     - sed s/'test '// bench_results.txt | sed -e s/' ... bench:'// | sed -e s/,//g | sed -e "s|ns/iter.*$||" > metrics.txt
   artifacts:
