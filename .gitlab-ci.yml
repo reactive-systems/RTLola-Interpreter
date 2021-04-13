@@ -1,10 +1,11 @@
 stages:
   - check
-  - build
   - test
-  - tests
   - bench
-  - release
+#  - release
+
+variables:
+  CARGO_HOME: $CI_PROJECT_DIR/.cargo
 
 # Install additional packages, like a C compiler and cmake
 #before_script:
@@ -30,6 +31,12 @@ cargo:clippy:
   tags:
     - docker
   image: rust:latest
+  cache:
+    key: "build"
+    policy: pull-push
+    paths:
+      - target/
+      - $CARGO_HOME
   before_script:
     - sed -i s/'git@projects'/"gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
     - rustup component add clippy-preview
@@ -43,9 +50,6 @@ check-ignored-tests:
   tags:
     - docker
   image: alpine:latest
-  before_script:
-    - sed -i s/'git@projects'/"gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
-    - apk update && apk add --no-cache bash
   script:
     - ./check_ignored_tests_without_comment.sh
   allow_failure: true
@@ -56,6 +60,12 @@ cargo:test:
   tags:
     - docker
   image: rust:latest
+  cache:
+    key: "build"
+    policy: pull-push
+    paths:
+      - target/
+      - $CARGO_HOME
   before_script:
     - sed -i s/'git@projects'/"gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
     - apt-get update -yqq
@@ -66,10 +76,12 @@ cargo:test:
 
 # Use cargo to test the project on stable toolchain on windows
 cargo:test:windows:
-  stage: tests
+  stage: test
   tags:
     - windows
     - rust
+  variables:
+    CARGO_HOME: "C:\\Users\\react\\.cargo"
   before_script:
     - (get-content Cargo.toml) | %{$_ -replace "git@projects","gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content Cargo.toml
     - rustup update
@@ -77,7 +89,6 @@ cargo:test:windows:
     - cargo --version
   script:
     - cargo test --all --verbose
-  allow_failure: true
 
 # Use cargo to test the project on nightly toolchain
 cargo:test-nightly:
@@ -85,23 +96,29 @@ cargo:test-nightly:
   tags:
     - docker
   image: rustlang/rust:nightly
+  cache:
+    key: "build-nightly"
+    policy: pull-push
+    paths:
+      - target/
+      - $CARGO_HOME
   variables:
-    CARGO_INCREMENTAL: 0
-    RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort"
-    RUSTDOCFLAGS: "-Cpanic=abort"
+    RUSTFLAGS: "-Zinstrument-coverage"
+    LLVM_PROFILE_FILE: "json5format-%m.profraw"
   before_script:
     - sed -i s/'git@projects'/"gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev python3-pip
     - pip3 install junit-xml
-    - cargo install grcov
     - cargo install cargo2junit
+    - curl -L https://github.com/mozilla/grcov/releases/download/v0.6.1/grcov-linux-x86_64.tar.bz2 | tar jxf -
+    - rustup component add llvm-tools-preview
+    - (rm -r ./target/debug/coverage/) || true
   script:
     - rustc --version && cargo --version      # Print version info for debugging
-    - cargo build
-    - (cargo test -- -Z unstable-options --format json | cargo2junit > results.xml) || true # ignore the return code so that we can show the complete output (including ignored tests)
+    - (cargo test -- -Z unstable-options --format json | $CARGO_HOME/bin/cargo2junit > results.xml) || true # ignore the return code so that we can show the complete output (including ignored tests)
     - python3 ./tests/rtlola-interpreter-e2e-tests.py || true        # count the e2e test for coverage but keep going
-    - grcov ./target/debug/ -s . -t html --llvm --branch --ignore-not-existing -o ./target/debug/coverage/
+    - ./grcov . --ignore ".cargo/*" --binary-path ./target/debug/ -s . -t html --branch --ignore-not-existing --llvm -o ./target/debug/coverage/
     - cat ./target/debug/coverage/index.html
     - cargo test --all --verbose
   allow_failure: true
@@ -119,6 +136,12 @@ integration_tests:
   tags:
     - docker
   image: rust:latest
+  cache:
+    key: "release"
+    policy: pull-push
+    paths:
+      - target/
+      - $CARGO_HOME
   before_script:
     - sed -i s/'git@projects'/"gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
     - apt-get update -yqq
@@ -136,9 +159,20 @@ integration_tests:
 # Use cargo to run the benchmarks
 cargo:bench:
   stage: bench
+  only:
+    - merge_requests
+    - pipelines
+    - tags
+    - web
   tags:
-    - benchmarking
+    - docker
   image: rustlang/rust:nightly
+  cache:
+    key: "build-nightly"
+    policy: pull-push
+    paths:
+      - target/
+      - $CARGO_HOME
   before_script:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev
@@ -161,29 +195,29 @@ cargo:bench:
 # However, we keep the Cargo.lock files as artifacts.
 
 
-release-windows:
-  stage: release
-  only:
-    - tags
-    - web
-    - triggers
-  tags:
-    - windows
-    - rust
-  variables:
-    RUSTFLAGS: "-C target-feature=+crt-static"
-  before_script:
-    - (get-content Cargo.toml) | %{$_ -replace "git@projects","gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content Cargo.toml
-    - rustup update
-    - rustc --version 
-    - cargo --version
-  script:
-    - rustup run stable-msvc cargo build --release --target x86_64-pc-windows-msvc --features public
-  artifacts:
-    name: "rtlola-interpreter-windows-${CI_COMMIT_REF_NAME}_${CI_COMMIT_SHORT_SHA}"
-    paths:
-      - target/x86_64-pc-windows-msvc/release/rtlola-interpreter.exe
-      - Cargo.lock
+#release-windows:
+#  stage: release
+#  only:
+#    - tags
+#    - web
+#    - triggers
+#  tags:
+#    - windows
+#    - rust
+#  variables:
+#    RUSTFLAGS: "-C target-feature=+crt-static"
+#  before_script:
+#    - (get-content Cargo.toml) | %{$_ -replace "git@projects","gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content Cargo.toml
+#    - rustup update
+#    - rustc --version
+#    - cargo --version
+#  script:
+#    - rustup run stable-msvc cargo build --release --target x86_64-pc-windows-msvc --features public
+#  artifacts:
+#    name: "rtlola-interpreter-windows-${CI_COMMIT_REF_NAME}_${CI_COMMIT_SHORT_SHA}"
+#    paths:
+#      - target/x86_64-pc-windows-msvc/release/rtlola-interpreter.exe
+#      - Cargo.lock
 
 
 
@@ -208,28 +242,28 @@ release-windows:
 #      - target/x86_64-pc-windows-gnu/release/rtlola-interpreter.exe
 #      - Cargo.lock
 
-release-linux:
-  stage: release
-  tags:
-    - docker
-  image: rust:latest
-  only:
-    - tags
-    - web
-    - triggers
-  before_script:
-    - apt-get update -yqq
-    - apt-get install -yqq --no-install-recommends musl-dev musl-tools clang
-    - cd evaluator
-    - rustup target add x86_64-unknown-linux-musl
-    - rustc --version && cargo --version      # Print version info for debugging
-  script:
-    - cargo build --release --target x86_64-unknown-linux-musl --features public
-  artifacts:
-    name: "rtlola-interpreter-linux-${CI_COMMIT_REF_NAME}_${CI_COMMIT_SHORT_SHA}"
-    paths:
-      - target/x86_64-unknown-linux-musl/release/rtlola-interpreter
-      - Cargo.lock
+#release-linux:
+#  stage: release
+#  tags:
+#    - docker
+#  image: rust:latest
+#  only:
+#    - tags
+#    - web
+#    - triggers
+#  before_script:
+#    - apt-get update -yqq
+#    - apt-get install -yqq --no-install-recommends musl-dev musl-tools clang
+#    - cd evaluator
+#    - rustup target add x86_64-unknown-linux-musl
+#    - rustc --version && cargo --version      # Print version info for debugging
+#  script:
+#    - cargo build --release --target x86_64-unknown-linux-musl --features public
+#  artifacts:
+#    name: "rtlola-interpreter-linux-${CI_COMMIT_REF_NAME}_${CI_COMMIT_SHORT_SHA}"
+#    paths:
+#      - target/x86_64-unknown-linux-musl/release/rtlola-interpreter
+#      - Cargo.lock
 
 #release-macos:
 #  stage: release
