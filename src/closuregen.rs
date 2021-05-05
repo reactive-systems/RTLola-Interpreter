@@ -6,7 +6,7 @@ use crate::evaluator::EvaluationContext;
 use crate::storage::Value;
 use regex::bytes::Regex as BytesRegex;
 use regex::Regex;
-use rtlola_frontend::ir::{Constant, Expression, ExpressionKind, Offset, StreamAccessKind, StreamReference, Type};
+use rtlola_frontend::mir::{Constant, Expression, ExpressionKind, Offset, StreamAccessKind, Type};
 use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl, Shr, Sub};
 
 pub(crate) trait Expr {
@@ -43,7 +43,7 @@ impl Expr for Expression {
                 CompiledExpr::new(move |_| v.clone())
             }
 
-            ArithLog(op, operands, _ty) => {
+            ArithLog(op, operands) => {
                 let f_operands: Vec<CompiledExpr> = operands.into_iter().map(|e| e.compile()).collect();
 
                 macro_rules! create_unop {
@@ -87,7 +87,7 @@ impl Expr for Expression {
                     };
                 }
 
-                use rtlola_frontend::ir::ArithLogOp::*;
+                use rtlola_frontend::mir::ArithLogOp::*;
                 match op {
                     Not => create_unop!(not),
                     BitNot => create_unop!(not),
@@ -114,45 +114,16 @@ impl Expr for Expression {
                 }
             }
 
-            OffsetLookup { target, offset } => {
-                let offset = match offset {
-                    Offset::FutureDiscreteOffset(_) | Offset::FutureRealTimeOffset(_) => unimplemented!(),
-                    Offset::PastDiscreteOffset(u) => -(u as i16),
-                    Offset::PastRealTimeOffset(_dur) => unimplemented!(),
-                };
-                CompiledExpr::new(move |ctx| ctx.lookup_with_offset(target, offset))
-            }
-
-            StreamAccess(str_ref, kind) => {
-                use StreamAccessKind::*;
-                match kind {
-                    Sync => CompiledExpr::new(move |ctx| ctx.lookup_latest_check(str_ref)),
-                    Hold => CompiledExpr::new(move |ctx| ctx.lookup_latest(str_ref)),
-                    Optional => {
-                        use StreamReference::*;
-                        match str_ref {
-                            InRef(ix) => CompiledExpr::new(move |ctx| {
-                                if ctx.fresh_inputs.contains(ix) {
-                                    ctx.lookup_latest(str_ref)
-                                } else {
-                                    Value::None
-                                }
-                            }),
-                            OutRef(ix) => CompiledExpr::new(move |ctx| {
-                                if ctx.fresh_outputs.contains(ix) {
-                                    ctx.lookup_latest(str_ref)
-                                } else {
-                                    Value::None
-                                }
-                            }),
-                        }
-                    }
-                }
-            }
-
-            DiscreteWindowLookup(win_ref) => CompiledExpr::new(move |ctx| ctx.lookup_window(win_ref)),
-
-            WindowLookup(win_ref) => CompiledExpr::new(move |ctx| ctx.lookup_window(win_ref)),
+            StreamAccess { target, parameters: _, access_kind } => match access_kind {
+                StreamAccessKind::Sync => CompiledExpr::new(move |ctx| ctx.lookup_latest_check(target)),
+                StreamAccessKind::DiscreteWindow(wref) => CompiledExpr::new(move |ctx| ctx.lookup_window(wref)),
+                StreamAccessKind::SlidingWindow(wref) => CompiledExpr::new(move |ctx| ctx.lookup_window(wref)),
+                StreamAccessKind::Hold => CompiledExpr::new(move |ctx| ctx.lookup_latest(target)),
+                StreamAccessKind::Offset(offset) => match offset {
+                    Offset::Future(_) => unimplemented!(),
+                    Offset::Past(u) => CompiledExpr::new(move |ctx| ctx.lookup_with_offset(target, -(u as i16))),
+                },
+            },
 
             Ite { condition, consequence, alternative, .. } => {
                 let f_condition = condition.compile();
@@ -174,7 +145,7 @@ impl Expr for Expression {
                 CompiledExpr::new(move |ctx| Value::Tuple(f_entries.iter().map(|f| f.execute(ctx)).collect()))
             }
 
-            Function(name, args, ty) => {
+            Function(name, args) => {
                 //TODO(marvin): handle type
                 assert!(!args.is_empty());
                 let f_arg = args[0].clone().compile();
@@ -226,8 +197,8 @@ impl Expr for Expression {
                     "max" => create_binary_arith!(max),
                     "matches" => {
                         assert!(args.len() >= 2);
-                        let operand_ty = match &ty {
-                            Type::Function(args, _ret) => &args[0],
+                        let operand_ty = match &self.ty {
+                            Type::Function { args, ret: _ } => &args[0],
                             _ => unreachable!(),
                         };
                         let is_bytes = operand_ty == &Type::Bytes;
@@ -279,10 +250,10 @@ impl Expr for Expression {
                 }
             }
 
-            //Expression::Convert { from, to, expr } => CompiledExpr::new(move |ctx| {}),
-            Convert { from, to, expr } => {
-                let f_expr = expr.compile();
-
+            Convert { expr: f_expr } => {
+                let from_ty = &f_expr.ty;
+                let to_ty = &self.ty;
+                let f_expr = f_expr.clone().compile();
                 macro_rules! create_convert {
                     (Float, $to:ident, $ty:ty) => {
                         CompiledExpr::new(move |ctx| {
@@ -326,7 +297,7 @@ impl Expr for Expression {
                 }
 
                 use Type::*;
-                match (from, to) {
+                match (from_ty, to_ty) {
                     (UInt(_), UInt(_)) => CompiledExpr::new(move |ctx| f_expr.execute(ctx)),
                     (UInt(_), Int(_)) => create_convert!(Unsigned, Signed, i64),
                     (UInt(_), Float(_)) => create_convert!(Unsigned, Float, f64),

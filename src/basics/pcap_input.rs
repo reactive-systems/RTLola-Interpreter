@@ -9,7 +9,7 @@ use etherparse::{
 };
 use ip_network::IpNetwork;
 use pcap::{Activated, Capture, Device, Error as PCAPError};
-use rtlola_frontend::ir::RTLolaIR;
+use rtlola_frontend::mir::RtLolaMir;
 use std::error::Error;
 use std::net::IpAddr;
 use std::str::FromStr;
@@ -441,7 +441,7 @@ pub struct PCAPEventSource {
 impl PCAPEventSource {
     pub(crate) fn setup(
         src: &PCAPInputSource,
-        ir: &RTLolaIR,
+        ir: &RtLolaMir,
         start_time: Instant,
     ) -> Result<Box<dyn EventSource>, Box<dyn Error>> {
         let capture_handle = match src {

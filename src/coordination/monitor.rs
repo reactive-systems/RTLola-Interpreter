@@ -2,7 +2,7 @@ use crate::basics::{EvalConfig, OutputHandler, Time};
 use crate::coordination::Event;
 use crate::evaluator::{Evaluator, EvaluatorData};
 use crate::storage::Value;
-use rtlola_frontend::ir::{Deadline, InputReference, OutputReference, RTLolaIR, Type};
+use rtlola_frontend::mir::{Deadline, InputReference, OutputReference, RtLolaMir, Type};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -23,7 +23,7 @@ It can also simply advance periodic streams up to a given timestamp through `acc
 */
 #[allow(missing_debug_implementations)]
 pub struct Monitor {
-    ir: RTLolaIR, // probably not necessary to store here.
+    pub ir: RtLolaMir, // probably not necessary to store here.
     eval: Evaluator,
     pub(crate) output_handler: Arc<OutputHandler>,
     deadlines: Vec<Deadline>,
@@ -33,7 +33,7 @@ pub struct Monitor {
 
 // Crate-public interface
 impl Monitor {
-    pub(crate) fn setup(ir: RTLolaIR, output_handler: Arc<OutputHandler>, config: EvalConfig) -> Monitor {
+    pub(crate) fn setup(ir: RtLolaMir, output_handler: Arc<OutputHandler>, config: EvalConfig) -> Monitor {
         // Note: start_time only accessed in online mode.
         let eval_data = EvaluatorData::new(ir.clone(), config.clone(), output_handler.clone(), None);
 
@@ -185,6 +185,6 @@ impl Monitor {
             .time_driven
             .iter()
             .find(|time_driven_stream| time_driven_stream.reference.out_ix() == id)
-            .map(|time_driven_stream| time_driven_stream.extend_rate.clone())
+            .map(|time_driven_stream| time_driven_stream.period_in_duration().clone())
     }
 }

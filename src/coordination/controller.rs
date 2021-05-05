@@ -7,15 +7,15 @@ use crate::coordination::{EventEvaluation, TimeEvaluation};
 use crate::evaluator::{Evaluator, EvaluatorData};
 use crossbeam_channel::{bounded, unbounded};
 use either::Either;
-use rtlola_frontend::ir::Deadline;
-use rtlola_frontend::ir::{OutputReference, RTLolaIR};
+use rtlola_frontend::mir::Deadline;
+use rtlola_frontend::mir::{OutputReference, RtLolaMir};
 use std::error::Error;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
 pub(crate) struct Controller {
-    ir: RTLolaIR,
+    ir: RtLolaMir,
 
     config: EvalConfig,
 
@@ -24,7 +24,7 @@ pub(crate) struct Controller {
 }
 
 impl Controller {
-    pub(crate) fn new(ir: RTLolaIR, config: EvalConfig) -> Self {
+    pub(crate) fn new(ir: RtLolaMir, config: EvalConfig) -> Self {
         let output_handler = Arc::new(OutputHandler::new(&config, ir.triggers.len()));
         Self { ir, config, output_handler }
     }
@@ -56,7 +56,7 @@ impl Controller {
             let ir_clone = self.ir.clone();
             let _ = thread::Builder::new().name("TimeDrivenManager".into()).spawn(move || {
                 let time_manager =
-                    TimeDrivenManager::setup(ir_clone, copy_output_handler).unwrap_or_else(|s| panic!(s));
+                    TimeDrivenManager::setup(ir_clone, copy_output_handler).unwrap_or_else(|s| panic!("{}", s));
                 time_manager.start_online(now, work_tx_clone);
             });
         };
