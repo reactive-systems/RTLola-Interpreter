@@ -12,7 +12,7 @@ use std::time::Instant;
 
 /// Enum to describe the activation condition of a stream; If the activation condition is described by a conjunction, the evaluator uses a bitset representation.
 #[derive(Debug)]
-pub(crate) enum ActivationCondition {
+pub(crate) enum ActivationConditionOp {
     TimeDriven,
     True,
     Conjunction(BitSet),
@@ -23,7 +23,7 @@ pub(crate) struct EvaluatorData {
     // Evaluation order of output streams
     layers: Vec<Vec<OutputReference>>,
     // Indexed by stream reference.
-    activation_conditions: Vec<ActivationCondition>,
+    activation_conditions: Vec<ActivationConditionOp>,
     // Indexed by stream reference.
     exprs: Vec<Expression>,
     global_store: GlobalStore,
@@ -43,7 +43,7 @@ pub(crate) struct Evaluator {
     // Evaluation order of output streams
     layers: &'static Vec<Vec<OutputReference>>,
     // Indexed by stream reference.
-    activation_conditions: &'static Vec<ActivationCondition>,
+    activation_conditions: &'static Vec<ActivationConditionOp>,
     // Indexed by stream reference.
     exprs: &'static Vec<Expression>,
     // Indexed by stream reference.
@@ -89,9 +89,9 @@ impl EvaluatorData {
             .iter()
             .map(|o| {
                 if let Some(ac) = ir.get_ac(o.reference) {
-                    ActivationCondition::new(ac, ir.inputs.len())
+                    ActivationConditionOp::new(ac, ir.inputs.len())
                 } else {
-                    ActivationCondition::TimeDriven
+                    ActivationConditionOp::TimeDriven
                 }
             })
             .collect();
@@ -206,7 +206,7 @@ impl Evaluator {
         self.fresh_inputs.insert(input);
         self.handler.debug(|| format!("InputStream[{}] := {:?}.", input, v.clone()));
         let extended = &self.ir.inputs[input];
-        for (_, win) in &extended.aggregated_by {
+        for (_sr, win) in &extended.aggregated_by {
             self.global_store.get_window_mut(*win).accept_value(v.clone(), ts)
         }
     }
@@ -281,7 +281,7 @@ impl Evaluator {
 
         // Check linked streams and inform them.
         let extended = &self.ir.outputs[ix];
-        for (_, win) in &extended.aggregated_by {
+        for (_sr, win) in &extended.aggregated_by {
             self.global_store.get_window_mut(*win).accept_value(res.clone(), ts)
         }
     }
@@ -414,16 +414,22 @@ impl<'a> ExpressionEvaluator<'a> {
                 }
             }
 
-            StreamAccess { target, parameters: _, access_kind } => match access_kind {
-                StreamAccessKind::Sync => self.lookup_latest_check(*target),
-                StreamAccessKind::DiscreteWindow(win_ref) => self.lookup_window(*win_ref, ts),
-                StreamAccessKind::SlidingWindow(win_ref) => self.lookup_window(*win_ref, ts),
-                StreamAccessKind::Hold => self.lookup_latest(*target),
-                StreamAccessKind::Offset(offset) => match offset {
-                    Offset::Future(_) => unimplemented!(),
-                    Offset::Past(u) => self.lookup_with_offset(*target, -(*u as i16)),
-                },
-            },
+            StreamAccess { target, parameters, access_kind } => {
+                assert!(parameters.is_empty(), "Parametrization not yet implemented");
+                match access_kind {
+                    StreamAccessKind::Sync => self.lookup_latest_check(*target),
+                    StreamAccessKind::DiscreteWindow(win_ref) => self.lookup_window(*win_ref, ts),
+                    StreamAccessKind::SlidingWindow(win_ref) => self.lookup_window(*win_ref, ts),
+                    StreamAccessKind::Hold => self.lookup_latest(*target),
+                    StreamAccessKind::Offset(offset) => {
+                        let offset = match offset {
+                            Offset::Future(_) => unimplemented!(),
+                            Offset::Past(u) => -(*u as i16),
+                        };
+                        self.lookup_with_offset(*target, offset)
+                    }
+                }
+            }
 
             Function(name, args) => {
                 assert!(!args.is_empty());
@@ -490,10 +496,10 @@ impl<'a> ExpressionEvaluator<'a> {
 
             Tuple(entries) => Value::Tuple(entries.iter().map(|e| self.eval_expr(e, ts)).collect()),
 
-            Convert { expr: from_expr } => {
+            Convert { expr: arg } => {
                 use Type::*;
                 let v = self.eval_expr(expr, ts);
-                let from_ty = &from_expr.ty;
+                let from_ty = &arg.ty;
                 let to_ty = &expr.ty;
                 match (from_ty, v) {
                     (UInt(_), Value::Unsigned(u)) => match to_ty {
@@ -620,9 +626,9 @@ impl<'e> EvaluationContext<'e> {
     }
 }
 
-impl ActivationCondition {
+impl ActivationConditionOp {
     fn new(ac: &Activation, n_inputs: usize) -> Self {
-        use ActivationCondition::*;
+        use ActivationConditionOp::*;
         if let Activation::True = ac {
             // special case for constant output streams
             return True;
@@ -646,7 +652,7 @@ impl ActivationCondition {
     }
 
     pub(crate) fn eval(&self, inputs: &BitSet) -> bool {
-        use ActivationCondition::*;
+        use ActivationConditionOp::*;
         match self {
             True => true,
             Conjunction(bs) => bs.is_subset(inputs),
@@ -723,11 +729,6 @@ mod tests {
             eval_stream!($eval, $start, $ix);
             assert_eq!($eval.peek_value(StreamReference::Out($ix), &Vec::new(), 0).unwrap(), $value);
         };
-    }
-
-    #[test]
-    fn test_empty_outputs() {
-        setup("input a: UInt8");
     }
 
     #[test]
@@ -844,14 +845,17 @@ mod tests {
 
     #[test]
     fn test_sync_lookup() {
-        let (_, eval, start) = setup("input a: UInt8 output b: UInt8 := a");
+        let (_, eval, start) = setup("input a: UInt8 output b: UInt8 := a output c: UInt8 := b");
         let mut eval = eval.into_evaluator();
-        let out_ref = StreamReference::Out(0);
+        let out_ref_0 = StreamReference::Out(0);
+        let out_ref_1 = StreamReference::Out(1);
         let in_ref = StreamReference::In(0);
         let v = Unsigned(9);
         accept_input!(eval, start, in_ref, v.clone());
         eval_stream!(eval, start, 0);
-        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), v)
+        eval_stream!(eval, start, 1);
+        assert_eq!(eval.peek_value(out_ref_0, &Vec::new(), 0).unwrap(), v);
+        assert_eq!(eval.peek_value(out_ref_1, &Vec::new(), 0).unwrap(), v)
     }
 
     #[test]
@@ -871,7 +875,7 @@ mod tests {
     #[test]
     fn test_output_lookup() {
         let (_, eval, start) = setup(
-            "input a: UInt8\noutput mirror: UInt8 := a\noutput mirror_offset := mirror.offset(by: -1).defaults(to: 5)\noutput c: UInt8 @5Hz := mirror_offset.hold().defaults(to: 3)",
+            "input a: UInt8\noutput mirror: UInt8 := a\noutput mirror_offset := mirror.offset(by: -1).defaults(to: 5)\noutput c: UInt8 @5Hz := mirror.hold().defaults(to: 8)\noutput d: UInt8 @5Hz := mirror_offset.hold().defaults(to: 3)",
         );
         let mut eval = eval.into_evaluator();
         let out_ref = StreamReference::Out(2);
@@ -885,7 +889,9 @@ mod tests {
         eval_stream!(eval, start, 0);
         eval_stream!(eval, start, 1);
         eval_stream!(eval, start, 2);
-        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), v1);
+        assert_eq!(eval.peek_value(StreamReference::Out(0), &Vec::new(), 0).unwrap(), v2);
+        assert_eq!(eval.peek_value(StreamReference::Out(1), &Vec::new(), 0).unwrap(), v1);
+        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), v2);
     }
 
     #[test]
@@ -1066,7 +1072,7 @@ mod tests {
         let out_ref = StreamReference::Out(0);
         let in_ref = StreamReference::In(0);
 
-        // No time has passed. No values should be within the window. We should se the default value.
+        // No time has passed. No values should be within the window. We should see the default value.
         eval_stream_timed!(eval, 0, time);
         let expected = Value::new_float(-3.0);
         assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);

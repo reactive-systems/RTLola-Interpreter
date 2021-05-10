@@ -80,7 +80,7 @@ impl GlobalStore {
         &mut self.inputs[ix]
     }
 
-    /// Returns the storage of an input stream instance
+    /// Returns the storage of an output stream instance
     pub(crate) fn get_out_instance(&self, inst: OutInstance) -> Option<&InstanceStore> {
         let ix = inst;
         Some(&self.np_outputs[self.index_map[ix]])

@@ -114,16 +114,22 @@ impl Expr for Expression {
                 }
             }
 
-            StreamAccess { target, parameters: _, access_kind } => match access_kind {
-                StreamAccessKind::Sync => CompiledExpr::new(move |ctx| ctx.lookup_latest_check(target)),
-                StreamAccessKind::DiscreteWindow(wref) => CompiledExpr::new(move |ctx| ctx.lookup_window(wref)),
-                StreamAccessKind::SlidingWindow(wref) => CompiledExpr::new(move |ctx| ctx.lookup_window(wref)),
-                StreamAccessKind::Hold => CompiledExpr::new(move |ctx| ctx.lookup_latest(target)),
-                StreamAccessKind::Offset(offset) => match offset {
-                    Offset::Future(_) => unimplemented!(),
-                    Offset::Past(u) => CompiledExpr::new(move |ctx| ctx.lookup_with_offset(target, -(u as i16))),
-                },
-            },
+            StreamAccess { target, parameters, access_kind } => {
+                assert!(parameters.is_empty(), "Parametrization not yet implemented");
+                match access_kind {
+                    StreamAccessKind::Sync => CompiledExpr::new(move |ctx| ctx.lookup_latest_check(target)),
+                    StreamAccessKind::DiscreteWindow(wref) => CompiledExpr::new(move |ctx| ctx.lookup_window(wref)),
+                    StreamAccessKind::SlidingWindow(wref) => CompiledExpr::new(move |ctx| ctx.lookup_window(wref)),
+                    StreamAccessKind::Hold => CompiledExpr::new(move |ctx| ctx.lookup_latest(target)),
+                    StreamAccessKind::Offset(offset) => {
+                        let offset = match offset {
+                            Offset::Future(_) => unimplemented!(),
+                            Offset::Past(u) => -(u as i16),
+                        };
+                        CompiledExpr::new(move |ctx| ctx.lookup_with_offset(target, offset))
+                    }
+                }
+            }
 
             Ite { condition, consequence, alternative, .. } => {
                 let f_condition = condition.compile();

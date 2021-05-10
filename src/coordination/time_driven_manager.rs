@@ -2,12 +2,10 @@ use super::WorkItem;
 use crate::basics::{OutputHandler, Time};
 
 use crossbeam_channel::Sender;
-use rtlola_frontend::mir::{OutputReference, RtLolaMir};
+use rtlola_frontend::mir::{Deadline, OutputReference, RtLolaMir};
 use spin_sleep::SpinSleeper;
 use std::sync::Arc;
 use std::time::Instant;
-
-use rtlola_frontend::mir::Deadline;
 
 pub(crate) type TimeEvaluation = Vec<OutputReference>;
 
