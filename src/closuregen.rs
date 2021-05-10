@@ -257,9 +257,9 @@ impl Expr for Expression {
             }
 
             Convert { expr: f_expr } => {
-                let from_ty = &f_expr.ty;
+                let from_ty = &f_expr.ty.clone();
                 let to_ty = &self.ty;
-                let f_expr = f_expr.clone().compile();
+                let f_expr = f_expr.compile();
                 macro_rules! create_convert {
                     (Float, $to:ident, $ty:ty) => {
                         CompiledExpr::new(move |ctx| {
