@@ -896,7 +896,8 @@ mod tests {
 
     #[test]
     fn test_conversion_if() {
-        let (_, eval, start) = setup("input a: UInt8\noutput b: UInt16 := if true then a else a[-1].defaults(to: 0)");
+        let (_, eval, start) =
+            setup("input a: UInt8\noutput b: UInt16 := widen<UInt16>(if true then a else a[-1].defaults(to: 0))");
         let mut eval = eval.into_evaluator();
         let out_ref = StreamReference::Out(0);
         let in_ref = StreamReference::In(0);
