@@ -109,8 +109,8 @@ import regex
 
 input a: String
 
-output x := matches(a, regex: "sub")
-output y := a.matches(regex: "^sub")
+output x := matches<String>(a, regex: "sub")
+output y := a.matches<String>(regex: "^sub")
 
 trigger x "sub"
 trigger y "^sub"
@@ -133,7 +133,7 @@ import regex
 
 input a: Bytes
 
-trigger a.matches(regex: "^sub") "^sub"
+trigger a.matches<Bytes>(regex: "^sub") "^sub"
         "#;
 
     let data = r#"a,time
