@@ -104,7 +104,7 @@ impl EvaluatorData {
         for t in &ir.triggers {
             triggers[t.reference.out_ix()] = Some(t.clone());
         }
-        let start_time = start_time.unwrap_or(Instant::now());
+        let start_time = start_time.unwrap_or_else(Instant::now);
         EvaluatorData {
             layers,
             activation_conditions,
@@ -164,7 +164,7 @@ impl Drop for Evaluator {
 impl Evaluator {
     pub(crate) fn eval_event(&mut self, event: &[Value], ts: Time) {
         if self.first_event.is_none() {
-            *self.first_event = Some(ts.clone());
+            *self.first_event = Some(ts);
         }
         let relative_ts = self.relative_time(ts);
         self.clear_freshness();
@@ -184,7 +184,7 @@ impl Evaluator {
         if self.is_online() {
             self.start_time.elapsed()
         } else {
-            ts - self.first_event.expect("time can only be computed after receiving the first event").clone()
+            ts - self.first_event.expect("time can only be computed after receiving the first event")
         }
     }
 

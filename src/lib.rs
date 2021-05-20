@@ -25,7 +25,6 @@ use crate::coordination::Controller;
 use basics::PCAPInputSource;
 use basics::{CSVInputSource, EvaluatorChoice, EventSourceConfig, ExecutionMode, OutputChannel, Statistics, Verbosity};
 use clap::{App, AppSettings, Arg, ArgGroup, SubCommand};
-use rtlola_frontend;
 use rtlola_frontend::mir::RtLolaMir;
 use std::path::PathBuf;
 use std::sync::Arc;

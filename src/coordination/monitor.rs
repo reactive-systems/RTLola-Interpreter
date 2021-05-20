@@ -35,7 +35,7 @@ pub struct Monitor {
 impl Monitor {
     pub(crate) fn setup(ir: RtLolaMir, output_handler: Arc<OutputHandler>, config: EvalConfig) -> Monitor {
         // Note: start_time only accessed in online mode.
-        let eval_data = EvaluatorData::new(ir.clone(), config.clone(), output_handler.clone(), None);
+        let eval_data = EvaluatorData::new(ir.clone(), config, output_handler.clone(), None);
 
         let deadlines: Vec<Deadline> = if ir.time_driven.is_empty() {
             vec![]
@@ -76,7 +76,7 @@ impl Monitor {
         if self.deadlines.is_empty() {
             return vec![];
         }
-        assert!(self.deadlines.len() > 0);
+        assert!(!self.deadlines.is_empty());
 
         if self.next_dl.is_none() {
             assert_eq!(self.dl_ix, 0);
@@ -93,7 +93,7 @@ impl Monitor {
             self.output_handler.new_event();
             self.eval.eval_time_driven_outputs(&dl.due, next_deadline);
             self.dl_ix = (self.dl_ix + 1) % self.deadlines.len();
-            timed_changes.push((next_deadline.clone(), self.eval.peek_fresh()));
+            timed_changes.push((next_deadline, self.eval.peek_fresh()));
             let dl = &self.deadlines[self.dl_ix];
             assert!(dl.pause > Duration::from_secs(0));
             next_deadline += dl.pause;
@@ -185,6 +185,6 @@ impl Monitor {
             .time_driven
             .iter()
             .find(|time_driven_stream| time_driven_stream.reference.out_ix() == id)
-            .map(|time_driven_stream| time_driven_stream.period_in_duration().clone())
+            .map(|time_driven_stream| time_driven_stream.period_in_duration())
     }
 }

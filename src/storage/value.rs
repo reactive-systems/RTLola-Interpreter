@@ -86,11 +86,7 @@ impl Value {
 
     /// Decides if a value is of type bool
     pub(crate) fn is_bool(&self) -> bool {
-        if let Bool(_) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, Bool(_))
     }
 
     /// Returns the boolean value of a 'Bool' value type

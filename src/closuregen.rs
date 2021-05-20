@@ -203,7 +203,7 @@ impl Expr for Expression {
                     "max" => create_binary_arith!(max),
                     "matches" => {
                         assert!(args.len() >= 2);
-                        let is_bytes = &args[0].ty == &Type::Bytes;
+                        let is_bytes = args[0].ty == Type::Bytes;
                         let re_str = match &args[1].kind {
                             LoadConstant(Constant::Str(s)) => s,
                             _ => unreachable!("regex should be a string literal"),
