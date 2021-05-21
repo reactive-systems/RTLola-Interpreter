@@ -42,7 +42,7 @@ impl Expr for Expression {
                 };
                 CompiledExpr::new(move |_| v.clone())
             }
-
+            ParameterAccess(_, _) => unimplemented!("Parameterization is currently not implemented"),
             ArithLog(op, operands) => {
                 let f_operands: Vec<CompiledExpr> = operands.into_iter().map(|e| e.compile()).collect();
 

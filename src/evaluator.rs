@@ -347,7 +347,7 @@ impl<'a> ExpressionEvaluator<'a> {
                 Constant::Float(f) => Value::Float((*f).into()),
                 Constant::Str(s) => Value::Str(s.clone().into_boxed_str()),
             },
-
+            ParameterAccess(_, _) => unimplemented!("Parameterization is currently not implemented"),
             ArithLog(op, operands) => {
                 use rtlola_frontend::mir::ArithLogOp::*;
                 // The explicit match here enables a compiler warning when a case was missed.

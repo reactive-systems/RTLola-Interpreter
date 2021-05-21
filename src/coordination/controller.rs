@@ -7,7 +7,7 @@ use crate::coordination::{EventEvaluation, TimeEvaluation};
 use crate::evaluator::{Evaluator, EvaluatorData};
 use crossbeam_channel::{bounded, unbounded};
 use either::Either;
-use rtlola_frontend::mir::{Deadline, OutputReference, RtLolaMir};
+use rtlola_frontend::mir::{Deadline, OutputReference, RtLolaMir, Task};
 use std::error::Error;
 use std::sync::Arc;
 use std::thread;
@@ -126,12 +126,11 @@ impl Controller {
         let ir_clone = self.ir.clone();
         let output_copy_handler = self.output_handler.clone();
         let time_manager = TimeDrivenManager::setup(ir_clone, output_copy_handler)?;
-        let hlp = vec![];
         let mut due_streams = if has_time_driven {
             // timed streams at time 0
             time_manager.get_last_due()
         } else {
-            &hlp
+            vec![]
         };
         let mut next_deadline = Duration::default();
         let mut deadline_cycle = time_manager.get_deadline_cycle();
@@ -154,7 +153,7 @@ impl Controller {
                             due_streams = self.schedule_timed(
                                 &mut evaluator,
                                 &mut deadline_cycle,
-                                due_streams,
+                                &due_streams,
                                 &mut next_deadline,
                             );
                         }
@@ -169,7 +168,7 @@ impl Controller {
                             due_streams = self.schedule_timed(
                                 &mut evaluator,
                                 &mut deadline_cycle,
-                                due_streams,
+                                &due_streams,
                                 &mut next_deadline,
                             );
                         }
@@ -191,13 +190,16 @@ impl Controller {
         mut deadline_iter: impl Iterator<Item = &'a Deadline>,
         due_streams: &Vec<OutputReference>,
         next_deadline: &mut Time,
-    ) -> &'a Vec<OutputReference> {
+    ) -> Vec<OutputReference> {
         self.output_handler.debug(|| format!("Schedule Timed-Event {:?}.", (due_streams, *next_deadline)));
         self.evaluate_timed_item(evaluator, due_streams, *next_deadline);
         let deadline = deadline_iter.next().unwrap();
         assert!(deadline.pause > Duration::from_secs(0));
         *next_deadline += deadline.pause;
-        &deadline.due
+        deadline.due.iter().map(|t| match t {
+            Task::Evaluate(idx) => *idx,
+            Task::Spawn(_idx) => unimplemented!("Periodic Spawns are not yet implemented!"),
+        }).collect()
     }
 
     #[inline]
