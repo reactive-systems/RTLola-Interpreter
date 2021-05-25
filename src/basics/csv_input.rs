@@ -4,7 +4,7 @@ use crate::basics::io_handler::EventSource;
 use crate::basics::Time;
 use crate::storage::Value;
 use csv::{ByteRecord, Reader as CSVReader, Result as ReaderResult, StringRecord};
-use rtlola_frontend::ir::{RTLolaIR, Type};
+use rtlola_frontend::mir::{RtLolaMir, Type};
 use std::error::Error;
 use std::fs::File;
 use std::io::stdin;
@@ -111,7 +111,7 @@ pub struct CSVEventSource {
 impl CSVEventSource {
     pub(crate) fn setup(
         src: &CSVInputSource,
-        ir: &RTLolaIR,
+        ir: &RtLolaMir,
         start_time: Instant,
     ) -> Result<Box<dyn EventSource>, Box<dyn Error>> {
         use CSVInputSource::*;

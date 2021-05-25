@@ -3,7 +3,7 @@ use super::window_aggregations::*;
 use super::Value;
 use crate::basics::Time;
 use ordered_float::NotNan;
-use rtlola_frontend::ir::{Type, WindowOperation as WinOp};
+use rtlola_frontend::mir::{Type, WindowOperation as WinOp};
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::fmt::Debug;
@@ -87,7 +87,7 @@ impl SlidingWindow {
         }
     }
 
-    pub(crate) fn from_discrete(size: u64, wait: bool, op: WinOp, ts: Time, ty: &Type) -> SlidingWindow {
+    pub(crate) fn from_discrete(size: usize, wait: bool, op: WinOp, ts: Time, ty: &Type) -> SlidingWindow {
         match (op, ty) {
             (WinOp::Count, _) => SlidingWindow::CountDiscrete(DiscreteWindowInstance::new(size, wait, ts)),
             (WinOp::Min, Type::UInt(_)) => {

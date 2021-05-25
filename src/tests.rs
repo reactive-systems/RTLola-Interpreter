@@ -5,7 +5,8 @@ use std::io::Write;
 use tempfile::NamedTempFile;
 
 fn run(spec: &str, data: &str) -> Result<Arc<OutputHandler>, Box<dyn std::error::Error>> {
-    let ir = rtlola_frontend::parse("stdin", spec, CONFIG).unwrap_or_else(|e| panic!("spec is invalid: {}", e));
+    let ir = rtlola_frontend::parse(rtlola_frontend::ParserConfig::for_string(spec.to_string()))
+        .unwrap_or_else(|e| panic!("spec is invalid: {}", e));
     let mut file = NamedTempFile::new().expect("failed to create temporary file");
     write!(file, "{}", data).expect("writing tempfile failed");
     let cfg = EvalConfig::new(

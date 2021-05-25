@@ -6,7 +6,7 @@ use crate::basics::{CSVEventSource, CSVInputSource, Time};
 use crate::basics::{PCAPEventSource, PCAPInputSource};
 use crate::storage::Value;
 use crossterm::{cursor, terminal, ClearType};
-use rtlola_frontend::ir::RTLolaIR;
+use rtlola_frontend::mir::RtLolaMir;
 use std::error::Error;
 use std::fs::File;
 use std::io::{stderr, stdout, Write};
@@ -45,7 +45,7 @@ pub(crate) trait EventSource {
 
 pub(crate) fn create_event_source(
     config: EventSourceConfig,
-    ir: &RTLolaIR,
+    ir: &RtLolaMir,
     start_time: Instant,
 ) -> Result<Box<dyn EventSource>, Box<dyn Error>> {
     use EventSourceConfig::*;

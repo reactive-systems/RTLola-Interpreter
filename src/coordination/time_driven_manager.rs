@@ -2,12 +2,10 @@ use super::WorkItem;
 use crate::basics::{OutputHandler, Time};
 
 use crossbeam_channel::Sender;
-use rtlola_frontend::ir::{OutputReference, RTLolaIR};
+use rtlola_frontend::mir::{Deadline, OutputReference, RtLolaMir, Task};
 use spin_sleep::SpinSleeper;
 use std::sync::Arc;
 use std::time::Instant;
-
-use rtlola_frontend::ir::Deadline;
 
 pub(crate) type TimeEvaluation = Vec<OutputReference>;
 
@@ -18,7 +16,7 @@ pub(crate) struct TimeDrivenManager {
 
 impl TimeDrivenManager {
     /// Creates a new TimeDrivenManager managing time-driven output streams.
-    pub(crate) fn setup(ir: RTLolaIR, handler: Arc<OutputHandler>) -> Result<TimeDrivenManager, String> {
+    pub(crate) fn setup(ir: RtLolaMir, handler: Arc<OutputHandler>) -> Result<TimeDrivenManager, String> {
         if ir.time_driven.is_empty() {
             // return dummy
             return Ok(TimeDrivenManager { deadlines: vec![], handler });
@@ -30,9 +28,18 @@ impl TimeDrivenManager {
         Ok(TimeDrivenManager { deadlines: schedule.deadlines, handler })
     }
 
-    pub(crate) fn get_last_due(&self) -> &Vec<OutputReference> {
+    pub(crate) fn get_last_due(&self) -> Vec<OutputReference> {
         assert!(!self.deadlines.is_empty());
-        &self.deadlines.last().unwrap().due
+        self.deadlines
+            .last()
+            .unwrap()
+            .due
+            .iter()
+            .map(|t| match t {
+                Task::Evaluate(idx) => *idx,
+                Task::Spawn(_) => unreachable!("Periodic spawns are not yet implemented!"),
+            })
+            .collect()
     }
 
     pub(crate) fn get_deadline_cycle(&self) -> impl Iterator<Item = &Deadline> {
@@ -42,7 +49,7 @@ impl TimeDrivenManager {
     pub(crate) fn start_online(self, start_time: Instant, work_chan: Sender<WorkItem>) -> ! {
         assert!(!self.deadlines.is_empty());
         // timed streams at time 0
-        let item = WorkItem::Time(self.get_last_due().clone(), Time::default());
+        let item = WorkItem::Time(self.get_last_due(), Time::default());
         if work_chan.send(item).is_err() {
             self.handler.runtime_warning(|| "TDM: Sending failed; evaluation cycle lost.");
         }
@@ -59,8 +66,15 @@ impl TimeDrivenManager {
                 let wait_time = due_time - time;
                 SpinSleeper::new(1_000_000).sleep(wait_time);
             }
-
-            let item = WorkItem::Time(deadline.due.clone(), due_time);
+            let eval_tasks: Vec<OutputReference> = deadline
+                .due
+                .iter()
+                .map(|t| match t {
+                    Task::Evaluate(idx) => *idx,
+                    Task::Spawn(_idx) => unimplemented!("Periodic spawns are not yet implemented"),
+                })
+                .collect();
+            let item = WorkItem::Time(eval_tasks, due_time);
             if work_chan.send(item).is_err() {
                 self.handler.runtime_warning(|| "TDM: Sending failed; evaluation cycle lost.");
             }

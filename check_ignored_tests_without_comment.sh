@@ -1,6 +1,6 @@
-#!/usr/bin/env bash
+#!/usr/bin/env sh
 
-grep -n -r '#\[ignore\]' frontend/src | grep -v '\/\/'
+grep -n -r '#\[ignore\]' ./src | grep -v '\/\/'
 if [ "$?" -ne "1" ]; then
     echo "there are ignored test cases without accompanying comment"
     exit 1

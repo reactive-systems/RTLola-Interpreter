@@ -2,8 +2,8 @@ use super::Value;
 
 use crate::basics::Time;
 use crate::storage::SlidingWindow;
-use rtlola_frontend::ir::{
-    InputReference, MemorizationBound, OutputReference, OutputStream, RTLolaIR, Type, WindowReference,
+use rtlola_frontend::mir::{
+    InputReference, MemorizationBound, OutputReference, OutputStream, RtLolaMir, Type, WindowReference,
 };
 use std::collections::VecDeque;
 
@@ -35,7 +35,7 @@ impl GlobalStore {
     ///  # Arguments
     /// * `ir` - An intermediate representation of the specification
     /// * `time` - The starting time of the monitor
-    pub(crate) fn new(ir: &RTLolaIR, ts: Time) -> GlobalStore {
+    pub(crate) fn new(ir: &RtLolaMir, ts: Time) -> GlobalStore {
         let mut index_map: Vec<Option<usize>> = vec![None; ir.outputs.len()];
 
         let nps: Vec<&OutputStream> = index_map
@@ -80,7 +80,7 @@ impl GlobalStore {
         &mut self.inputs[ix]
     }
 
-    /// Returns the storage of an input stream instance
+    /// Returns the storage of an output stream instance
     pub(crate) fn get_out_instance(&self, inst: OutInstance) -> Option<&InstanceStore> {
         let ix = inst;
         Some(&self.np_outputs[self.index_map[ix]])
@@ -95,16 +95,16 @@ impl GlobalStore {
     /// Returns the storage of a sliding window instance
     pub(crate) fn get_window(&self, window: WindowReference) -> &SlidingWindow {
         match window {
-            WindowReference::SlidingWindow(x) => &self.np_windows[x],
-            WindowReference::DiscreteWindow(x) => &self.np_discrete_windows[x],
+            WindowReference::Sliding(x) => &self.np_windows[x],
+            WindowReference::Discrete(x) => &self.np_discrete_windows[x],
         }
     }
 
     /// Returns the storage of a sliding window instance (mutable)
     pub(crate) fn get_window_mut(&mut self, window: WindowReference) -> &mut SlidingWindow {
         match window {
-            WindowReference::SlidingWindow(x) => &mut self.np_windows[x],
-            WindowReference::DiscreteWindow(x) => &mut self.np_discrete_windows[x],
+            WindowReference::Sliding(x) => &mut self.np_windows[x],
+            WindowReference::Discrete(x) => &mut self.np_discrete_windows[x],
         }
     }
 }

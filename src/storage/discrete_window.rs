@@ -11,8 +11,8 @@ pub(crate) struct DiscreteWindowInstance<IV: WindowIV> {
 }
 
 impl<IV: WindowIV> DiscreteWindowInstance<IV> {
-    pub(crate) fn new(size: u64, wait: bool, ts: Time) -> DiscreteWindowInstance<IV> {
-        let buckets = VecDeque::from(vec![IV::default(ts); size as usize]);
+    pub(crate) fn new(size: usize, wait: bool, ts: Time) -> DiscreteWindowInstance<IV> {
+        let buckets = VecDeque::from(vec![IV::default(ts); size]);
         DiscreteWindowInstance { buckets, next_bucket: 0, wait }
     }
 
