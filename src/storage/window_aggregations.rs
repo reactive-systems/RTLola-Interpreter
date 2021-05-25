@@ -19,9 +19,9 @@ impl<G: WindowGeneric> WindowIV for SumIV<G> {
     }
 }
 
-impl<G: WindowGeneric> Into<Value> for SumIV<G> {
-    fn into(self) -> Value {
-        self.v
+impl<G: WindowGeneric> From<SumIV<G>> for Value {
+    fn from(iv: SumIV<G>) -> Self {
+        iv.v
     }
 }
 
@@ -49,9 +49,9 @@ impl WindowIV for ConjIV {
     }
 }
 
-impl Into<Value> for ConjIV {
-    fn into(self) -> Value {
-        Value::Bool(self.res)
+impl From<ConjIV> for Value {
+    fn from(iv: ConjIV) -> Self {
+        Value::Bool(iv.res)
     }
 }
 
@@ -89,9 +89,9 @@ impl WindowIV for DisjIV {
     }
 }
 
-impl Into<Value> for DisjIV {
-    fn into(self) -> Value {
-        Value::Bool(self.res)
+impl From<DisjIV> for Value {
+    fn from(iv: DisjIV) -> Self {
+        Value::Bool(iv.res)
     }
 }
 
@@ -132,13 +132,13 @@ impl<G: WindowGeneric> WindowIV for AvgIV<G> {
     }
 }
 
-impl<G: WindowGeneric> Into<Value> for AvgIV<G> {
-    fn into(self) -> Value {
-        match self.sum {
+impl<G: WindowGeneric> From<AvgIV<G>> for Value {
+    fn from(iv: AvgIV<G>) -> Value {
+        match iv.sum {
             Value::None => Value::None,
-            Value::Unsigned(u) => Value::Unsigned(u / self.num),
-            Value::Signed(u) => Value::Signed(u / self.num as i64),
-            Value::Float(u) => Value::Float(u / self.num as f64),
+            Value::Unsigned(u) => Value::Unsigned(u / iv.num),
+            Value::Signed(u) => Value::Signed(u / iv.num as i64),
+            Value::Float(u) => Value::Float(u / iv.num as f64),
             _ => unreachable!("Type error."),
         }
     }
@@ -182,9 +182,9 @@ impl WindowIV for IntegralIV {
     }
 }
 
-impl Into<Value> for IntegralIV {
-    fn into(self) -> Value {
-        Value::new_float(self.volume)
+impl From<IntegralIV> for Value {
+    fn from(iv: IntegralIV) -> Value {
+        Value::new_float(iv.volume)
     }
 }
 
@@ -240,9 +240,9 @@ impl WindowIV for CountIV {
     }
 }
 
-impl Into<Value> for CountIV {
-    fn into(self) -> Value {
-        Value::Unsigned(self.0)
+impl From<CountIV> for Value {
+    fn from(iv: CountIV) -> Value {
+        Value::Unsigned(iv.0)
     }
 }
 
@@ -273,9 +273,9 @@ impl<G: WindowGeneric> WindowIV for MaxIV<G> {
     }
 }
 
-impl<G: WindowGeneric> Into<Value> for MaxIV<G> {
-    fn into(self) -> Value {
-        self.max
+impl<G: WindowGeneric> From<MaxIV<G>> for Value {
+    fn from(iv: MaxIV<G>) -> Value {
+        iv.max
     }
 }
 
@@ -313,9 +313,9 @@ impl<G: WindowGeneric> WindowIV for MinIV<G> {
     }
 }
 
-impl<G: WindowGeneric> Into<Value> for MinIV<G> {
-    fn into(self) -> Value {
-        self.min
+impl<G: WindowGeneric> From<MinIV<G>> for Value {
+    fn from(iv: MinIV<G>) -> Value {
+        iv.min
     }
 }
 

@@ -1,5 +1,5 @@
 use ordered_float::NotNan;
-use rtlola_frontend::ir::Type;
+use rtlola_frontend::mir::Type;
 use std::cmp::Ordering;
 use std::ops;
 
@@ -70,7 +70,7 @@ impl Value {
                 Type::Float(_) => source.parse::<f64>().ok().map(|f| Float(NotNan::new(f).unwrap())),
                 Type::String => Some(Str(source.into())),
                 Type::Tuple(_) => unimplemented!(),
-                Type::Option(_) | Type::Function(_, _) | Type::Bytes => unreachable!(),
+                Type::Option(_) | Type::Function { args: _, ret: _ } | Type::Bytes => unreachable!(),
             }
         } else {
             Option::None // TODO: error message about non-utf8 encoded string?
@@ -86,11 +86,7 @@ impl Value {
 
     /// Decides if a value is of type bool
     pub(crate) fn is_bool(&self) -> bool {
-        if let Bool(_) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, Bool(_))
     }
 
     /// Returns the boolean value of a 'Bool' value type

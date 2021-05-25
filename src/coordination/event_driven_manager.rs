@@ -2,7 +2,7 @@ use crate::basics::{create_event_source, EvalConfig, EventSource, OutputHandler}
 use crate::coordination::{WorkItem, CAP_LOCAL_QUEUE};
 use crate::storage::Value;
 use crossbeam_channel::Sender;
-use rtlola_frontend::ir::RTLolaIR;
+use rtlola_frontend::mir::RtLolaMir;
 use std::error::Error;
 use std::ops::AddAssign;
 use std::sync::Arc;
@@ -38,7 +38,7 @@ pub(crate) struct EventDrivenManager {
 impl EventDrivenManager {
     /// Creates a new EventDrivenManager managing event-driven output streams.
     pub(crate) fn setup(
-        ir: RTLolaIR,
+        ir: RtLolaMir,
         config: EvalConfig,
         out_handler: Arc<OutputHandler>,
         start_time: Instant,

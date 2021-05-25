@@ -1,5 +1,6 @@
 input a: Int64
-output d := a.hold().defaults(to:10)
+
+output d @true := a.hold().defaults(to:10)
 
 trigger d == 2 "2 used"
 trigger d == 3 "3 used"

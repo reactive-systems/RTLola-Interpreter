@@ -165,7 +165,7 @@ with open("e2e-results.xml", 'w') as results_file:
                                     something_wrong = True
                                 elif actual_count != expected_count:
                                     print_trigger(trigger, expected_count, actual_count)
-                                    err_out.append("trigger \"{}\":  : {} ({} expected)".format(trigger,actual, expected))
+                                    err_out.append("trigger \"{}\":  : {} ({} expected)".format(trigger,actual_count, expected_count))
                                     something_wrong = True
                                 elif check_time_info and actual_time_info != expected_time_info:
                                     print_fail("time info for trigger \"{}\" incorrect:".format(trigger))

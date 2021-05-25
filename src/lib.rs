@@ -25,10 +25,8 @@ use crate::coordination::Controller;
 use basics::PCAPInputSource;
 use basics::{CSVInputSource, EvaluatorChoice, EventSourceConfig, ExecutionMode, OutputChannel, Statistics, Verbosity};
 use clap::{App, AppSettings, Arg, ArgGroup, SubCommand};
-use rtlola_frontend;
-use rtlola_frontend::ir::RTLolaIR;
-use rtlola_frontend::{FrontendConfig, TypeConfig};
-use std::fs;
+use rtlola_frontend::mir::RtLolaMir;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 pub use crate::basics::{EvalConfig, Time, TimeFormat, TimeRepresentation};
@@ -46,18 +44,15 @@ The `Config` can then be turned into a monitor for use via the API or simply exe
 #[derive(Debug, Clone)]
 pub struct Config {
     cfg: EvalConfig,
-    ir: RTLolaIR,
+    ir: RtLolaMir,
 }
-
-const CONFIG: FrontendConfig =
-    FrontendConfig { ty: TypeConfig { use_64bit_only: true, type_aliases: false }, allow_parameters: false };
 
 impl Config {
     // TODO find appropriate name
     /**
     Creates a new `Config` which can then be turned into a `Monitor` by `into_monitor`.
     */
-    pub fn new_api(cfg: EvalConfig, ir: RTLolaIR) -> Config {
+    pub fn new_api(cfg: EvalConfig, ir: RtLolaMir) -> Config {
         Config { cfg, ir }
     }
 
@@ -267,8 +262,17 @@ impl Config {
 
         if let Some(parse_matches) = parse_matches.subcommand_matches("analyze") {
             let filename = parse_matches.value_of("SPEC").map(|s| s.to_string()).unwrap();
-            rtlola_frontend::analyze(filename.as_str(), CONFIG);
-            std::process::exit(0);
+            let config = rtlola_frontend::ParserConfig::from_path(PathBuf::from(filename)).unwrap_or_else(|e| {
+                eprintln!("{}", e);
+                std::process::exit(1)
+            });
+            match rtlola_frontend::parse(config) {
+                Ok(_) => std::process::exit(0),
+                Err(e) => {
+                    eprintln!("{}", e);
+                    std::process::exit(1)
+                }
+            }
         }
         let mut ids_mode = false;
         let parse_matches = if let Some(matches) = parse_matches.subcommand_matches("monitor") {
@@ -282,18 +286,15 @@ impl Config {
         };
 
         let filename = parse_matches.value_of("SPEC").map(|s| s.to_string()).unwrap();
-        let contents = fs::read_to_string(&filename).unwrap_or_else(|e| {
-            eprintln!("Could not read file `{}`: {}", filename, e);
+        let config = rtlola_frontend::ParserConfig::from_path(PathBuf::from(filename)).unwrap_or_else(|e| {
+            eprintln!("{}", e);
             std::process::exit(1)
         });
 
-        let ir = match rtlola_frontend::parse(&filename, contents.as_str(), CONFIG) {
-            Ok(ir) => ir,
-            Err(err) => {
-                eprintln!("{}", err);
-                std::process::exit(1);
-            }
-        };
+        let ir = rtlola_frontend::parse(config).unwrap_or_else(|e| {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        });
 
         let delay = match parse_matches.value_of("DELAY") {
             None => None,

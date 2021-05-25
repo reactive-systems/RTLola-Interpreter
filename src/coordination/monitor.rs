@@ -2,7 +2,7 @@ use crate::basics::{EvalConfig, OutputHandler, Time};
 use crate::coordination::Event;
 use crate::evaluator::{Evaluator, EvaluatorData};
 use crate::storage::Value;
-use rtlola_frontend::ir::{Deadline, InputReference, OutputReference, RTLolaIR, Type};
+use rtlola_frontend::mir::{Deadline, InputReference, OutputReference, RtLolaMir, Task, Type};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -23,7 +23,7 @@ It can also simply advance periodic streams up to a given timestamp through `acc
 */
 #[allow(missing_debug_implementations)]
 pub struct Monitor {
-    ir: RTLolaIR, // probably not necessary to store here.
+    pub ir: RtLolaMir, // probably not necessary to store here.
     eval: Evaluator,
     pub(crate) output_handler: Arc<OutputHandler>,
     deadlines: Vec<Deadline>,
@@ -33,9 +33,9 @@ pub struct Monitor {
 
 // Crate-public interface
 impl Monitor {
-    pub(crate) fn setup(ir: RTLolaIR, output_handler: Arc<OutputHandler>, config: EvalConfig) -> Monitor {
+    pub(crate) fn setup(ir: RtLolaMir, output_handler: Arc<OutputHandler>, config: EvalConfig) -> Monitor {
         // Note: start_time only accessed in online mode.
-        let eval_data = EvaluatorData::new(ir.clone(), config.clone(), output_handler.clone(), None);
+        let eval_data = EvaluatorData::new(ir.clone(), config, output_handler.clone(), None);
 
         let deadlines: Vec<Deadline> = if ir.time_driven.is_empty() {
             vec![]
@@ -76,7 +76,7 @@ impl Monitor {
         if self.deadlines.is_empty() {
             return vec![];
         }
-        assert!(self.deadlines.len() > 0);
+        assert!(!self.deadlines.is_empty());
 
         if self.next_dl.is_none() {
             assert_eq!(self.dl_ix, 0);
@@ -91,9 +91,17 @@ impl Monitor {
             let dl = &self.deadlines[self.dl_ix];
             self.output_handler.debug(|| format!("Schedule Timed-Event {:?}.", (&dl.due, next_deadline)));
             self.output_handler.new_event();
-            self.eval.eval_time_driven_outputs(&dl.due, next_deadline);
+            let eval_tasks: Vec<OutputReference> = dl
+                .due
+                .iter()
+                .map(|t| match t {
+                    Task::Evaluate(idx) => *idx,
+                    Task::Spawn(_idx) => unimplemented!("Periodic spawns are not yet implemented"),
+                })
+                .collect();
+            self.eval.eval_time_driven_outputs(&eval_tasks, next_deadline);
             self.dl_ix = (self.dl_ix + 1) % self.deadlines.len();
-            timed_changes.push((next_deadline.clone(), self.eval.peek_fresh()));
+            timed_changes.push((next_deadline, self.eval.peek_fresh()));
             let dl = &self.deadlines[self.dl_ix];
             assert!(dl.pause > Duration::from_secs(0));
             next_deadline += dl.pause;
@@ -185,6 +193,6 @@ impl Monitor {
             .time_driven
             .iter()
             .find(|time_driven_stream| time_driven_stream.reference.out_ix() == id)
-            .map(|time_driven_stream| time_driven_stream.extend_rate.clone())
+            .map(|time_driven_stream| time_driven_stream.period_in_duration())
     }
 }
