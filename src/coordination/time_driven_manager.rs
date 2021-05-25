@@ -30,10 +30,16 @@ impl TimeDrivenManager {
 
     pub(crate) fn get_last_due(&self) -> Vec<OutputReference> {
         assert!(!self.deadlines.is_empty());
-        self.deadlines.last().unwrap().due.iter().map(|t| match t {
-            Task::Evaluate(idx) => *idx,
-            Task::Spawn(_) => unreachable!("Periodic spawns are not yet implemented!"),
-        }).collect()
+        self.deadlines
+            .last()
+            .unwrap()
+            .due
+            .iter()
+            .map(|t| match t {
+                Task::Evaluate(idx) => *idx,
+                Task::Spawn(_) => unreachable!("Periodic spawns are not yet implemented!"),
+            })
+            .collect()
     }
 
     pub(crate) fn get_deadline_cycle(&self) -> impl Iterator<Item = &Deadline> {
@@ -60,10 +66,14 @@ impl TimeDrivenManager {
                 let wait_time = due_time - time;
                 SpinSleeper::new(1_000_000).sleep(wait_time);
             }
-            let eval_tasks: Vec<OutputReference> = deadline.due.iter().map(|t| match t {
-                Task::Evaluate(idx) => *idx,
-                Task::Spawn(_idx) => unimplemented!("Periodic spawns are not yet implemented"),
-            }).collect();
+            let eval_tasks: Vec<OutputReference> = deadline
+                .due
+                .iter()
+                .map(|t| match t {
+                    Task::Evaluate(idx) => *idx,
+                    Task::Spawn(_idx) => unimplemented!("Periodic spawns are not yet implemented"),
+                })
+                .collect();
             let item = WorkItem::Time(eval_tasks, due_time);
             if work_chan.send(item).is_err() {
                 self.handler.runtime_warning(|| "TDM: Sending failed; evaluation cycle lost.");

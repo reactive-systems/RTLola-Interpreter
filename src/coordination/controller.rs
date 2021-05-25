@@ -196,10 +196,14 @@ impl Controller {
         let deadline = deadline_iter.next().unwrap();
         assert!(deadline.pause > Duration::from_secs(0));
         *next_deadline += deadline.pause;
-        deadline.due.iter().map(|t| match t {
-            Task::Evaluate(idx) => *idx,
-            Task::Spawn(_idx) => unimplemented!("Periodic Spawns are not yet implemented!"),
-        }).collect()
+        deadline
+            .due
+            .iter()
+            .map(|t| match t {
+                Task::Evaluate(idx) => *idx,
+                Task::Spawn(_idx) => unimplemented!("Periodic Spawns are not yet implemented!"),
+            })
+            .collect()
     }
 
     #[inline]

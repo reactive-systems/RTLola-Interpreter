@@ -2,7 +2,7 @@ use crate::basics::{EvalConfig, OutputHandler, Time};
 use crate::coordination::Event;
 use crate::evaluator::{Evaluator, EvaluatorData};
 use crate::storage::Value;
-use rtlola_frontend::mir::{Deadline, InputReference, OutputReference, RtLolaMir, Type, Task};
+use rtlola_frontend::mir::{Deadline, InputReference, OutputReference, RtLolaMir, Task, Type};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -91,10 +91,14 @@ impl Monitor {
             let dl = &self.deadlines[self.dl_ix];
             self.output_handler.debug(|| format!("Schedule Timed-Event {:?}.", (&dl.due, next_deadline)));
             self.output_handler.new_event();
-            let eval_tasks:Vec<OutputReference> = dl.due.iter().map(|t| match t {
-                Task::Evaluate(idx) => *idx,
-                Task::Spawn(_idx) => unimplemented!("Periodic spawns are not yet implemented"),
-            }).collect();
+            let eval_tasks: Vec<OutputReference> = dl
+                .due
+                .iter()
+                .map(|t| match t {
+                    Task::Evaluate(idx) => *idx,
+                    Task::Spawn(_idx) => unimplemented!("Periodic spawns are not yet implemented"),
+                })
+                .collect();
             self.eval.eval_time_driven_outputs(&eval_tasks, next_deadline);
             self.dl_ix = (self.dl_ix + 1) % self.deadlines.len();
             timed_changes.push((next_deadline, self.eval.peek_fresh()));
