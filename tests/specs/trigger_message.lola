@@ -1,0 +1,6 @@
+input a: Int64
+input b: Int64
+
+output c := a + b
+
+trigger c > 2 "c is too large. a is {{}} and b is {{}}" (a, b)

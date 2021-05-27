@@ -4,6 +4,8 @@ use std::cmp::Ordering;
 use std::ops;
 
 use self::Value::*;
+use std::fmt::Formatter;
+
 /**
 The general type for holding all kinds of values.
 */
@@ -43,6 +45,39 @@ pub enum Value {
     A slice of bytes.
     */
     Bytes(Box<[u8]>),
+}
+
+impl std::fmt::Display for Value {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            None => write!(f, "None"),
+            Bool(b) => write!(f, "{}", *b),
+            Unsigned(u) => write!(f, "{}", *u),
+            Signed(s) => write!(f, "{}", *s),
+            Float(fl) => write!(f, "{}", *fl),
+            Tuple(t) => {
+                write!(f, "(")?;
+                if let Some(e) = t.first() {
+                    write!(f, "{}", e)?;
+                    for b in &t[1..] {
+                        write!(f, ", {}", b)?;
+                    }
+                }
+                write!(f, ")")
+            }
+            Str(str) => write!(f, "{}", *str),
+            Bytes(b) => {
+                write!(f, "[")?;
+                if let Some(e) = b.first() {
+                    write!(f, "{}", e)?;
+                    for e in &b[1..] {
+                        write!(f, ", {}", e)?;
+                    }
+                }
+                write!(f, "]")
+            },
+        }
+    }
 }
 
 impl Value {

@@ -1,8 +1,8 @@
 [package]
 name = "rtlola-interpreter"
-version = "0.5.0"
+version = "0.5.1"
 authors = [
-    "Florian Kohn <s8flkohn@stud.uni-saarland.de>",
+    "Florian Kohn <kohn@react.uni-saarland.de>",
     "Malte Schledjewski <schledjewski@react.uni-saarland.de>",
     "Maximilian Schwenger <schwenger@react.uni-saarland.de>",
     "Marvin Stenger <stenger@react.uni-saarland.de>",
@@ -21,7 +21,7 @@ name = "rtlola-interpreter"
 path = "src/bin/rtlola.rs"
 
 [dependencies]
-rtlola-frontend = "0.4.1"
+rtlola-frontend = {path="../rtlola-frontend/crates/rtlola-frontend"}
 ordered-float = "1.0.2"
 csv = "1.1.1"
 pcap = { version = "0.7.0", optional = true } # pcap file parsing
@@ -37,7 +37,7 @@ humantime = "2.0"
 spin_sleep = "0.3.7"
 human-panic = { version = "1.0.1", optional = true }
 either = "1.5.3"
-# rusttyc = { git = "https://github.com/Schwenger/RustTyC.git" }
+string_template = "0.2.1" # Format Trigger Messages
 
 
 [features]
