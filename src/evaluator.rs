@@ -254,12 +254,16 @@ impl Evaluator {
     }
 
     /// Creates the current trigger message by substituting the format placeholders with he current values of the info streams.
-    pub(crate) fn format_trigger_message(& self, trigger_ref: OutputReference) -> String {
+    pub(crate) fn format_trigger_message(&self, trigger_ref: OutputReference) -> String {
         let trigger = self.is_trigger(trigger_ref).expect("Output reference must refer to a trigger");
         let (expr_eval, _) = self.as_ExpressionEvaluator();
-        let values: Vec<String> = trigger.info_streams.iter().map(|sr| expr_eval.lookup_latest(*sr).to_string()).collect();
+        let values: Vec<String> =
+            trigger.info_streams.iter().map(|sr| expr_eval.lookup_latest(*sr).to_string()).collect();
         let args: Vec<&str> = values.iter().map(|s| s.as_str()).collect();
-        self.trigger_templates[trigger_ref].as_ref().expect("Output reference must refer to a trigger").render_positional(args.as_slice())
+        self.trigger_templates[trigger_ref]
+            .as_ref()
+            .expect("Output reference must refer to a trigger")
+            .render_positional(args.as_slice())
     }
 
     fn eval_stream(&mut self, output: OutputReference, ts: Time) {

@@ -75,7 +75,7 @@ impl std::fmt::Display for Value {
                     }
                 }
                 write!(f, "]")
-            },
+            }
         }
     }
 }
