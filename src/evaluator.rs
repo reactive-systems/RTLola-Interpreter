@@ -9,6 +9,7 @@ use rtlola_frontend::mir::{
 };
 use std::sync::Arc;
 use std::time::Instant;
+use string_template::Template;
 
 /// Enum to describe the activation condition of a stream; If the activation condition is described by a conjunction, the evaluator uses a bitset representation.
 #[derive(Debug)]
@@ -33,6 +34,7 @@ pub(crate) struct EvaluatorData {
     fresh_outputs: BitSet,
     fresh_triggers: BitSet,
     triggers: Vec<Option<Trigger>>,
+    trigger_templates: Vec<Option<Template>>,
     ir: RtLolaMir,
     handler: Arc<OutputHandler>,
     config: EvalConfig,
@@ -55,6 +57,7 @@ pub(crate) struct Evaluator {
     fresh_outputs: &'static mut BitSet,
     fresh_triggers: &'static mut BitSet,
     triggers: &'static Vec<Option<Trigger>>,
+    trigger_templates: &'static Vec<Option<Template>>,
     ir: &'static RtLolaMir,
     handler: &'static OutputHandler,
     config: &'static EvalConfig,
@@ -104,6 +107,7 @@ impl EvaluatorData {
         for t in &ir.triggers {
             triggers[t.reference.out_ix()] = Some(t.clone());
         }
+        let trigger_templates = triggers.iter().map(|t| t.as_ref().map(|t| Template::new(&t.message))).collect();
         let start_time = start_time.unwrap_or_else(Instant::now);
         EvaluatorData {
             layers,
@@ -116,6 +120,7 @@ impl EvaluatorData {
             fresh_outputs,
             fresh_triggers,
             triggers,
+            trigger_templates,
             ir,
             handler,
             config,
@@ -146,6 +151,7 @@ impl EvaluatorData {
             fresh_outputs: &mut leaked_data.fresh_outputs,
             fresh_triggers: &mut leaked_data.fresh_triggers,
             triggers: &leaked_data.triggers,
+            trigger_templates: &leaked_data.trigger_templates,
             ir: &leaked_data.ir,
             handler: &leaked_data.handler,
             config: &leaked_data.config,
@@ -247,6 +253,19 @@ impl Evaluator {
         }
     }
 
+    /// Creates the current trigger message by substituting the format placeholders with he current values of the info streams.
+    pub(crate) fn format_trigger_message(&self, trigger_ref: OutputReference) -> String {
+        let trigger = self.is_trigger(trigger_ref).expect("Output reference must refer to a trigger");
+        let (expr_eval, _) = self.as_ExpressionEvaluator();
+        let values: Vec<String> =
+            trigger.info_streams.iter().map(|sr| expr_eval.lookup_latest(*sr).to_string()).collect();
+        let args: Vec<&str> = values.iter().map(|s| s.as_str()).collect();
+        self.trigger_templates[trigger_ref]
+            .as_ref()
+            .expect("Output reference must refer to a trigger")
+            .render_positional(args.as_slice())
+    }
+
     fn eval_stream(&mut self, output: OutputReference, ts: Time) {
         let ix = output;
         self.handler.debug(|| format!("Evaluating stream {}: {}.", ix, self.ir.output(StreamReference::Out(ix)).name));
@@ -273,7 +292,8 @@ impl Evaluator {
             Some(trig) => {
                 // Check if we have to emit a warning.
                 if let Value::Bool(true) = res {
-                    self.handler.trigger(|| format!("Trigger: {}", trig.message), trig.trigger_reference, ts);
+                    let msg = self.format_trigger_message(output);
+                    self.handler.trigger(|| format!("Trigger: {}", msg), trig.trigger_reference, ts);
                     self.fresh_triggers.insert(ix);
                 }
             }
