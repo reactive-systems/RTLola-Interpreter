@@ -21,7 +21,7 @@ name = "rtlola-interpreter"
 path = "src/bin/rtlola.rs"
 
 [dependencies]
-rtlola-frontend = {path="../rtlola-frontend/crates/rtlola-frontend"}
+rtlola-frontend = "0.4.2"
 ordered-float = "1.0.2"
 csv = "1.1.1"
 pcap = { version = "0.7.0", optional = true } # pcap file parsing
