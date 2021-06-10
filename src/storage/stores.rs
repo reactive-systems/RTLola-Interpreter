@@ -2,8 +2,11 @@ use super::Value;
 
 use crate::basics::Time;
 use crate::storage::SlidingWindow;
-use regex::internal::Inst;
-use rtlola_frontend::mir::{ExpressionKind, InputReference, MemorizationBound, OutputReference, OutputStream, RtLolaMir, Type, WindowReference, StreamReference, WindowOperation};
+use either::Either;
+use rtlola_frontend::mir::{
+    InputReference, MemorizationBound, OutputReference, OutputStream, RtLolaMir, StreamReference, Type,
+    WindowOperation, WindowReference,
+};
 use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
 
@@ -18,6 +21,7 @@ pub(crate) struct InstanceCollection {
 }
 
 impl InstanceCollection {
+    /// Creates a new instance
     pub(crate) fn new(ty: &Type, bound: MemorizationBound) -> Self {
         InstanceCollection { instances: HashMap::new(), value_type: ty.clone(), bound }
     }
@@ -49,23 +53,64 @@ impl InstanceCollection {
     }
 
     /// Returns a vector of all parameters for which an instance exists
-    pub(crate) fn get_all_instances(&self, inst: OutputReference) -> Vec<&[Value]> {
+    pub(crate) fn get_all_instances(&self) -> Vec<&[Value]> {
         self.instances.keys().map(|i| i.as_slice()).collect()
     }
 }
 
 /// The collection of all sliding windows of a parameterized stream
-struct SlidingWindowCollection {
+pub(crate) struct SlidingWindowCollection {
     windows: HashMap<Vec<Value>, SlidingWindow>,
-    duration: Duration,
+    duration: Either<Duration, usize>,
     wait: bool,
     op: WindowOperation,
     ty: Type,
 }
 
 impl SlidingWindowCollection {
-    pub(crate) fn new(dur: Duration, wait: bool, op: WindowOperation, ty: &Type) -> Self {
-        SlidingWindowCollection{windows: HashMap::new(), duration: dur, wait, op, ty: ty.clone()}
+    /// Creates a new Collection for real-time sliding windows
+    pub(crate) fn new_for_sliding(dur: Duration, wait: bool, op: WindowOperation, ty: &Type) -> Self {
+        SlidingWindowCollection { windows: HashMap::new(), duration: Either::Left(dur), wait, op, ty: ty.clone() }
+    }
+
+    /// Creates a new Collection for discrete sliding windows
+    pub(crate) fn new_for_discrete(dur: usize, wait: bool, op: WindowOperation, ty: &Type) -> Self {
+        SlidingWindowCollection { windows: HashMap::new(), duration: Either::Right(dur), wait, op, ty: ty.clone() }
+    }
+
+    /// Creates a new sliding window in the collection
+    pub(crate) fn create_window(&mut self, parameters: &[Value], start_time: Time) -> Option<&SlidingWindow> {
+        if !self.windows.contains_key(parameters) {
+            let window = match self.duration {
+                Either::Left(dur) => SlidingWindow::from_sliding(dur, self.wait, self.op, start_time, &self.ty),
+                Either::Right(dur) => SlidingWindow::from_discrete(dur, self.wait, self.op, start_time, &self.ty),
+            };
+            self.windows.insert(parameters.to_vec(), window);
+            self.windows.get(parameters)
+        } else {
+            None
+        }
+    }
+
+    /// Returns a reference to the sliding window corresponding to the parameters
+    pub(crate) fn get_window(&self, parameter: &[Value]) -> Option<&SlidingWindow> {
+        self.windows.get(parameter)
+    }
+
+    /// Returns a mutable reference to the sliding window corresponding to the parameters
+    pub(crate) fn get_window_mut(&mut self, parameter: &[Value]) -> Option<&mut SlidingWindow> {
+        self.windows.get_mut(parameter)
+    }
+
+    /// Deletes the sliding window corresponding to the parameters
+    pub(crate) fn delete_window(&mut self, parameter: &[Value]) {
+        debug_assert!(self.windows.contains_key(parameter));
+        self.windows.remove(parameter);
+    }
+
+    /// Returns a vector of all parameters for which an window exists
+    pub(crate) fn get_all_windows(&self) -> Vec<&[Value]> {
+        self.windows.keys().map(|i| i.as_slice()).collect()
     }
 }
 
@@ -115,7 +160,6 @@ impl GlobalStore {
         let (nps, ps): (Vec<&OutputStream>, Vec<&OutputStream>) =
             ir.outputs.iter().partition(|o| o.instance_template.spawn.target.is_none());
         let nps_refs: Vec<StreamReference> = nps.iter().map(|o| o.reference).collect();
-        let ps_refs: Vec<StreamReference> = ps.iter().map(|o| o.reference).collect();
 
         for (np_ix, o) in nps.iter().enumerate() {
             stream_index_map[o.reference.out_ix()] = Some(np_ix);
@@ -128,7 +172,10 @@ impl GlobalStore {
 
         //Create window index map
         let mut window_index_map: Vec<Option<usize>> = vec![None; ir.sliding_windows.len()];
-        let (np_windows, p_windows): (Vec<&rtlola_frontend::mir::SlidingWindow>, Vec<&rtlola_frontend::mir::SlidingWindow>) = ir.sliding_windows.iter().partition(|w| w.target.is_input() || nps_refs.contains(&w.target));
+        let (np_windows, p_windows): (
+            Vec<&rtlola_frontend::mir::SlidingWindow>,
+            Vec<&rtlola_frontend::mir::SlidingWindow>,
+        ) = ir.sliding_windows.iter().partition(|w| w.target.is_input() || nps_refs.contains(&w.target));
         for (ix, w) in np_windows.iter().enumerate() {
             window_index_map[w.reference.idx()] = Some(ix);
         }
@@ -140,7 +187,10 @@ impl GlobalStore {
 
         //Create discrete window index map
         let mut discrete_window_index_map: Vec<Option<usize>> = vec![None; ir.discrete_windows.len()];
-        let (np_discrete_windows, p_discrete_windows): (Vec<&rtlola_frontend::mir::DiscreteWindow>, Vec<&rtlola_frontend::mir::DiscreteWindow>) = ir.discrete_windows.iter().partition(|w| w.target.is_input() || nps_refs.contains(&w.target));
+        let (np_discrete_windows, p_discrete_windows): (
+            Vec<&rtlola_frontend::mir::DiscreteWindow>,
+            Vec<&rtlola_frontend::mir::DiscreteWindow>,
+        ) = ir.discrete_windows.iter().partition(|w| w.target.is_input() || nps_refs.contains(&w.target));
         for (ix, w) in np_discrete_windows.iter().enumerate() {
             discrete_window_index_map[w.reference.idx()] = Some(ix);
         }
@@ -150,25 +200,36 @@ impl GlobalStore {
         assert!(discrete_window_index_map.iter().all(Option::is_some));
         let discrete_window_index_map = discrete_window_index_map.into_iter().flatten().collect();
 
-
         let np_outputs = nps.iter().map(|o| InstanceStore::new(&o.ty, o.memory_bound)).collect();
         let p_outputs = ps.iter().map(|o| InstanceCollection::new(&o.ty, o.memory_bound)).collect();
         let inputs = ir.inputs.iter().map(|i| InstanceStore::new(&i.ty, i.memory_bound)).collect();
-        let np_windows = np_windows
+        let np_windows =
+            np_windows.iter().map(|w| SlidingWindow::from_sliding(w.duration, w.wait, w.op, ts, &w.ty)).collect();
+        let p_windows = p_windows
             .iter()
-            .map(|w| SlidingWindow::from_sliding(w.duration, w.wait, w.op, ts, &w.ty))
+            .map(|w| SlidingWindowCollection::new_for_sliding(w.duration, w.wait, w.op, &w.ty))
             .collect();
-        let p_windows = p_windows.iter().map(|w| SlidingWindowCollection::new(w.duration, w.wait, w.op, &w.ty)).collect();
         let np_discrete_windows = np_discrete_windows
             .iter()
             .map(|w| SlidingWindow::from_discrete(w.duration, w.wait, w.op, ts, &w.ty))
             .collect();
         let p_discrete_windows = p_discrete_windows
             .iter()
-            .map(|w| SlidingWindowCollection::new(w.duration, w.wait, w.op, &w.ty))
+            .map(|w| SlidingWindowCollection::new_for_discrete(w.duration, w.wait, w.op, &w.ty))
             .collect();
 
-        GlobalStore { inputs, stream_index_map, np_outputs, p_outputs, window_index_map, np_windows, p_windows, discrete_window_index_map, np_discrete_windows, p_discrete_windows }
+        GlobalStore {
+            inputs,
+            stream_index_map,
+            np_outputs,
+            p_outputs,
+            window_index_map,
+            np_windows,
+            p_windows,
+            discrete_window_index_map,
+            np_discrete_windows,
+            p_discrete_windows,
+        }
     }
 
     /// Returns the storage of an input stream instance
@@ -210,16 +271,32 @@ impl GlobalStore {
     /// Returns the storage of a sliding window instance
     pub(crate) fn get_window(&self, window: WindowReference) -> &SlidingWindow {
         match window {
-            WindowReference::Sliding(x) => &self.np_windows[x],
-            WindowReference::Discrete(x) => &self.np_discrete_windows[x],
+            WindowReference::Sliding(x) => &self.np_windows[self.window_index_map[x]],
+            WindowReference::Discrete(x) => &self.np_discrete_windows[self.discrete_window_index_map[x]],
+        }
+    }
+
+    /// Returns the collection of all sliding window instances
+    pub(crate) fn get_window_collection(&self, window: WindowReference) -> &SlidingWindowCollection {
+        match window {
+            WindowReference::Sliding(x) => &self.p_windows[self.window_index_map[x]],
+            WindowReference::Discrete(x) => &self.p_discrete_windows[self.discrete_window_index_map[x]],
         }
     }
 
     /// Returns the storage of a sliding window instance (mutable)
     pub(crate) fn get_window_mut(&mut self, window: WindowReference) -> &mut SlidingWindow {
         match window {
-            WindowReference::Sliding(x) => &mut self.np_windows[x],
-            WindowReference::Discrete(x) => &mut self.np_discrete_windows[x],
+            WindowReference::Sliding(x) => &mut self.np_windows[self.window_index_map[x]],
+            WindowReference::Discrete(x) => &mut self.np_discrete_windows[self.discrete_window_index_map[x]],
+        }
+    }
+
+    /// Returns the collection of all sliding window instances
+    pub(crate) fn get_window_collection_mut(&mut self, window: WindowReference) -> &mut SlidingWindowCollection {
+        match window {
+            WindowReference::Sliding(x) => &mut self.p_windows[self.window_index_map[x]],
+            WindowReference::Discrete(x) => &mut self.p_discrete_windows[self.discrete_window_index_map[x]],
         }
     }
 }

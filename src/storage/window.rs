@@ -449,6 +449,18 @@ impl<IV: WindowIv> WindowInstance<IV> {
         }
     }
 
+    /// Clears the current sliding window state
+    fn clear(&mut self) {
+        self.buckets = VecDeque::from(vec![IV::default(self.start_time); SIZE]);
+        self.last_bucket_ix = BIx::new(0, 0);
+    }
+
+    /// Restarts the sliding window
+    fn restart(&mut self, ts: Time) {
+        self.buckets = VecDeque::from(vec![IV::default(ts); SIZE]);
+        self.start_time = ts;
+    }
+
     /// You should always call `WindowInstance::update_buckets` before calling `WindowInstance::get_value()`!
     fn get_value(&self, ts: Time) -> Value {
         // Reversal is essential for non-commutative operations.
