@@ -23,7 +23,7 @@ use crate::basics::OutputHandler;
 use crate::coordination::Controller;
 #[cfg(feature = "pcap_interface")]
 use basics::PCAPInputSource;
-use basics::{CSVInputSource, EvaluatorChoice, EventSourceConfig, ExecutionMode, OutputChannel, Statistics, Verbosity};
+use basics::{CSVInputSource, EventSourceConfig, ExecutionMode, OutputChannel, Statistics, Verbosity};
 use clap::{App, AppSettings, Arg, ArgGroup, SubCommand};
 use rtlola_frontend::mir::RtLolaMir;
 use std::path::PathBuf;
@@ -251,12 +251,6 @@ impl Config {
                     ])
                     .default_value("hide")
             )
-            .arg(
-                Arg::with_name("INTERPRETED")
-                    .long("interpreted")
-                    .help("Interpret expressions instead of compilation")
-                    .hidden(cfg!(feature = "public"))
-            )
         )
         .get_matches_from(args);
 
@@ -366,9 +360,6 @@ impl Config {
             _ => unreachable!(),
         };
 
-        use EvaluatorChoice::*;
-        let evaluator = if parse_matches.is_present("INTERPRETED") { Interpreted } else { ClosureBased };
-
         use ExecutionMode::*;
         let mut mode = Offline;
         if !ids_mode {
@@ -392,7 +383,7 @@ impl Config {
             _ => unreachable!(),
         };
 
-        let cfg = EvalConfig::new(src, Statistics::None, verbosity, out, evaluator, mode, time_representation);
+        let cfg = EvalConfig::new(src, Statistics::None, verbosity, out, mode, time_representation);
 
         Config { cfg, ir }
     }
