@@ -120,7 +120,7 @@ impl Controller {
         let ir_clone = self.ir.clone();
         let output_copy_handler = self.output_handler.clone();
         let time_manager = TimeDrivenManager::setup(ir_clone, output_copy_handler)?;
-        let helper = vec![];
+        let helper = vec![]; // Needed to create the empty slice in the if conditional below.
         let mut due_streams = if has_time_driven {
             // timed streams at time 0
             time_manager.get_last_due()

@@ -171,7 +171,7 @@ impl Evaluator {
         let relative_ts = self.relative_time(ts);
         self.clear_freshness();
         self.accept_inputs(event, relative_ts);
-        self.eval_all_event_driven_outputs(relative_ts);
+        self.eval_event_driven(relative_ts);
     }
 
     /// NOT for external use because the values are volatile
@@ -229,14 +229,14 @@ impl Evaluator {
         }
     }
 
-    fn eval_all_event_driven_outputs(&mut self, ts: Time) {
+    fn eval_event_driven(&mut self, ts: Time) {
         self.prepare_evaluation(ts);
         for layer in self.layers {
-            self.eval_event_driven_tasks(layer, ts);
+            self.eval_event_driven_layer(layer, ts);
         }
     }
 
-    fn eval_event_driven_tasks(&mut self, tasks: &[Task], ts: Time) {
+    fn eval_event_driven_layer(&mut self, tasks: &[Task], ts: Time) {
         for task in tasks {
             match task {
                 Task::Evaluate(idx) => self.eval_event_driven_output(*idx, ts),
