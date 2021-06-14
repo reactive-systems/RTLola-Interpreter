@@ -82,7 +82,7 @@ impl EvaluatorData {
         let spawned_streams: Vec<&OutputStream> = ir
             .outputs
             .iter()
-            .filter(|o| o.instance_template.spawn.condition.is_some() || o.instance_template.spawn.target.is_some())
+            .filter(|o| o.is_spawned())
             .collect();
         for ss in spawned_streams {
             let spawn_layer = ss.spawn_layer().inner();
