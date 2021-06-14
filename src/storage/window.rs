@@ -395,6 +395,8 @@ pub(crate) struct WindowInstance<IV: WindowIv> {
     last_bucket_ix: BIx,
     wait: bool,
     wait_duration: Duration,
+    #[cfg(debug)]
+    is_initialized: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -446,6 +448,8 @@ impl<IV: WindowIv> WindowInstance<IV> {
             last_bucket_ix: BIx::new(0, 0),
             wait,
             wait_duration: dur,
+            #[cfg(debug)]
+            is_initialized: true,
         }
     }
 
@@ -453,16 +457,26 @@ impl<IV: WindowIv> WindowInstance<IV> {
     fn clear(&mut self) {
         self.buckets = VecDeque::from(vec![IV::default(self.start_time); SIZE]);
         self.last_bucket_ix = BIx::new(0, 0);
+        #[cfg(debug)]
+        {
+            self.is_initialized = false;
+        }
     }
 
     /// Restarts the sliding window
     fn restart(&mut self, ts: Time) {
         self.buckets = VecDeque::from(vec![IV::default(ts); SIZE]);
         self.start_time = ts;
+        #[cfg(debug)]
+        {
+            self.is_initialized = true;
+        }
     }
 
     /// You should always call `WindowInstance::update_buckets` before calling `WindowInstance::get_value()`!
     fn get_value(&self, ts: Time) -> Value {
+        #[cfg(debug)]
+        assert!(self.is_initialized);
         // Reversal is essential for non-commutative operations.
         if self.wait && ts < self.wait_duration {
             return Value::None;
@@ -471,12 +485,16 @@ impl<IV: WindowIv> WindowInstance<IV> {
     }
 
     fn accept_value(&mut self, v: Value, ts: Time) {
+        #[cfg(debug)]
+        assert!(self.is_initialized);
         self.update_buckets(ts);
         let b = self.buckets.get_mut(0).expect("Bug!");
         *b = b.clone() + (v, ts).into(); // TODO: Require add_assign rather than add.
     }
 
     fn update_buckets(&mut self, ts: Time) {
+        #[cfg(debug)]
+        assert!(self.is_initialized);
         let curr = self.get_current_bucket(ts);
         let last = self.last_bucket_ix;
 
@@ -486,6 +504,8 @@ impl<IV: WindowIv> WindowInstance<IV> {
     }
 
     fn invalidate_n(&mut self, n: usize, ts: Time) {
+        #[cfg(debug)]
+        assert!(self.is_initialized);
         for _ in 0..n {
             self.buckets.pop_back();
             self.buckets.push_front(IV::default(ts));
@@ -493,6 +513,8 @@ impl<IV: WindowIv> WindowInstance<IV> {
     }
 
     fn get_current_bucket(&self, ts: Time) -> BIx {
+        #[cfg(debug)]
+        assert!(self.is_initialized);
         // let overall_ix = ts.duration_since(self.start_time).div_duration(self.time_per_bucket);
         assert!(ts >= self.start_time, "Time does not behave monotonically!");
         let overall_ix = Self::quickfix_duration_div(ts - self.start_time, self.time_per_bucket);

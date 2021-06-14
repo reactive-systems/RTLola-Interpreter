@@ -300,7 +300,7 @@ impl Evaluator {
         match self.is_trigger(output) {
             None => {
                 // Register value in global store.
-                self.global_store.get_out_instance_mut(output).unwrap().push_value(res.clone()); // TODO: unsafe unwrap.
+                self.global_store.get_out_instance_mut(output).push_value(res.clone()); // TODO: unsafe unwrap.
                 self.fresh_outputs.insert(ix);
                 self.handler.output(|| format!("OutputStream[{}] := {:?}.", ix, res.clone()));
             }
@@ -340,7 +340,7 @@ impl Evaluator {
             }
             StreamReference::Out(ix) => {
                 let inst = ix;
-                self.global_store.get_out_instance(inst).and_then(|st| st.get_value(offset))
+                self.global_store.get_out_instance(inst).get_value(offset)
             }
         }
     }
@@ -363,7 +363,7 @@ impl<'e> EvaluationContext<'e> {
     pub(crate) fn lookup_latest(&self, stream_ref: StreamReference) -> Value {
         let inst = match stream_ref {
             StreamReference::In(ix) => self.global_store.get_in_instance(ix),
-            StreamReference::Out(ix) => self.global_store.get_out_instance(ix).expect("no out instance"),
+            StreamReference::Out(ix) => self.global_store.get_out_instance(ix),
         };
         inst.get_value(0).unwrap_or(Value::None)
     }
@@ -376,7 +376,7 @@ impl<'e> EvaluationContext<'e> {
             }
             StreamReference::Out(ix) => {
                 debug_assert!(self.fresh_outputs.contains(ix), "ix={}", ix);
-                self.global_store.get_out_instance(ix).expect("no out instance")
+                self.global_store.get_out_instance(ix)
             }
         };
         inst.get_value(0).unwrap_or(Value::None)
@@ -385,9 +385,7 @@ impl<'e> EvaluationContext<'e> {
     pub(crate) fn lookup_with_offset(&self, stream_ref: StreamReference, offset: i16) -> Value {
         let (inst, fresh) = match stream_ref {
             StreamReference::In(ix) => (self.global_store.get_in_instance(ix), self.fresh_inputs.contains(ix)),
-            StreamReference::Out(ix) => {
-                (self.global_store.get_out_instance(ix).expect("no out instance"), self.fresh_outputs.contains(ix))
-            }
+            StreamReference::Out(ix) => (self.global_store.get_out_instance(ix), self.fresh_outputs.contains(ix)),
         };
         if fresh {
             inst.get_value(offset).unwrap_or(Value::None)
