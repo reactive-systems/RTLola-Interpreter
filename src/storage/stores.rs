@@ -3,7 +3,10 @@ use super::Value;
 use crate::basics::Time;
 use crate::storage::SlidingWindow;
 use either::Either;
-use rtlola_frontend::mir::{InputReference, MemorizationBound, OutputReference, OutputStream, RtLolaMir, StreamReference, Type, WindowOperation, WindowReference, Stream};
+use rtlola_frontend::mir::{
+    InputReference, MemorizationBound, OutputReference, OutputStream, RtLolaMir, Stream, StreamReference, Type,
+    WindowOperation, WindowReference,
+};
 use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
 
@@ -160,8 +163,7 @@ impl GlobalStore {
         //Create stream index map
         let mut stream_index_map: Vec<Option<usize>> = vec![None; ir.outputs.len()];
 
-        let (ps, nps): (Vec<&OutputStream>, Vec<&OutputStream>) =
-            ir.outputs.iter().partition(|o| o.is_parameterized());
+        let (ps, nps): (Vec<&OutputStream>, Vec<&OutputStream>) = ir.outputs.iter().partition(|o| o.is_parameterized());
         let nps_refs: Vec<StreamReference> = nps.iter().map(|o| o.reference).collect();
 
         for (np_ix, o) in nps.iter().enumerate() {
