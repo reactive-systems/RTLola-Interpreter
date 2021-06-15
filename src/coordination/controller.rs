@@ -120,11 +120,12 @@ impl Controller {
         let ir_clone = self.ir.clone();
         let output_copy_handler = self.output_handler.clone();
         let time_manager = TimeDrivenManager::setup(ir_clone, output_copy_handler)?;
+        let helper = vec![];
         let mut due_streams = if has_time_driven {
             // timed streams at time 0
             time_manager.get_last_due()
         } else {
-            vec![]
+            helper.as_slice()
         };
         let mut next_deadline = Duration::default();
         let mut deadline_cycle = time_manager.get_deadline_cycle();
@@ -182,28 +183,21 @@ impl Controller {
         &'a self,
         evaluator: &mut Evaluator,
         mut deadline_iter: impl Iterator<Item = &'a Deadline>,
-        due_streams: &Vec<OutputReference>,
+        due_streams: &[Task],
         next_deadline: &mut Time,
-    ) -> Vec<OutputReference> {
+    ) -> &[Task] {
         self.output_handler.debug(|| format!("Schedule Timed-Event {:?}.", (due_streams, *next_deadline)));
         self.evaluate_timed_item(evaluator, due_streams, *next_deadline);
         let deadline = deadline_iter.next().unwrap();
         assert!(deadline.pause > Duration::from_secs(0));
         *next_deadline += deadline.pause;
-        deadline
-            .due
-            .iter()
-            .map(|t| match t {
-                Task::Evaluate(idx) => *idx,
-                Task::Spawn(_idx) => unimplemented!("Periodic Spawns are not yet implemented!"),
-            })
-            .collect()
+        deadline.due.as_slice()
     }
 
     #[inline]
-    pub(crate) fn evaluate_timed_item(&self, evaluator: &mut Evaluator, t: &TimeEvaluation, ts: Time) {
+    pub(crate) fn evaluate_timed_item(&self, evaluator: &mut Evaluator, t: &[Task], ts: Time) {
         self.output_handler.new_event();
-        evaluator.eval_time_driven_outputs(t.as_slice(), ts);
+        evaluator.eval_time_driven_tasks(t, ts);
     }
 
     #[inline]

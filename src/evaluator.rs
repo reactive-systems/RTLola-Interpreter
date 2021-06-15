@@ -3,8 +3,8 @@ use crate::closuregen::{CompiledExpr, Expr};
 use crate::storage::{GlobalStore, Value};
 use bit_set::BitSet;
 use rtlola_frontend::mir::{
-    ActivationCondition as Activation, InputReference, OutputReference, RtLolaMir, StreamReference, Trigger,
-    WindowReference,
+    ActivationCondition as Activation, InputReference, OutputReference, OutputStream, RtLolaMir, Stream,
+    StreamReference, Task, Trigger, WindowReference,
 };
 use std::sync::Arc;
 use std::time::Instant;
@@ -21,7 +21,7 @@ pub(crate) enum ActivationConditionOp {
 
 pub(crate) struct EvaluatorData {
     // Evaluation order of output streams
-    layers: Vec<Vec<OutputReference>>,
+    layers: Vec<Vec<Task>>,
     // Indexed by stream reference.
     activation_conditions: Vec<ActivationConditionOp>,
     global_store: GlobalStore,
@@ -40,7 +40,7 @@ pub(crate) struct EvaluatorData {
 #[allow(missing_debug_implementations)]
 pub(crate) struct Evaluator {
     // Evaluation order of output streams
-    layers: &'static Vec<Vec<OutputReference>>,
+    layers: &'static Vec<Vec<Task>>,
     // Indexed by stream reference.
     activation_conditions: &'static Vec<ActivationConditionOp>,
     // Indexed by stream reference.
@@ -74,7 +74,20 @@ impl EvaluatorData {
         start_time: Option<Instant>,
     ) -> Self {
         // Layers of event based output streams
-        let layers = ir.get_event_driven_layers();
+        let mut layers: Vec<Vec<Task>> = ir
+            .get_event_driven_layers()
+            .into_iter()
+            .map(|layer| layer.into_iter().map(Task::Evaluate).collect())
+            .collect();
+        let spawned_streams: Vec<&OutputStream> = ir
+            .outputs
+            .iter()
+            .filter(|o| o.instance_template.spawn.condition.is_some() || o.instance_template.spawn.target.is_some())
+            .collect();
+        for ss in spawned_streams {
+            let spawn_layer = ss.spawn_layer().inner();
+            layers[spawn_layer].push(Task::Spawn(ss.reference.out_ix()));
+        }
         handler.debug(|| format!("Evaluation layers: {:?}", layers));
         let activation_conditions = ir
             .outputs
@@ -219,13 +232,16 @@ impl Evaluator {
     fn eval_all_event_driven_outputs(&mut self, ts: Time) {
         self.prepare_evaluation(ts);
         for layer in self.layers {
-            self.eval_event_driven_outputs(layer, ts);
+            self.eval_event_driven_tasks(layer, ts);
         }
     }
 
-    fn eval_event_driven_outputs(&mut self, outputs: &[OutputReference], ts: Time) {
-        for output in outputs {
-            self.eval_event_driven_output(*output, ts);
+    fn eval_event_driven_tasks(&mut self, tasks: &[Task], ts: Time) {
+        for task in tasks {
+            match task {
+                Task::Evaluate(idx) => self.eval_event_driven_output(*idx, ts),
+                Task::Spawn(_) => unimplemented!("Spawn not yet implemented"),
+            }
         }
     }
 
@@ -235,12 +251,15 @@ impl Evaluator {
         }
     }
 
-    pub(crate) fn eval_time_driven_outputs(&mut self, outputs: &[OutputReference], ts: Time) {
+    pub(crate) fn eval_time_driven_tasks(&mut self, tasks: &[Task], ts: Time) {
         let relative_ts = self.relative_time(ts);
         self.clear_freshness();
         self.prepare_evaluation(relative_ts);
-        for output in outputs {
-            self.eval_stream(*output, relative_ts);
+        for task in tasks {
+            match task {
+                Task::Evaluate(idx) => self.eval_stream(*idx, relative_ts),
+                Task::Spawn(_) => unimplemented!("Time driven spawn not yet implemented"),
+            }
         }
     }
 

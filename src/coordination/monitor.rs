@@ -175,15 +175,8 @@ impl<V: VerdictRepresentation> Monitor<V> {
             let dl = &self.deadlines[self.dl_ix];
             self.output_handler.debug(|| format!("Schedule Timed-Event {:?}.", (&dl.due, next_deadline)));
             self.output_handler.new_event();
-            let eval_tasks: Vec<OutputReference> = dl
-                .due
-                .iter()
-                .map(|t| match t {
-                    Task::Evaluate(idx) => *idx,
-                    Task::Spawn(_idx) => unimplemented!("Periodic spawns are not yet implemented"),
-                })
-                .collect();
-            self.eval.eval_time_driven_outputs(&eval_tasks, next_deadline);
+            let eval_tasks: &[Task] = dl.due.as_slice();
+            self.eval.eval_time_driven_tasks(eval_tasks, next_deadline);
             self.dl_ix = (self.dl_ix + 1) % self.deadlines.len();
             timed_changes.push((next_deadline, V::create(self)));
             let dl = &self.deadlines[self.dl_ix];
