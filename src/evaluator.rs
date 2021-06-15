@@ -79,11 +79,7 @@ impl EvaluatorData {
             .into_iter()
             .map(|layer| layer.into_iter().map(Task::Evaluate).collect())
             .collect();
-        let spawned_streams: Vec<&OutputStream> = ir
-            .outputs
-            .iter()
-            .filter(|o| o.is_spawned())
-            .collect();
+        let spawned_streams: Vec<&OutputStream> = ir.outputs.iter().filter(|o| o.is_spawned()).collect();
         for ss in spawned_streams {
             let spawn_layer = ss.spawn_layer().inner();
             layers[spawn_layer].push(Task::Spawn(ss.reference.out_ix()));
