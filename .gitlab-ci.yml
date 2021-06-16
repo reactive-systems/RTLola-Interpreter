@@ -19,7 +19,7 @@ cargo:check-format:
     - docker
   image: rust:latest
   before_script:
-    - sed -i s/'git@projects'/"gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
+    - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
     - rustup component add rustfmt-preview
   script:
     - rustc --version && cargo --version      # Print version info for debugging
@@ -38,7 +38,7 @@ cargo:clippy:
       - target/
       - $CARGO_HOME
   before_script:
-    - sed -i s/'git@projects'/"gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
+    - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
     - rustup component add clippy-preview
   script:
     - rustc --version && cargo --version      # Print version info for debugging
@@ -67,7 +67,7 @@ cargo:test:
       - target/
       - $CARGO_HOME
   before_script:
-    - sed -i s/'git@projects'/"gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
+    - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev
   script:
@@ -83,7 +83,7 @@ cargo:test:windows:
   variables:
     CARGO_HOME: "C:\\Users\\react\\.cargo"
   before_script:
-    - (get-content Cargo.toml) | %{$_ -replace "git@projects","gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content Cargo.toml
+    - (get-content Cargo.toml) | %{$_ -replace "git=.*git@projects","git=`"https://gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content Cargo.toml
     - rustup update
     - rustc --version
     - cargo --version
@@ -106,7 +106,7 @@ cargo:test-nightly:
     RUSTFLAGS: "-Zinstrument-coverage"
     LLVM_PROFILE_FILE: "json5format-%m.profraw"
   before_script:
-    - sed -i s/'git@projects'/"gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
+    - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev python3-pip
     - pip3 install junit-xml
@@ -143,7 +143,7 @@ integration_tests:
       - target/
       - $CARGO_HOME
   before_script:
-    - sed -i s/'git@projects'/"gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
+    - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev python3-pip
     - pip3 install junit-xml
@@ -176,18 +176,18 @@ cargo:bench:
   before_script:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev
-    - sed -i s/'git@projects'/"gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
+    - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
   script:
     - rustc --version && cargo --version      # Print version info for debugging
     - cargo bench --quiet | grep -e 'bench:' | tee bench_results.txt # TODO: actually compare the results
     - sed s/'test '// bench_results.txt | sed -e s/' ... bench:'// | sed -e s/,//g | sed -e "s|ns/iter.*$||" > metrics.txt
   artifacts:
-      name: "bench_results"
-      paths:
-        - bench_results.txt
-      expire_in: 5 yrs
-      reports:
-        metrics: metrics.txt
+    name: "bench_results"
+    paths:
+      - bench_results.txt
+    expire_in: 5 yrs
+    reports:
+      metrics: metrics.txt
   allow_failure: true
 
 # For the release build we do not use the Cargo.lock file, because we haven't investigated how it interacts with different platforms.
