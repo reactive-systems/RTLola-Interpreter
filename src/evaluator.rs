@@ -3,7 +3,7 @@ use crate::closuregen::{CompiledExpr, Expr};
 use crate::storage::{GlobalStore, Value};
 use bit_set::BitSet;
 use rtlola_frontend::mir::{
-    ActivationCondition as Activation, InputReference, OutputReference, OutputStream, RtLolaMir, Stream,
+    ActivationCondition as Activation, InputReference, OutputReference, OutputStream, PacingType, RtLolaMir, Stream,
     StreamReference, Task, Trigger, WindowReference,
 };
 use std::sync::Arc;
@@ -22,8 +22,9 @@ pub(crate) enum ActivationConditionOp {
 pub(crate) struct EvaluatorData {
     // Evaluation order of output streams
     layers: Vec<Vec<Task>>,
-    // Indexed by stream reference.
-    activation_conditions: Vec<ActivationConditionOp>,
+    // Accessed by stream index
+    stream_activation_conditions: Vec<ActivationConditionOp>,
+    spawn_activation_conditions: Vec<ActivationConditionOp>,
     global_store: GlobalStore,
     start_time: Instant,
     first_event: Option<Time>,
@@ -42,9 +43,17 @@ pub(crate) struct Evaluator {
     // Evaluation order of output streams
     layers: &'static Vec<Vec<Task>>,
     // Indexed by stream reference.
-    activation_conditions: &'static Vec<ActivationConditionOp>,
-    // Indexed by stream reference.
-    compiled_exprs: Vec<CompiledExpr>,
+    stream_activation_conditions: &'static Vec<ActivationConditionOp>,
+    spawn_activation_conditions: &'static Vec<ActivationConditionOp>,
+    // Accessed by stream index
+    // If Value::None is returned by an expression the filter was false
+    compiled_stream_exprs: Vec<CompiledExpr>,
+    // Accessed by stream index
+    // If Value::None is returned, the spawn condition was false.
+    // If a stream has no spawn target, then an empty tuple is returned if the condition is true
+    compiled_spawn_exprs: Vec<CompiledExpr>,
+    // Accessed by stream index
+    compiled_close_exprs: Vec<CompiledExpr>,
     global_store: &'static mut GlobalStore,
     start_time: &'static Instant,
     first_event: &'static mut Option<Time>,
@@ -85,7 +94,7 @@ impl EvaluatorData {
             layers[spawn_layer].push(Task::Spawn(ss.reference.out_ix()));
         }
         handler.debug(|| format!("Evaluation layers: {:?}", layers));
-        let activation_conditions = ir
+        let stream_acs = ir
             .outputs
             .iter()
             .map(|o| {
@@ -96,6 +105,16 @@ impl EvaluatorData {
                 }
             })
             .collect();
+        let spawn_acs = ir
+            .outputs
+            .iter()
+            .map(|o| match &o.instance_template.spawn.pacing {
+                PacingType::Periodic(_) => ActivationConditionOp::TimeDriven,
+                PacingType::Event(ac) => ActivationConditionOp::new(ac, ir.inputs.len()),
+                PacingType::Constant => ActivationConditionOp::True,
+            })
+            .collect();
+
         let global_store = GlobalStore::new(&ir, Time::default());
         let fresh_inputs = BitSet::with_capacity(ir.inputs.len());
         let fresh_outputs = BitSet::with_capacity(ir.outputs.len());
@@ -108,7 +127,8 @@ impl EvaluatorData {
         let start_time = start_time.unwrap_or_else(Instant::now);
         EvaluatorData {
             layers,
-            activation_conditions,
+            stream_activation_conditions: stream_acs,
+            spawn_activation_conditions: spawn_acs,
             global_store,
             start_time,
             first_event: None,
@@ -129,13 +149,51 @@ impl EvaluatorData {
         // This is necessary since we leak the evaluator data.
         let heap_ptr: *mut EvaluatorData = &mut *on_heap;
         let leaked_data: &'static mut EvaluatorData = Box::leak(on_heap);
-        let compiled_exprs: Vec<CompiledExpr> =
-            leaked_data.ir.outputs.iter().map(|o| o.expr.clone().compile()).collect();
+
+        //Compile expressions
+        let compiled_stream_exprs = leaked_data
+            .ir
+            .outputs
+            .iter()
+            .map(|o| match o.instance_template.filter.as_ref() {
+                None => o.expr.clone().compile(),
+                Some(filter_exp) => CompiledExpr::create_filter(filter_exp.clone().compile(), o.expr.clone().compile()),
+            })
+            .collect();
+
+        let compiled_spawn_exprs = leaked_data
+            .ir
+            .outputs
+            .iter()
+            .map(|o| match (o.instance_template.spawn.target.as_ref(), o.instance_template.spawn.condition.as_ref()) {
+                (None, None) => CompiledExpr::new(|_| Value::None),
+                (Some(target), None) => target.clone().compile(),
+                (None, Some(condition)) => CompiledExpr::create_filter(
+                    condition.clone().compile(),
+                    CompiledExpr::new(|_| Value::Tuple(vec![].into_boxed_slice())),
+                ),
+                (Some(target), Some(condition)) => {
+                    CompiledExpr::create_filter(condition.clone().compile(), target.clone().compile())
+                }
+            })
+            .collect();
+
+        let compiled_close_exprs = leaked_data
+            .ir
+            .outputs
+            .iter()
+            .map(|o| {
+                o.instance_template.close.as_ref().map_or(CompiledExpr::new(|_| Value::None), |e| e.clone().compile())
+            })
+            .collect();
 
         Evaluator {
             layers: &leaked_data.layers,
-            activation_conditions: &leaked_data.activation_conditions,
-            compiled_exprs,
+            stream_activation_conditions: &leaked_data.stream_activation_conditions,
+            spawn_activation_conditions: &leaked_data.spawn_activation_conditions,
+            compiled_stream_exprs,
+            compiled_spawn_exprs,
+            compiled_close_exprs,
             global_store: &mut leaked_data.global_store,
             start_time: &leaked_data.start_time,
             first_event: &mut leaked_data.first_event,
@@ -242,7 +300,7 @@ impl Evaluator {
     }
 
     fn eval_event_driven_output(&mut self, output: OutputReference, ts: Time) {
-        if self.activation_conditions[output].eval(self.fresh_inputs) {
+        if self.stream_activation_conditions[output].eval(self.fresh_inputs) {
             self.eval_stream(output, ts);
         }
     }
@@ -294,8 +352,13 @@ impl Evaluator {
         let ix = output;
         self.handler.debug(|| format!("Evaluating stream {}: {}.", ix, self.ir.output(StreamReference::Out(ix)).name));
 
-        let (ctx, compiled_exprs) = self.as_EvaluationContext(ts);
-        let res = compiled_exprs[ix].execute(&ctx);
+        let ctx = self.as_EvaluationContext(ts);
+        let res = self.compiled_stream_exprs[ix].execute(&ctx);
+
+        // Filter evaluated to false
+        if let Value::None = res {
+            return;
+        }
 
         match self.is_trigger(output) {
             None => {
@@ -346,16 +409,13 @@ impl Evaluator {
     }
 
     #[allow(non_snake_case)]
-    fn as_EvaluationContext(&self, ts: Time) -> (EvaluationContext, &Vec<CompiledExpr>) {
-        (
-            EvaluationContext {
-                ts,
-                global_store: &self.global_store,
-                fresh_inputs: &self.fresh_inputs,
-                fresh_outputs: &self.fresh_outputs,
-            },
-            &self.compiled_exprs,
-        )
+    fn as_EvaluationContext(&self, ts: Time) -> EvaluationContext {
+        EvaluationContext {
+            ts,
+            global_store: &self.global_store,
+            fresh_inputs: &self.fresh_inputs,
+            fresh_outputs: &self.fresh_outputs,
+        }
     }
 }
 
@@ -1472,5 +1532,23 @@ mod tests {
             let expected = exp.clone();
             assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
         }
+    }
+
+    #[test]
+    fn test_filter() {
+        let (_, eval, start) = setup(
+            "input a: Int32\n\
+                   output b filter a == 42 := a + 8",
+        );
+        let mut eval = eval.into_evaluator();
+        let out_ref = StreamReference::Out(0);
+        let in_ref = StreamReference::In(0);
+        accept_input!(eval, start, in_ref, Signed(15));
+        eval_stream!(eval, start, out_ref.out_ix());
+        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0), Option::None);
+
+        accept_input!(eval, start, in_ref, Signed(42));
+        eval_stream!(eval, start, out_ref.out_ix());
+        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), Signed(50));
     }
 }

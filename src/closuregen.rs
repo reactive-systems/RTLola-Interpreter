@@ -13,6 +13,7 @@ use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl, Shr, Su
 pub(crate) trait Expr {
     fn compile(self) -> CompiledExpr;
 }
+
 pub(crate) struct CompiledExpr(Box<dyn Fn(&EvaluationContext<'_>) -> Value>);
 // alternative: using Higher-Rank Trait Bounds (HRTBs)
 // pub(crate) struct CompiledExpr<'s>(Box<dyn 's + for<'a> Fn(&EvaluationContext<'a>) -> Value>);
@@ -21,6 +22,14 @@ impl CompiledExpr {
     /// Creates a compiled expression IR from a generic closure.
     pub(crate) fn new(closure: impl 'static + Fn(&EvaluationContext<'_>) -> Value) -> Self {
         CompiledExpr(Box::new(closure))
+    }
+
+    /// Creates a compiled expression returning the value of the `value_exp` if the `filter_exp` evaluates to true
+    /// and None otherwise.
+    pub(crate) fn create_filter(filter_exp: CompiledExpr, value_exp: CompiledExpr) -> Self {
+        CompiledExpr::new(
+            move |ctx| if filter_exp.execute(ctx).get_bool() { value_exp.execute(ctx) } else { Value::None },
+        )
     }
 
     /// Executes a filter against a provided context with values.
