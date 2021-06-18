@@ -136,6 +136,16 @@ impl EvaluatorData {
                 PacingType::Constant => ActivationConditionOp::True,
             })
             .collect();
+        let spawn_acs = ir
+            .outputs
+            .iter()
+            .map(|o| match &o.instance_template.spawn.pacing {
+                PacingType::Periodic(_) => ActivationConditionOp::TimeDriven,
+                PacingType::Event(ac) => ActivationConditionOp::new(ac, ir.inputs.len()),
+                PacingType::Constant => ActivationConditionOp::True,
+            })
+            .collect();
+
         let global_store = GlobalStore::new(&ir, Time::default());
         let fresh_inputs = BitSet::with_capacity(ir.inputs.len());
         let fresh_outputs = BitSet::with_capacity(ir.outputs.len());
