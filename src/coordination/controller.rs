@@ -4,7 +4,7 @@ use super::{WorkItem, CAP_WORK_QUEUE};
 use crate::basics::{EvalConfig, ExecutionMode::*, OutputHandler, Time};
 use crate::coordination::dynamic_schedule::DynamicSchedule;
 use crate::coordination::monitor::Monitor;
-use crate::coordination::EventEvaluation;
+use crate::coordination::{EventEvaluation, TimeEvaluation};
 use crate::evaluator::{Evaluator, EvaluatorData};
 use crossbeam_channel::{bounded, unbounded};
 use rtlola_frontend::mir::{Deadline, OutputReference, PacingType, RtLolaMir, Task};
