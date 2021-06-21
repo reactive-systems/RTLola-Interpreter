@@ -1,5 +1,6 @@
 use crate::basics::{EvalConfig, ExecutionMode, OutputHandler, Time};
 use crate::closuregen::{CompiledExpr, Expr};
+use crate::coordination::EvaluationTask;
 use crate::storage::{GlobalStore, Value};
 use bit_set::BitSet;
 use rtlola_frontend::mir::{
@@ -9,7 +10,6 @@ use rtlola_frontend::mir::{
 use std::sync::Arc;
 use std::time::Instant;
 use string_template::Template;
-use crate::coordination::EvaluationTask;
 
 /// Enum to describe the activation condition of a stream; If the activation condition is described by a conjunction, the evaluator uses a bitset representation.
 #[derive(Debug)]
@@ -297,7 +297,7 @@ impl Evaluator {
             match task {
                 Task::Evaluate(idx) => self.eval_event_driven_output(*idx, ts),
                 Task::Spawn(_) => unimplemented!("Spawn not yet implemented"),
-                Task::Close(_) => unreachable!("Closes are not included in evaluation layer.")
+                Task::Close(_) => unreachable!("Closes are not included in evaluation layer."),
             }
         }
     }
@@ -308,7 +308,7 @@ impl Evaluator {
         }
     }
 
-    pub(crate) fn eval_time_driven_tasks(&mut self, tasks:Vec<EvaluationTask<'_>>, ts: Time) {
+    pub(crate) fn eval_time_driven_tasks(&mut self, tasks: Vec<EvaluationTask<'_>>, ts: Time) {
         let relative_ts = self.relative_time(ts);
         self.clear_freshness();
         self.prepare_evaluation(relative_ts);

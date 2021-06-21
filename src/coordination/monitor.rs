@@ -1,5 +1,5 @@
 use crate::basics::{EvalConfig, OutputHandler, Time};
-use crate::coordination::{Event, EvaluationTask};
+use crate::coordination::{EvaluationTask, Event};
 use crate::evaluator::{Evaluator, EvaluatorData};
 use crate::storage::Value;
 use rtlola_frontend::mir::{Deadline, InputReference, OutputReference, RtLolaMir, Task, Type};

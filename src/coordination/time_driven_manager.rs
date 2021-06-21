@@ -1,26 +1,26 @@
 use super::WorkItem;
 use crate::basics::{OutputHandler, Time};
 
+use crate::evaluator::Evaluator;
+use crate::Value;
 use crossbeam_channel::Sender;
-use rtlola_frontend::mir::{Deadline, RtLolaMir, Task, OutputReference};
+use rtlola_frontend::mir::{Deadline, OutputReference, RtLolaMir, Task};
 use spin_sleep::SpinSleeper;
 use std::sync::Arc;
-use std::time::{Instant, Duration};
-use crate::Value;
-use crate::evaluator::Evaluator;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum EvaluationTask<'a> {
     /// Evaluate the output stream. If it is parameterized, evaluated all existing instances.
     Evaluate(OutputReference),
     /// Evaluate a specific instance of the output stream,
-    EvaluateInstance(OutputReference, &'a[Value]),
+    EvaluateInstance(OutputReference, &'a [Value]),
     /// Spawn a new instance of the output stream,
     Spawn(OutputReference),
     /// Evaluate the close condition of the stream for all existing instances.
     Close(OutputReference),
     /// Evaluate the close condition for this specific instance.
-    CloseInstance(OutputReference, &'a[Value]),
+    CloseInstance(OutputReference, &'a [Value]),
 }
 
 impl From<Task> for EvaluationTask<'_> {
@@ -49,14 +49,26 @@ impl TimeDrivenManager {
     pub(crate) fn setup(ir: RtLolaMir, handler: Arc<OutputHandler>) -> Result<TimeDrivenManager, String> {
         if ir.time_driven.is_empty() {
             // return dummy
-            return Ok(TimeDrivenManager{deadlines: vec![], handler, cur_deadline_idx: 0, next_deadline: Duration::default(), due_streams: vec![] });
+            return Ok(TimeDrivenManager {
+                deadlines: vec![],
+                handler,
+                cur_deadline_idx: 0,
+                next_deadline: Duration::default(),
+                due_streams: vec![],
+            });
         }
 
         let schedule = ir.compute_schedule()?;
         let due_streams = schedule.deadlines.last().unwrap().due.clone();
-        let cur_deadline_idx = schedule.deadlines.len()-1;
+        let cur_deadline_idx = schedule.deadlines.len() - 1;
 
-        Ok(TimeDrivenManager { deadlines: schedule.deadlines, handler, cur_deadline_idx, next_deadline: Duration::default(), due_streams  })
+        Ok(TimeDrivenManager {
+            deadlines: schedule.deadlines,
+            handler,
+            cur_deadline_idx,
+            next_deadline: Duration::default(),
+            due_streams,
+        })
     }
 
     pub(crate) fn get_last_due(&self) -> &[Task] {
@@ -117,13 +129,12 @@ impl TimeDrivenManager {
         evaluator.eval_time_driven_tasks(timed_event, self.next_deadline);
 
         // Prepare for next deadline
-        self.cur_deadline_idx = (self.cur_deadline_idx+1) % self.deadlines.len();
+        self.cur_deadline_idx = (self.cur_deadline_idx + 1) % self.deadlines.len();
         let deadline = &self.deadlines[self.cur_deadline_idx];
         assert!(deadline.pause > Duration::from_secs(0));
         self.next_deadline += deadline.pause;
         self.due_streams = deadline.due.clone();
     }
-
 
     //The following code is useful and could partly be used again for robustness.
 

@@ -1,9 +1,9 @@
-use std::collections::BinaryHeap;
-use rtlola_frontend::mir::OutputReference;
-use std::time::Duration;
-use crate::{Time, Value};
-use std::cmp::Ordering;
 use crate::coordination::EvaluationTask;
+use crate::{Time, Value};
+use rtlola_frontend::mir::OutputReference;
+use std::cmp::Ordering;
+use std::collections::BinaryHeap;
+use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// A struct representing a scheduled task
@@ -38,22 +38,24 @@ pub(crate) struct DynamicSchedule<'a> {
     queue: BinaryHeap<ScheduledTask<'a>>,
 }
 
-impl  DynamicSchedule<'_> {
+impl DynamicSchedule<'_> {
     pub(crate) fn new() -> Self {
-        DynamicSchedule{
-            queue: BinaryHeap::new(),
-        }
+        DynamicSchedule { queue: BinaryHeap::new() }
     }
 
     /// creates a new Task in the Schedule
-    pub(crate) fn schedule_close(&mut self, target: OutputReference, now: Time, period: Duration){
-    }
+    pub(crate) fn schedule_close(&mut self, target: OutputReference, now: Time, period: Duration) {}
 
     /// Schedule an instance for evaluation
-    pub(crate) fn schedule_instance(&mut self, target: OutputReference, parameter: &[Value], now: Time, period: Duration){
+    pub(crate) fn schedule_instance(
+        &mut self,
+        target: OutputReference,
+        parameter: &[Value],
+        now: Time,
+        period: Duration,
+    ) {
     }
 
     /// Removes a scheduled instance from the schedule
-    pub(crate) fn remove_instance(&mut self, target: OutputReference, parameter: &[Value]){
-    }
+    pub(crate) fn remove_instance(&mut self, target: OutputReference, parameter: &[Value]) {}
 }
