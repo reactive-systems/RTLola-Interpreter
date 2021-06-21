@@ -1,5 +1,5 @@
 use crate::basics::{EvalConfig, OutputHandler, Time};
-use crate::coordination::Event;
+use crate::coordination::{Event, EvaluationTask};
 use crate::evaluator::{Evaluator, EvaluatorData};
 use crate::storage::Value;
 use rtlola_frontend::mir::{Deadline, InputReference, OutputReference, RtLolaMir, Task, Type};
@@ -175,7 +175,7 @@ impl<V: VerdictRepresentation> Monitor<V> {
             let dl = &self.deadlines[self.dl_ix];
             self.output_handler.debug(|| format!("Schedule Timed-Event {:?}.", (&dl.due, next_deadline)));
             self.output_handler.new_event();
-            let eval_tasks: &[Task] = dl.due.as_slice();
+            let eval_tasks: Vec<EvaluationTask<'_>> = dl.due.iter().map(|t| (*t).into()).collect();
             self.eval.eval_time_driven_tasks(eval_tasks, next_deadline);
             self.dl_ix = (self.dl_ix + 1) % self.deadlines.len();
             timed_changes.push((next_deadline, V::create(self)));

@@ -2,16 +2,46 @@ use super::WorkItem;
 use crate::basics::{OutputHandler, Time};
 
 use crossbeam_channel::Sender;
-use rtlola_frontend::mir::{Deadline, RtLolaMir, Task};
+use rtlola_frontend::mir::{Deadline, RtLolaMir, Task, OutputReference};
 use spin_sleep::SpinSleeper;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Instant, Duration};
+use crate::Value;
+use crate::evaluator::Evaluator;
 
-pub(crate) type TimeEvaluation = Vec<Task>;
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum EvaluationTask<'a> {
+    /// Evaluate the output stream. If it is parameterized, evaluated all existing instances.
+    Evaluate(OutputReference),
+    /// Evaluate a specific instance of the output stream,
+    EvaluateInstance(OutputReference, &'a[Value]),
+    /// Spawn a new instance of the output stream,
+    Spawn(OutputReference),
+    /// Evaluate the close condition of the stream for all existing instances.
+    Close(OutputReference),
+    /// Evaluate the close condition for this specific instance.
+    CloseInstance(OutputReference, &'a[Value]),
+}
+
+impl From<Task> for EvaluationTask<'_> {
+    fn from(task: Task) -> Self {
+        match task {
+            Task::Evaluate(idx) => EvaluationTask::Evaluate(idx),
+            Task::Spawn(idx) => EvaluationTask::Spawn(idx),
+            Task::Close(idx) => EvaluationTask::Close(idx),
+        }
+    }
+}
+
+pub(crate) type TimeEvaluation<'a> = Vec<EvaluationTask<'a>>;
 
 pub(crate) struct TimeDrivenManager {
     deadlines: Vec<Deadline>,
     handler: Arc<OutputHandler>,
+    // The following fields are only used for offline evaluation
+    cur_deadline_idx: usize,
+    next_deadline: Duration,
+    due_streams: Vec<Task>,
 }
 
 impl TimeDrivenManager {
@@ -19,12 +49,14 @@ impl TimeDrivenManager {
     pub(crate) fn setup(ir: RtLolaMir, handler: Arc<OutputHandler>) -> Result<TimeDrivenManager, String> {
         if ir.time_driven.is_empty() {
             // return dummy
-            return Ok(TimeDrivenManager { deadlines: vec![], handler });
+            return Ok(TimeDrivenManager{deadlines: vec![], handler, cur_deadline_idx: 0, next_deadline: Duration::default(), due_streams: vec![] });
         }
 
         let schedule = ir.compute_schedule()?;
+        let due_streams = schedule.deadlines.last().unwrap().due.clone();
+        let cur_deadline_idx = schedule.deadlines.len()-1;
 
-        Ok(TimeDrivenManager { deadlines: schedule.deadlines, handler })
+        Ok(TimeDrivenManager { deadlines: schedule.deadlines, handler, cur_deadline_idx, next_deadline: Duration::default(), due_streams  })
     }
 
     pub(crate) fn get_last_due(&self) -> &[Task] {
@@ -39,7 +71,7 @@ impl TimeDrivenManager {
     pub(crate) fn start_online(self, start_time: Instant, work_chan: Sender<WorkItem>) -> ! {
         assert!(!self.deadlines.is_empty());
         // timed streams at time 0
-        let item = WorkItem::Time(self.get_last_due().to_vec(), Time::default());
+        let item = WorkItem::Time(self.get_last_due().iter().map(|t| (*t).into()).collect(), Time::default());
         if work_chan.send(item).is_err() {
             self.handler.runtime_warning(|| "TDM: Sending failed; evaluation cycle lost.");
         }
@@ -56,7 +88,7 @@ impl TimeDrivenManager {
                 let wait_time = due_time - time;
                 SpinSleeper::new(1_000_000).sleep(wait_time);
             }
-            let eval_tasks: Vec<Task> = deadline.due.to_vec();
+            let eval_tasks: Vec<EvaluationTask> = deadline.due.iter().map(|t| (*t).into()).collect();
             let item = WorkItem::Time(eval_tasks, due_time);
             if work_chan.send(item).is_err() {
                 self.handler.runtime_warning(|| "TDM: Sending failed; evaluation cycle lost.");
@@ -64,6 +96,34 @@ impl TimeDrivenManager {
         }
         unreachable!("should loop indefinitely")
     }
+
+    pub(crate) fn accept_time_offline(&mut self, evaluator: &mut Evaluator, ts: Time) {
+        while !self.deadlines.is_empty() && ts > self.next_deadline {
+            self.schedule_event(evaluator);
+        }
+    }
+
+    pub(crate) fn end_offline(&mut self, evaluator: &mut Evaluator, ts: Time) {
+        // schedule last timed event before terminating
+        while !self.deadlines.is_empty() && ts == self.next_deadline {
+            self.schedule_event(evaluator);
+        }
+    }
+
+    fn schedule_event(&mut self, evaluator: &mut Evaluator) {
+        self.handler.debug(|| format!("Schedule Timed-Event {:?}.", (&self.due_streams, &self.next_deadline)));
+        let timed_event: Vec<EvaluationTask<'_>> = self.due_streams.iter().map(|t| (*t).into()).collect();
+        self.handler.new_event();
+        evaluator.eval_time_driven_tasks(timed_event, self.next_deadline);
+
+        // Prepare for next deadline
+        self.cur_deadline_idx = (self.cur_deadline_idx+1) % self.deadlines.len();
+        let deadline = &self.deadlines[self.cur_deadline_idx];
+        assert!(deadline.pause > Duration::from_secs(0));
+        self.next_deadline += deadline.pause;
+        self.due_streams = deadline.due.clone();
+    }
+
 
     //The following code is useful and could partly be used again for robustness.
 

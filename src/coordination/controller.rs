@@ -9,7 +9,7 @@ use rtlola_frontend::mir::{Deadline, OutputReference, RtLolaMir, Task};
 use std::error::Error;
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 pub(crate) struct Controller {
     ir: RtLolaMir,
@@ -77,7 +77,7 @@ impl Controller {
             self.output_handler.debug(|| format!("Received {:?}.", item));
             match item {
                 WorkItem::Event(e, ts) => self.evaluate_event_item(&mut evaluator, &e, ts),
-                WorkItem::Time(t, ts) => self.evaluate_timed_item(&mut evaluator, &t, ts),
+                WorkItem::Time(t, ts) => self.evaluate_timed_item(&mut evaluator, t, ts),
                 WorkItem::End => {
                     self.output_handler.output(|| "Finished entire input. Terminating.");
                     std::process::exit(0);
@@ -93,8 +93,8 @@ impl Controller {
         let (work_tx, work_rx) = bounded(CAP_WORK_QUEUE);
         let (time_tx, time_rx) = bounded(1);
 
+        // Setup EventDrivenManager
         let output_copy_handler = self.output_handler.clone();
-
         let ir_clone = self.ir.clone();
         let cfg_clone = self.config.clone();
         let edm_thread = thread::Builder::new()
@@ -107,33 +107,24 @@ impl Controller {
             })
             .unwrap_or_else(|e| unreachable!("Failed to start EventDrivenManager thread: {}", e));
 
+        // Get start time
         let start_time = match time_rx.recv() {
             Err(e) => unreachable!("Did not receive a start event in offline mode! {}", e),
             Ok(ts) => ts,
         };
-
         let mut start_time_ref = self.output_handler.start_time.lock().unwrap();
         *start_time_ref = start_time;
         drop(start_time_ref);
 
-        let has_time_driven = !self.ir.time_driven.is_empty();
+        // Setup TimeDrivenManager
         let ir_clone = self.ir.clone();
         let output_copy_handler = self.output_handler.clone();
-        let time_manager = TimeDrivenManager::setup(ir_clone, output_copy_handler)?;
-        let helper = vec![]; // Needed to create the empty slice in the if conditional below.
-        let mut due_streams = if has_time_driven {
-            // timed streams at time 0
-            time_manager.get_last_due()
-        } else {
-            helper.as_slice()
-        };
-        let mut next_deadline = Duration::default();
-        let mut deadline_cycle = time_manager.get_deadline_cycle();
+        let mut time_manager = TimeDrivenManager::setup(ir_clone, output_copy_handler)?;
 
+        // Setup Evaluator
         let output_copy_handler = self.output_handler.clone();
         let evaluatordata =
             EvaluatorData::new(self.ir.clone(), self.config.clone(), output_copy_handler, Some(Instant::now()));
-
         let mut evaluator = evaluatordata.into_evaluator();
 
         let mut current_time = Time::default();
@@ -143,30 +134,14 @@ impl Controller {
                 self.output_handler.debug(|| format!("Received {:?}.", item));
                 match item {
                     WorkItem::Event(e, ts) => {
-                        while has_time_driven && ts > next_deadline {
-                            // Go back in time, evaluate,...
-                            due_streams = self.schedule_timed(
-                                &mut evaluator,
-                                &mut deadline_cycle,
-                                &due_streams,
-                                &mut next_deadline,
-                            );
-                        }
+                        time_manager.accept_time_offline(&mut evaluator, ts);
                         self.output_handler.debug(|| format!("Schedule Event {:?}.", (&e, ts)));
                         self.evaluate_event_item(&mut evaluator, &e, ts);
                         current_time = ts;
                     }
                     WorkItem::Time(_, _) => panic!("Received time command in offline mode."),
                     WorkItem::End => {
-                        while has_time_driven && current_time == next_deadline {
-                            // schedule last timed event before terminating
-                            due_streams = self.schedule_timed(
-                                &mut evaluator,
-                                &mut deadline_cycle,
-                                &due_streams,
-                                &mut next_deadline,
-                            );
-                        }
+                        time_manager.end_offline(&mut evaluator, current_time);
                         self.output_handler.output(|| "Finished entire input. Terminating.");
                         self.output_handler.terminate();
                         break 'outer;
@@ -179,23 +154,8 @@ impl Controller {
         Ok(())
     }
 
-    fn schedule_timed<'a>(
-        &'a self,
-        evaluator: &mut Evaluator,
-        mut deadline_iter: impl Iterator<Item = &'a Deadline>,
-        due_streams: &[Task],
-        next_deadline: &mut Time,
-    ) -> &[Task] {
-        self.output_handler.debug(|| format!("Schedule Timed-Event {:?}.", (due_streams, *next_deadline)));
-        self.evaluate_timed_item(evaluator, due_streams, *next_deadline);
-        let deadline = deadline_iter.next().unwrap();
-        assert!(deadline.pause > Duration::from_secs(0));
-        *next_deadline += deadline.pause;
-        deadline.due.as_slice()
-    }
-
     #[inline]
-    pub(crate) fn evaluate_timed_item(&self, evaluator: &mut Evaluator, t: &[Task], ts: Time) {
+    pub(crate) fn evaluate_timed_item(&self, evaluator: &mut Evaluator, t: TimeEvaluation, ts: Time) {
         self.output_handler.new_event();
         evaluator.eval_time_driven_tasks(t, ts);
     }
@@ -203,6 +163,6 @@ impl Controller {
     #[inline]
     pub(crate) fn evaluate_event_item(&self, evaluator: &mut Evaluator, e: &EventEvaluation, ts: Time) {
         self.output_handler.new_event();
-        evaluator.eval_event(e.as_slice(), ts)
+        evaluator.eval_event(e, ts)
     }
 }

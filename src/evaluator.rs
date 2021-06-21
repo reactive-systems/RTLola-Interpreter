@@ -9,6 +9,7 @@ use rtlola_frontend::mir::{
 use std::sync::Arc;
 use std::time::Instant;
 use string_template::Template;
+use crate::coordination::EvaluationTask;
 
 /// Enum to describe the activation condition of a stream; If the activation condition is described by a conjunction, the evaluator uses a bitset representation.
 #[derive(Debug)]
@@ -288,6 +289,7 @@ impl Evaluator {
         for layer in self.layers {
             self.eval_event_driven_layer(layer, ts);
         }
+        //Todo: Eval all event driven close conditions
     }
 
     fn eval_event_driven_layer(&mut self, tasks: &[Task], ts: Time) {
@@ -295,6 +297,7 @@ impl Evaluator {
             match task {
                 Task::Evaluate(idx) => self.eval_event_driven_output(*idx, ts),
                 Task::Spawn(_) => unimplemented!("Spawn not yet implemented"),
+                Task::Close(_) => unreachable!("Closes are not included in evaluation layer.")
             }
         }
     }
@@ -305,14 +308,17 @@ impl Evaluator {
         }
     }
 
-    pub(crate) fn eval_time_driven_tasks(&mut self, tasks: &[Task], ts: Time) {
+    pub(crate) fn eval_time_driven_tasks(&mut self, tasks:Vec<EvaluationTask<'_>>, ts: Time) {
         let relative_ts = self.relative_time(ts);
         self.clear_freshness();
         self.prepare_evaluation(relative_ts);
         for task in tasks {
             match task {
-                Task::Evaluate(idx) => self.eval_stream(*idx, relative_ts),
-                Task::Spawn(_) => unimplemented!("Time driven spawn not yet implemented"),
+                EvaluationTask::Evaluate(idx) => self.eval_stream(idx, relative_ts),
+                EvaluationTask::Spawn(_) => unimplemented!("Time driven spawn not yet implemented"),
+                EvaluationTask::Close(_) => unimplemented!("Time driven close not yet implemented"),
+
+                _ => {}
             }
         }
     }
