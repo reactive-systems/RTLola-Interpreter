@@ -3,7 +3,6 @@ pub(crate) mod dynamic_schedule;
 mod event_driven_manager;
 pub mod monitor;
 mod time_driven_manager;
-mod dynamic_schedule;
 
 // Re-exports
 pub(crate) use self::controller::Controller;
@@ -14,7 +13,6 @@ pub(crate) use self::time_driven_manager::EvaluationTask;
 pub(crate) use self::time_driven_manager::TimeEvaluation;
 use crate::basics::Time;
 use crate::storage::Value;
-pub(crate) use self::time_driven_manager::EvaluationTask;
 
 pub type Event = Vec<Value>;
 

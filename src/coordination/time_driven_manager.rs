@@ -296,13 +296,12 @@ impl TimeDrivenManager {
         evaluator.eval_time_driven_tasks(timed_event, self.next_deadline);
 
         // Prepare for next deadline
-        self.cur_deadline_idx = (self.cur_deadline_idx+1) % self.deadlines.len();
+        self.cur_deadline_idx = (self.cur_deadline_idx + 1) % self.deadlines.len();
         let deadline = &self.deadlines[self.cur_deadline_idx];
         assert!(deadline.pause > Duration::from_secs(0));
         self.next_deadline += deadline.pause;
         self.due_streams = deadline.due.clone();
     }
-
 
     //The following code is useful and could partly be used again for robustness.
 

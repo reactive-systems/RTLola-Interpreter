@@ -10,7 +10,6 @@ use rtlola_frontend::mir::{
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Instant;
 use string_template::Template;
-use crate::coordination::EvaluationTask;
 
 /// Enum to describe the activation condition of a stream; If the activation condition is described by a conjunction, the evaluator uses a bitset representation.
 #[derive(Debug)]
