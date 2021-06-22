@@ -24,7 +24,7 @@ path = "src/bin/rtlola.rs"
 rtlola-frontend = "0.4.2"
 ordered-float = "1.0.2"
 csv = "1.1.1"
-pcap = { version = "0.7.0", optional = true } # pcap file parsing
+pcap = { version = "0.8.1", optional = true } # pcap file parsing
 etherparse = "0.9.0" # Network Packet parser
 ip_network = "0.3.4" # IP Address handling
 clap = "2.33.0"  # command line parsing
