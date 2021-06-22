@@ -314,11 +314,9 @@ impl Evaluator {
         self.prepare_evaluation(relative_ts);
         for task in tasks {
             match task {
-                EvaluationTask::Evaluate(idx) => self.eval_stream(idx, relative_ts),
+                EvaluationTask::Evaluate(idx, _) => self.eval_stream(idx, relative_ts),
                 EvaluationTask::Spawn(_) => unimplemented!("Time driven spawn not yet implemented"),
-                EvaluationTask::Close(_) => unimplemented!("Time driven close not yet implemented"),
-
-                _ => {}
+                EvaluationTask::Close(_, _) => unimplemented!("Time driven close not yet implemented"),
             }
         }
     }

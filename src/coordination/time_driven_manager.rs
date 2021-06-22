@@ -9,26 +9,22 @@ use spin_sleep::SpinSleeper;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum EvaluationTask<'a> {
-    /// Evaluate the output stream. If it is parameterized, evaluated all existing instances.
-    Evaluate(OutputReference),
-    /// Evaluate a specific instance of the output stream,
-    EvaluateInstance(OutputReference, &'a [Value]),
+    /// Evaluate a specific instance of the output stream, or all instances if the slice is empty
+    Evaluate(OutputReference, &'a [Value]),
     /// Spawn a new instance of the output stream,
     Spawn(OutputReference),
-    /// Evaluate the close condition of the stream for all existing instances.
-    Close(OutputReference),
-    /// Evaluate the close condition for this specific instance.
-    CloseInstance(OutputReference, &'a [Value]),
+    /// Evaluate the close condition for this specific instance, or all instances if the slice is empty.
+    Close(OutputReference, &'a [Value]),
 }
 
 impl From<Task> for EvaluationTask<'_> {
     fn from(task: Task) -> Self {
         match task {
-            Task::Evaluate(idx) => EvaluationTask::Evaluate(idx),
+            Task::Evaluate(idx) => EvaluationTask::Evaluate(idx, &[]),
             Task::Spawn(idx) => EvaluationTask::Spawn(idx),
-            Task::Close(idx) => EvaluationTask::Close(idx),
+            Task::Close(idx) => EvaluationTask::Close(idx, &[]),
         }
     }
 }
@@ -109,31 +105,36 @@ impl TimeDrivenManager {
         unreachable!("should loop indefinitely")
     }
 
+    /// Evaluates all deadlines due before time `ts`
     pub(crate) fn accept_time_offline(&mut self, evaluator: &mut Evaluator, ts: Time) {
         while !self.deadlines.is_empty() && ts > self.next_deadline {
-            self.schedule_event(evaluator);
+            self.eval_next_deadline(evaluator, ts);
         }
     }
 
+    /// Evaluates all deadlines due at time `ts`
     pub(crate) fn end_offline(&mut self, evaluator: &mut Evaluator, ts: Time) {
         // schedule last timed event before terminating
         while !self.deadlines.is_empty() && ts == self.next_deadline {
-            self.schedule_event(evaluator);
+            self.eval_next_deadline(evaluator, ts);
         }
     }
 
-    fn schedule_event(&mut self, evaluator: &mut Evaluator) {
-        self.handler.debug(|| format!("Schedule Timed-Event {:?}.", (&self.due_streams, &self.next_deadline)));
-        let timed_event: Vec<EvaluationTask<'_>> = self.due_streams.iter().map(|t| (*t).into()).collect();
-        self.handler.new_event();
-        evaluator.eval_time_driven_tasks(timed_event, self.next_deadline);
+    /// Evaluates the next deadline that is due
+    pub(crate) fn eval_next_deadline(&mut self, evaluator: &mut Evaluator, ts: Time) {
+        if ts >= self.next_deadline {
+            self.handler.debug(|| format!("Schedule Timed-Event {:?}.", (&self.due_streams, &self.next_deadline)));
+            let timed_event: Vec<EvaluationTask<'_>> = self.due_streams.iter().map(|t| (*t).into()).collect();
+            self.handler.new_event();
+            evaluator.eval_time_driven_tasks(timed_event, self.next_deadline);
 
-        // Prepare for next deadline
-        self.cur_deadline_idx = (self.cur_deadline_idx + 1) % self.deadlines.len();
-        let deadline = &self.deadlines[self.cur_deadline_idx];
-        assert!(deadline.pause > Duration::from_secs(0));
-        self.next_deadline += deadline.pause;
-        self.due_streams = deadline.due.clone();
+            // Prepare for next deadline
+            self.cur_deadline_idx = (self.cur_deadline_idx + 1) % self.deadlines.len();
+            let deadline = &self.deadlines[self.cur_deadline_idx];
+            assert!(deadline.pause > Duration::from_secs(0));
+            self.next_deadline += deadline.pause;
+            self.due_streams = deadline.due.clone();
+        }
     }
 
     //The following code is useful and could partly be used again for robustness.
