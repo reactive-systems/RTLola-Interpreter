@@ -4,6 +4,7 @@
 
 use crate::evaluator::EvaluationContext;
 use crate::storage::Value;
+use ordered_float::NotNan;
 use regex::bytes::Regex as BytesRegex;
 use regex::Regex;
 use rtlola_frontend::mir::{Constant, Expression, ExpressionKind, Offset, StreamAccessKind, Type};
@@ -37,7 +38,7 @@ impl Expr for Expression {
                     Constant::Bool(b) => Value::Bool(b),
                     Constant::UInt(u) => Value::Unsigned(u),
                     Constant::Int(i) => Value::Signed(i),
-                    Constant::Float(f) => Value::Float(f.into()),
+                    Constant::Float(f) => Value::Float(NotNan::new(f).expect("Constants shouldn't allow NaN")),
                     Constant::Str(s) => Value::Str(s.into_boxed_str()),
                 };
                 CompiledExpr::new(move |_| v.clone())
