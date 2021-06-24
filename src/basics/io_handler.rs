@@ -5,7 +5,11 @@ use crate::basics::{CSVEventSource, CSVInputSource, Time};
 #[cfg(feature = "pcap_interface")]
 use crate::basics::{PCAPEventSource, PCAPInputSource};
 use crate::storage::Value;
-use crossterm::{cursor, terminal, ClearType};
+use crossterm::{
+    cursor::MoveUp,
+    execute,
+    terminal::{Clear, ClearType},
+};
 use rtlola_frontend::mir::RtLolaMir;
 use std::error::Error;
 use std::fs::File;
@@ -300,12 +304,10 @@ impl Statistics {
     }
 
     fn clear_progress_info() {
-        let terminal = terminal();
+        let mut stdout = stdout();
         // clear screen as much as written in `print_progress_info`
-        cursor().move_up(1);
-        terminal.clear(ClearType::CurrentLine).unwrap_or_else(|_| {});
-        cursor().move_up(1);
-        terminal.clear(ClearType::CurrentLine).unwrap_or_else(|_| {});
+        execute!(stdout, MoveUp(1u16), Clear(ClearType::CurrentLine)).unwrap_or_else(|_| {});
+        execute!(stdout, MoveUp(1u16), Clear(ClearType::CurrentLine)).unwrap_or_else(|_| {});
     }
 
     #[cfg(test)]
