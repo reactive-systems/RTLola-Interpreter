@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### General
 - Trigger messages can now include stream names to display their value.
+- Periodic streams are no longer evaluated at time 0.
 - Update Api allowing different verbosities
 
 ### Added

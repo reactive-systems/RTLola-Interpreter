@@ -1,13 +1,13 @@
 use crate::basics::{EvalConfig, ExecutionMode, OutputHandler, Time};
 use crate::closuregen::{CompiledExpr, Expr};
-use crate::coordination::EvaluationTask;
+use crate::coordination::{DynamicSchedule, EvaluationTask};
 use crate::storage::{GlobalStore, Value};
 use bit_set::BitSet;
 use rtlola_frontend::mir::{
     ActivationCondition as Activation, InputReference, OutputReference, OutputStream, PacingType, RtLolaMir, Stream,
     StreamReference, Task, Trigger, WindowReference,
 };
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use string_template::Template;
 
@@ -37,6 +37,7 @@ pub(crate) struct EvaluatorData {
     ir: RtLolaMir,
     handler: Arc<OutputHandler>,
     config: EvalConfig,
+    dyn_schedule: Arc<Mutex<DynamicSchedule>>,
 }
 
 #[allow(missing_debug_implementations)]
@@ -66,6 +67,7 @@ pub(crate) struct Evaluator {
     ir: &'static RtLolaMir,
     handler: &'static OutputHandler,
     config: &'static EvalConfig,
+    dyn_schedule: &'static Mutex<DynamicSchedule>,
     raw_data: *mut EvaluatorData,
 }
 
@@ -82,6 +84,7 @@ impl EvaluatorData {
         config: EvalConfig,
         handler: Arc<OutputHandler>,
         start_time: Option<Instant>,
+        dyn_schedule: Arc<Mutex<DynamicSchedule>>,
     ) -> Self {
         // Layers of event based output streams
         let mut layers: Vec<Vec<Task>> = ir
@@ -141,6 +144,7 @@ impl EvaluatorData {
             ir,
             handler,
             config,
+            dyn_schedule,
         }
     }
 
@@ -206,6 +210,7 @@ impl EvaluatorData {
             ir: &leaked_data.ir,
             handler: &leaked_data.handler,
             config: &leaked_data.config,
+            dyn_schedule: &leaked_data.dyn_schedule,
             raw_data: heap_ptr,
         }
     }
@@ -308,7 +313,7 @@ impl Evaluator {
         }
     }
 
-    pub(crate) fn eval_time_driven_tasks(&mut self, tasks: Vec<EvaluationTask<'_>>, ts: Time) {
+    pub(crate) fn eval_time_driven_tasks(&mut self, tasks: Vec<EvaluationTask>, ts: Time) {
         let relative_ts = self.relative_time(ts);
         self.clear_freshness();
         self.prepare_evaluation(relative_ts);
@@ -527,8 +532,9 @@ mod tests {
         let mut config = EvalConfig::default();
         config.verbosity = crate::basics::Verbosity::WarningsOnly;
         let handler = Arc::new(OutputHandler::new(&config, ir.triggers.len()));
+        let dyn_schedule = Arc::new(Mutex::new(DynamicSchedule::new()));
         let now = Instant::now();
-        let eval = EvaluatorData::new(ir.clone(), config, handler, Some(now));
+        let eval = EvaluatorData::new(ir.clone(), config, handler, Some(now), dyn_schedule);
         (ir, eval, now)
     }
 

@@ -2,12 +2,14 @@ use super::event_driven_manager::EventDrivenManager;
 use super::time_driven_manager::TimeDrivenManager;
 use super::{WorkItem, CAP_WORK_QUEUE};
 use crate::basics::{EvalConfig, ExecutionMode::*, OutputHandler, Time};
+use crate::coordination::dynamic_schedule::DynamicSchedule;
+use crate::coordination::monitor::Monitor;
 use crate::coordination::{EventEvaluation, TimeEvaluation};
 use crate::evaluator::{Evaluator, EvaluatorData};
 use crossbeam_channel::{bounded, unbounded};
-use rtlola_frontend::mir::{Deadline, OutputReference, RtLolaMir, Task};
+use rtlola_frontend::mir::{PacingType, Deadline, OutputReference, RtLolaMir, Task};
 use std::error::Error;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
 
@@ -18,12 +20,15 @@ pub(crate) struct Controller {
 
     /// Handles all kind of output behavior according to config.
     pub(crate) output_handler: Arc<OutputHandler>,
+
+    dyn_schedule: Arc<Mutex<DynamicSchedule>>,
 }
 
 impl Controller {
     pub(crate) fn new(ir: RtLolaMir, config: EvalConfig) -> Self {
         let output_handler = Arc::new(OutputHandler::new(&config, ir.triggers.len()));
-        Self { ir, config, output_handler }
+        let dyn_schedule = Arc::new(Mutex::new(DynamicSchedule::new()));
+        Self { ir, config, output_handler, dyn_schedule }
     }
 
     pub(crate) fn start(self) -> Result<Arc<OutputHandler>, Box<dyn Error>> {
@@ -40,16 +45,17 @@ impl Controller {
     fn evaluate_online(&self) -> Result<(), Box<dyn Error>> {
         let (work_tx, work_rx) = unbounded();
         let now = Instant::now();
-
         let copy_output_handler = self.output_handler.clone();
 
-        let has_time_driven = !self.ir.time_driven.is_empty();
+        let has_time_driven = !self.ir.time_driven.is_empty()
+            || self.ir.outputs.iter().any(|o| matches!(o.instance_template.spawn.pacing, PacingType::Periodic(_)));
         if has_time_driven {
             let work_tx_clone = work_tx.clone();
             let ir_clone = self.ir.clone();
+            let ds_clone = self.dyn_schedule.clone();
             let _ = thread::Builder::new().name("TimeDrivenManager".into()).spawn(move || {
-                let time_manager =
-                    TimeDrivenManager::setup(ir_clone, copy_output_handler).unwrap_or_else(|s| panic!("{}", s));
+                let time_manager = TimeDrivenManager::setup(ir_clone, copy_output_handler, ds_clone)
+                    .unwrap_or_else(|s| panic!("{}", s));
                 time_manager.start_online(now, work_tx_clone);
             });
         };
@@ -65,7 +71,13 @@ impl Controller {
         });
 
         let copy_output_handler = self.output_handler.clone();
-        let evaluatordata = EvaluatorData::new(self.ir.clone(), self.config.clone(), copy_output_handler, Some(now));
+        let evaluatordata = EvaluatorData::new(
+            self.ir.clone(),
+            self.config.clone(),
+            copy_output_handler,
+            Some(now),
+            self.dyn_schedule.clone(),
+        );
 
         let mut evaluator = evaluatordata.into_evaluator();
 
@@ -119,12 +131,17 @@ impl Controller {
         // Setup TimeDrivenManager
         let ir_clone = self.ir.clone();
         let output_copy_handler = self.output_handler.clone();
-        let mut time_manager = TimeDrivenManager::setup(ir_clone, output_copy_handler)?;
+        let mut time_manager = TimeDrivenManager::setup(ir_clone, output_copy_handler, self.dyn_schedule.clone())?;
 
         // Setup Evaluator
         let output_copy_handler = self.output_handler.clone();
-        let evaluatordata =
-            EvaluatorData::new(self.ir.clone(), self.config.clone(), output_copy_handler, Some(Instant::now()));
+        let evaluatordata = EvaluatorData::new(
+            self.ir.clone(),
+            self.config.clone(),
+            output_copy_handler,
+            Some(Instant::now()),
+            self.dyn_schedule.clone(),
+        );
         let mut evaluator = evaluatordata.into_evaluator();
 
         let mut current_time = Time::default();

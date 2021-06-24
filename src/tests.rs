@@ -166,13 +166,13 @@ fn timed_dependencies() {
     // The execution should look as follows:
     //
     // time     | 0 | 1 |
-    // a        | 1 | 1 |
-    // b        | 1 | 1 |
-    // c        | 0 | 1 |
-    // d        | 1 | 0 |
-    assert_eq!(output_handler.statistics.as_ref().unwrap().get_num_trigger(0), 2);
-    assert_eq!(output_handler.statistics.as_ref().unwrap().get_num_trigger(1), 2);
-    assert_eq!(output_handler.statistics.as_ref().unwrap().get_num_trigger(2), 1);
+    // a        | - | 1 |
+    // b        | - | 1 |
+    // c        | - | 0 |
+    // d        | - | 1 |
+    assert_eq!(output_handler.statistics.as_ref().unwrap().get_num_trigger(0), 1);
+    assert_eq!(output_handler.statistics.as_ref().unwrap().get_num_trigger(1), 1);
+    assert_eq!(output_handler.statistics.as_ref().unwrap().get_num_trigger(2), 0);
     assert_eq!(output_handler.statistics.as_ref().unwrap().get_num_trigger(3), 1);
 }
 
@@ -239,16 +239,16 @@ trigger a∨b "a∨b"
     // The execution should look as follows:
     //
     // time     | 0 | 1 | 2 | 3 | 4 | 5 | 6 |
-    // a        | 0 | 1 | 0 | 1 | 0 | 1 | 0 |
-    // b        | 1 | 0 | 1 | 0 | 1 | 0 | 1 |
-    // trig a   | 0 | 1 | 0 | 1 | 0 | 1 | 0 |
-    // trig b   | 1 | 0 | 1 | 0 | 1 | 0 | 1 |
+    // a        | - | 0 | 1 | 0 | 1 | 0 | 1 |
+    // b        | - | 1 | 0 | 1 | 0 | 1 | 0 |
+    // trig a   | 0 | 0 | 1 | 0 | 1 | 0 | 1 |
+    // trig b   | 0 | 1 | 0 | 1 | 0 | 1 | 0 |
     // trig a∧b | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-    // trig a∨b | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
+    // trig a∨b | 0 | 1 | 1 | 1 | 1 | 1 | 1 |
     assert_eq!(output_handler.statistics.as_ref().unwrap().get_num_trigger(0), 3);
-    assert_eq!(output_handler.statistics.as_ref().unwrap().get_num_trigger(1), 4);
+    assert_eq!(output_handler.statistics.as_ref().unwrap().get_num_trigger(1), 3);
     assert_eq!(output_handler.statistics.as_ref().unwrap().get_num_trigger(2), 0);
-    assert_eq!(output_handler.statistics.as_ref().unwrap().get_num_trigger(3), 7);
+    assert_eq!(output_handler.statistics.as_ref().unwrap().get_num_trigger(3), 6);
 }
 
 #[test]
@@ -299,9 +299,9 @@ trigger b > 3
     //
     // time  | 0.0 | 0.01 | 0.1 | 0.11 | 0.2 | 0.21 | 0.3 | 0.31 | 0.4 | 0.41 | 0.5 | 0.51 | 0.6 | 0.61 | 0.7 | 0.71
     // in a  |   1 |    2 |   - |    1 |   - |    2 |   - |    1 |   - |    2 |   - |    1 |   - |    2 |   - |    1
-    // out b |   1 |    - |   2 |    - |   3 |    - |   4 |    - |   5 |    - |   6 |    - |   7 |    - |   8 |    -
-    // trig  |   0 |    - |   0 |    - |   0 |    - |   1 |    - |   1 |    - |   1 |    - |   1 |    - |   1 |    -
-    assert_eq!(output_handler.statistics.as_ref().unwrap().get_num_trigger(0), 5);
+    // out b |   - |    - |   1 |    - |   2 |    - |   3 |    - |   4 |    - |   5 |    - |   6 |    - |   7 |    -
+    // trig  |   0 |    - |   0 |    - |   0 |    - |   0 |    - |   1 |    - |   1 |    - |   1 |    - |   1 |    -
+    assert_eq!(output_handler.statistics.as_ref().unwrap().get_num_trigger(0), 4);
 }
 
 #[test]

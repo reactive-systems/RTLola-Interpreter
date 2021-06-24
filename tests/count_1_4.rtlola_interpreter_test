@@ -8,10 +8,8 @@
       "time_info": []
     },
     "count is 1": {
-      "expected_count": 1,
-      "time_info": [
-        "0.000000000"
-      ]
+      "expected_count": 0,
+      "time_info": []
     },
     "count is 2": {
       "expected_count": 0,
