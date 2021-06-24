@@ -17,9 +17,9 @@ use crate::storage::Value;
 pub type Event = Vec<Value>;
 
 #[derive(Debug, Clone)]
-pub(crate) enum WorkItem<'a> {
+pub(crate) enum WorkItem {
     Event(EventEvaluation, Time),
-    Time(TimeEvaluation<'a>, Time),
+    Time(TimeEvaluation, Time),
     End,
 }
 

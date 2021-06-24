@@ -276,32 +276,6 @@ impl TimeDrivenManager {
         }
     }
 
-    pub(crate) fn accept_time_offline(&mut self, evaluator: &mut Evaluator, ts: Time) {
-        while !self.deadlines.is_empty() && ts > self.next_deadline {
-            self.schedule_event(evaluator);
-        }
-    }
-
-    pub(crate) fn end_offline(&mut self, evaluator: &mut Evaluator, ts: Time) {
-        // schedule last timed event before terminating
-        while !self.deadlines.is_empty() && ts == self.next_deadline {
-            self.schedule_event(evaluator);
-        }
-    }
-
-    fn schedule_event(&mut self, evaluator: &mut Evaluator) {
-        self.handler.debug(|| format!("Schedule Timed-Event {:?}.", (&self.due_streams, &self.next_deadline)));
-        let timed_event: Vec<EvaluationTask<'_>> = self.due_streams.iter().map(|t| (*t).into()).collect();
-        self.handler.new_event();
-        evaluator.eval_time_driven_tasks(timed_event, self.next_deadline);
-
-        // Prepare for next deadline
-        self.cur_deadline_idx = (self.cur_deadline_idx + 1) % self.deadlines.len();
-        let deadline = &self.deadlines[self.cur_deadline_idx];
-        assert!(deadline.pause > Duration::from_secs(0));
-        self.next_deadline += deadline.pause;
-        self.due_streams = deadline.due.clone();
-    }
 
     //The following code is useful and could partly be used again for robustness.
 
