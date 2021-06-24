@@ -41,10 +41,10 @@ pub(crate) struct EvaluatorData {
 #[allow(missing_debug_implementations)]
 pub(crate) struct Evaluator {
     // Evaluation order of output streams
-    layers: &'static Vec<Vec<Task>>,
+    layers: &'static [Vec<Task>],
     // Indexed by stream reference.
-    stream_activation_conditions: &'static Vec<ActivationConditionOp>,
-    spawn_activation_conditions: &'static Vec<ActivationConditionOp>,
+    stream_activation_conditions: &'static [ActivationConditionOp],
+    spawn_activation_conditions: &'static [ActivationConditionOp],
     // Accessed by stream index
     // If Value::None is returned by an expression the filter was false
     compiled_stream_exprs: Vec<CompiledExpr>,
@@ -60,8 +60,8 @@ pub(crate) struct Evaluator {
     fresh_inputs: &'static mut BitSet,
     fresh_outputs: &'static mut BitSet,
     fresh_triggers: &'static mut BitSet,
-    triggers: &'static Vec<Option<Trigger>>,
-    trigger_templates: &'static Vec<Option<Template>>,
+    triggers: &'static [Option<Trigger>],
+    trigger_templates: &'static [Option<Template>],
     ir: &'static RtLolaMir,
     handler: &'static OutputHandler,
     config: &'static EvalConfig,
