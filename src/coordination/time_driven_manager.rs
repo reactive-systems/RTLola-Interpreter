@@ -7,7 +7,7 @@ use crate::Value;
 use crossbeam_channel::Sender;
 use rtlola_frontend::mir::{Deadline, OutputReference, PacingType, RtLolaMir, Stream, Task};
 use spin_sleep::SpinSleeper;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -34,8 +34,9 @@ pub(crate) type TimeEvaluation = Vec<EvaluationTask>;
 
 pub(crate) struct TimeDrivenManager {
     ir: RtLolaMir,
+    has_time_drive: bool,
     deadlines: Vec<Deadline>,
-    dyn_schedule: Arc<Mutex<DynamicSchedule>>,
+    dyn_schedule: Arc<(Mutex<DynamicSchedule>, Condvar)>,
     handler: Arc<OutputHandler>,
     // The following fields are only used for offline evaluation
     cur_static_deadline_idx: usize,
@@ -48,7 +49,7 @@ impl TimeDrivenManager {
     pub(crate) fn setup(
         ir: RtLolaMir,
         handler: Arc<OutputHandler>,
-        dyn_schedule: Arc<Mutex<DynamicSchedule>>,
+        dyn_schedule: Arc<(Mutex<DynamicSchedule>, Condvar)>,
     ) -> Result<TimeDrivenManager, String> {
         let contains_time_driven = !ir.time_driven.is_empty()
             || ir.outputs.iter().any(|o| matches!(o.instance_template.spawn.pacing, PacingType::Periodic(_)));
@@ -56,6 +57,7 @@ impl TimeDrivenManager {
             // return dummy
             return Ok(TimeDrivenManager {
                 ir,
+                has_time_drive: false,
                 deadlines: vec![],
                 dyn_schedule,
                 handler,
@@ -73,6 +75,7 @@ impl TimeDrivenManager {
 
         Ok(TimeDrivenManager {
             ir,
+            has_time_drive: true,
             deadlines: schedule.deadlines,
             dyn_schedule,
             handler,
@@ -83,22 +86,33 @@ impl TimeDrivenManager {
     }
 
     pub(crate) fn get_next_due(&self) -> Time {
-        self.next_static_deadline
-            .min(self.dyn_schedule.lock().unwrap().get_next_deadline_due().unwrap_or(self.next_static_deadline))
+        self.get_next_due_locked(&self.dyn_schedule.0.lock().unwrap())
+    }
+
+    fn get_next_due_locked(&self, dyn_schedule: &MutexGuard<DynamicSchedule>) -> Time {
+        self.next_static_deadline.min(dyn_schedule.get_next_deadline_due().unwrap_or(self.next_static_deadline))
     }
 
     pub(crate) fn get_next_deadline(&mut self, now: Time) -> Vec<EvaluationTask> {
-        debug_assert!(
-            !self.ir.time_driven.is_empty()
-                || self.ir.outputs.iter().any(|o| matches!(o.instance_template.spawn.pacing, PacingType::Periodic(_)))
-        );
+        let schedule_copy = self.dyn_schedule.clone();
+        let lock = schedule_copy.0.lock();
+        let res = self.get_next_deadline_locked(now, &mut lock.unwrap());
+        res
+    }
+
+    fn get_next_deadline_locked(
+        &mut self,
+        now: Time,
+        dyn_schedule: &mut MutexGuard<DynamicSchedule>,
+    ) -> Vec<EvaluationTask> {
+        debug_assert!(self.has_time_drive);
 
         let static_due = self.next_static_deadline;
-        let dyn_due = self.dyn_schedule.lock().unwrap().get_next_deadline_due();
+        let dyn_due = dyn_schedule.get_next_deadline_due();
 
         match (static_due, dyn_due) {
             (sd, Some(dd)) if dd < sd => {
-                let mut dyn_deadline = self.dyn_schedule.lock().as_mut().unwrap().get_next_deadline(now).unwrap();
+                let mut dyn_deadline = dyn_schedule.get_next_deadline(now).unwrap();
                 dyn_deadline.sort(&self.ir);
                 dyn_deadline.tasks
             }
@@ -111,7 +125,7 @@ impl TimeDrivenManager {
                 self.next_static_deadline += deadline.pause;
                 self.static_due_streams = deadline.due.clone();
 
-                let dyn_deadline = self.dyn_schedule.lock().as_mut().unwrap().get_next_deadline(now).unwrap().tasks;
+                let dyn_deadline = dyn_schedule.get_next_deadline(now).unwrap().tasks;
 
                 let mut res =
                     static_deadline.into_iter().chain(dyn_deadline.into_iter()).collect::<Vec<EvaluationTask>>();
@@ -123,6 +137,7 @@ impl TimeDrivenManager {
                 res
             }
             _ => {
+                // There is no dynamic deadline or it is after a static one
                 let res = self.static_due_streams.iter().map(|t| (*t).into()).collect();
                 self.cur_static_deadline_idx = (self.cur_static_deadline_idx + 1) % self.deadlines.len();
                 let deadline = &self.deadlines[self.cur_static_deadline_idx];
@@ -134,70 +149,86 @@ impl TimeDrivenManager {
         }
     }
 
-    pub(crate) fn get_last_due(&self) -> &[Task] {
-        assert!(!self.deadlines.is_empty());
-        self.deadlines.last().unwrap().due.as_slice()
-    }
+    pub(crate) fn start_online(mut self, start_time: Instant, work_chan: Sender<WorkItem>) -> ! {
+        debug_assert!(self.has_time_drive);
+        let now = Instant::now();
+        assert!(now >= start_time, "Time does not behave monotonically!");
+        let time = now - start_time;
+        self.next_static_deadline += time;
 
-    pub(crate) fn get_deadline_cycle(&self) -> impl Iterator<Item = &Deadline> {
-        self.deadlines.iter().cycle()
-    }
+        let schedule_copy = self.dyn_schedule.clone();
 
-    pub(crate) fn start_online(self, start_time: Instant, work_chan: Sender<WorkItem>) -> ! {
-        assert!(!self.deadlines.is_empty());
-        let deadline_cycle = self.get_deadline_cycle();
-        let mut due_time = Time::default();
-        for deadline in deadline_cycle {
-            due_time += deadline.pause;
+        loop {
+            let mut schedule = schedule_copy.0.lock().unwrap();
+            let mut due_time = self.get_next_due_locked(&schedule);
 
             let now = Instant::now();
             assert!(now >= start_time, "Time does not behave monotonically!");
-            let time = now - start_time;
+            let mut time = now - start_time;
 
             if time < due_time {
-                let wait_time = due_time - time;
-                SpinSleeper::new(1_000_000).sleep(wait_time);
+                // Sleep until deadline or until schedule changes
+                while time < due_time {
+                    let wait_time = due_time - time;
+
+                    //Todo: This wait is inaccurate.
+                    let (new_schedule, wait_res) = self.dyn_schedule.1.wait_timeout(schedule, wait_time).unwrap();
+                    schedule = new_schedule;
+                    //Note: spurious wake-ups should not be a problem
+
+                    let now = Instant::now();
+                    assert!(now >= start_time, "Time does not behave monotonically!");
+                    time = now - start_time;
+                    due_time = self.get_next_due_locked(&schedule);
+                }
             }
-            let eval_tasks: Vec<EvaluationTask> = deadline.due.iter().map(|t| (*t).into()).collect();
+            let mut eval_tasks: Vec<EvaluationTask> = self.get_next_deadline_locked(due_time, &mut schedule);
+
             let item = WorkItem::Time(eval_tasks, due_time);
             if work_chan.send(item).is_err() {
                 self.handler.runtime_warning(|| "TDM: Sending failed; evaluation cycle lost.");
             }
         }
-        unreachable!("should loop indefinitely")
     }
 
     /// Evaluates all deadlines due before time `ts`
     pub(crate) fn accept_time_offline(&mut self, evaluator: &mut Evaluator, ts: Time) {
-        while !self.deadlines.is_empty() && ts > self.next_static_deadline {
+        if !self.has_time_drive {
+            return;
+        }
+        while ts > self.get_next_due() {
             self.eval_next_deadline(evaluator, ts);
         }
     }
 
     /// Evaluates all deadlines due at time `ts`
     pub(crate) fn end_offline(&mut self, evaluator: &mut Evaluator, ts: Time) {
+        if !self.has_time_drive {
+            return;
+        }
+
         // schedule last timed event before terminating
-        while !self.deadlines.is_empty() && ts == self.next_static_deadline {
+        while ts == self.get_next_due() {
             self.eval_next_deadline(evaluator, ts);
         }
     }
 
     /// Evaluates the next deadline that is due
     pub(crate) fn eval_next_deadline(&mut self, evaluator: &mut Evaluator, ts: Time) {
-        if ts >= self.next_static_deadline {
-            self.handler.debug(|| {
-                format!("Schedule Timed-Event {:?}.", (&self.static_due_streams, &self.next_static_deadline))
-            });
-            let timed_event: Vec<EvaluationTask> = self.static_due_streams.iter().map(|t| (*t).into()).collect();
-            self.handler.new_event();
-            evaluator.eval_time_driven_tasks(timed_event, self.next_static_deadline);
+        debug_assert!(
+            !self.ir.time_driven.is_empty()
+                || self.ir.outputs.iter().any(|o| matches!(o.instance_template.spawn.pacing, PacingType::Periodic(_)))
+        );
 
-            // Prepare for next deadline
-            self.cur_static_deadline_idx = (self.cur_static_deadline_idx + 1) % self.deadlines.len();
-            let deadline = &self.deadlines[self.cur_static_deadline_idx];
-            assert!(deadline.pause > Duration::from_secs(0));
-            self.next_static_deadline += deadline.pause;
-            self.static_due_streams = deadline.due.clone();
+        let schedule_copy = self.dyn_schedule.clone();
+        let mut schedule = schedule_copy.0.lock().unwrap();
+        let next_due = self.get_next_due_locked(&schedule);
+        if ts >= next_due {
+            let due_streams = self.get_next_deadline_locked(ts, &mut schedule);
+            drop(schedule);
+            self.handler.debug(|| format!("Schedule Timed-Event {:?}.", (&due_streams, next_due)));
+            self.handler.new_event();
+            evaluator.eval_time_driven_tasks(due_streams, next_due);
         }
     }
 

@@ -7,7 +7,7 @@ use rtlola_frontend::mir::{
     ActivationCondition as Activation, InputReference, OutputReference, OutputStream, PacingType, RtLolaMir, Stream,
     StreamReference, Task, Trigger, WindowReference,
 };
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Instant;
 use string_template::Template;
 
@@ -37,7 +37,7 @@ pub(crate) struct EvaluatorData {
     ir: RtLolaMir,
     handler: Arc<OutputHandler>,
     config: EvalConfig,
-    dyn_schedule: Arc<Mutex<DynamicSchedule>>,
+    dyn_schedule: Arc<(Mutex<DynamicSchedule>, Condvar)>,
 }
 
 #[allow(missing_debug_implementations)]
@@ -67,7 +67,7 @@ pub(crate) struct Evaluator {
     ir: &'static RtLolaMir,
     handler: &'static OutputHandler,
     config: &'static EvalConfig,
-    dyn_schedule: &'static Mutex<DynamicSchedule>,
+    dyn_schedule: &'static (Mutex<DynamicSchedule>, Condvar),
     raw_data: *mut EvaluatorData,
 }
 
@@ -84,7 +84,7 @@ impl EvaluatorData {
         config: EvalConfig,
         handler: Arc<OutputHandler>,
         start_time: Option<Instant>,
-        dyn_schedule: Arc<Mutex<DynamicSchedule>>,
+        dyn_schedule: Arc<(Mutex<DynamicSchedule>, Condvar)>,
     ) -> Self {
         // Layers of event based output streams
         let mut layers: Vec<Vec<Task>> = ir
@@ -532,7 +532,8 @@ mod tests {
         let mut config = EvalConfig::default();
         config.verbosity = crate::basics::Verbosity::WarningsOnly;
         let handler = Arc::new(OutputHandler::new(&config, ir.triggers.len()));
-        let dyn_schedule = Arc::new(Mutex::new(DynamicSchedule::new()));
+        let cond = Condvar::new();
+        let dyn_schedule = Arc::new((Mutex::new(DynamicSchedule::new()), cond));
         let now = Instant::now();
         let eval = EvaluatorData::new(ir.clone(), config, handler, Some(now), dyn_schedule);
         (ir, eval, now)

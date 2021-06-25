@@ -4,6 +4,7 @@ use priority_queue::PriorityQueue;
 use rtlola_frontend::mir::{OutputReference, Stream};
 use rtlola_frontend::RtLolaMir;
 use std::cmp::Reverse;
+use std::sync::Condvar;
 use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -17,6 +18,7 @@ pub(crate) struct ScheduledTask {
 
 #[derive(Debug, Clone)]
 pub(crate) struct DynamicDeadline {
+    /// Relative to the start of the monitor
     pub(crate) due: Time,
     pub(crate) tasks: Vec<EvaluationTask>,
 }
@@ -43,6 +45,7 @@ impl DynamicSchedule {
     /// Schedule the evaluation of stream or of an instance if parameters are given.
     pub(crate) fn schedule_evaluation(
         &mut self,
+        condition: &Condvar,
         target: OutputReference,
         parameter: &[Value],
         now: Time,
@@ -50,24 +53,47 @@ impl DynamicSchedule {
     ) {
         let task = ScheduledTask { task: EvaluationTask::Evaluate(target, parameter.to_vec()), period };
         self.queue.push(task, Reverse(now + period));
+        condition.notify_all();
     }
 
     /// Schedule the close evaluation of a stream or of an instance if parameters are given.
-    pub(crate) fn schedule_close(&mut self, target: OutputReference, parameter: &[Value], now: Time, period: Duration) {
+    pub(crate) fn schedule_close(
+        &mut self,
+        condition: &Condvar,
+        target: OutputReference,
+        parameter: &[Value],
+        now: Time,
+        period: Duration,
+    ) {
         let task = ScheduledTask { task: EvaluationTask::Close(target, parameter.to_vec()), period };
         self.queue.push(task, Reverse(now + period));
+        condition.notify_all();
     }
 
     /// Removes a scheduled evaluation from the schedule
-    pub(crate) fn remove_evaluation(&mut self, target: OutputReference, parameter: &[Value], period: Duration) {
+    pub(crate) fn remove_evaluation(
+        &mut self,
+        condition: &Condvar,
+        target: OutputReference,
+        parameter: &[Value],
+        period: Duration,
+    ) {
         let task = ScheduledTask { task: EvaluationTask::Evaluate(target, parameter.to_vec()), period };
         self.queue.remove(&task);
+        condition.notify_all();
     }
 
     /// Removes a scheduled close from the schedule
-    pub(crate) fn remove_close(&mut self, target: OutputReference, parameter: &[Value], period: Duration) {
+    pub(crate) fn remove_close(
+        &mut self,
+        condition: &Condvar,
+        target: OutputReference,
+        parameter: &[Value],
+        period: Duration,
+    ) {
         let task = ScheduledTask { task: EvaluationTask::Close(target, parameter.to_vec()), period };
         self.queue.remove(&task);
+        condition.notify_all();
     }
 
     /// Returns the next scheduled task until and including the given time
@@ -104,15 +130,17 @@ mod tests {
     use crate::coordination::dynamic_schedule::DynamicSchedule;
     use crate::coordination::EvaluationTask;
     use crate::Value;
+    use std::sync::Condvar;
     use std::time::Duration;
 
     #[test]
     fn test_reschedule() {
+        let cond = Condvar::new();
         let mut schedule = DynamicSchedule::new();
         let now = Duration::default();
-        schedule.schedule_evaluation(0, &[], now, Duration::from_secs(5));
-        schedule.schedule_close(1, &[], now, Duration::from_secs(2));
-        schedule.schedule_evaluation(2, &[], now, Duration::from_secs(7));
+        schedule.schedule_evaluation(&cond, 0, &[], now, Duration::from_secs(5));
+        schedule.schedule_close(&cond, 1, &[], now, Duration::from_secs(2));
+        schedule.schedule_evaluation(&cond, 2, &[], now, Duration::from_secs(7));
 
         let res = schedule.get_next_deadline(Duration::from_secs(10)).unwrap();
         assert_eq!(res.due, Duration::from_secs(2));
@@ -146,11 +174,12 @@ mod tests {
 
     #[test]
     fn test_unschedule() {
+        let cond = Condvar::new();
         let mut schedule = DynamicSchedule::new();
         let now = Duration::default();
-        schedule.schedule_evaluation(0, &[], now, Duration::from_secs(5));
-        schedule.schedule_close(1, &[], now, Duration::from_secs(2));
-        schedule.schedule_evaluation(2, &[], now, Duration::from_secs(7));
+        schedule.schedule_evaluation(&cond, 0, &[], now, Duration::from_secs(5));
+        schedule.schedule_close(&cond, 1, &[], now, Duration::from_secs(2));
+        schedule.schedule_evaluation(&cond, 2, &[], now, Duration::from_secs(7));
 
         let res = schedule.get_next_deadline(Duration::from_secs(10)).unwrap();
         assert_eq!(res.due, Duration::from_secs(2));
@@ -160,7 +189,7 @@ mod tests {
         assert_eq!(res.due, Duration::from_secs(4));
         assert_eq!(res.tasks, vec![EvaluationTask::Close(1, vec![])]);
 
-        schedule.remove_close(1, &[], Duration::from_secs(2));
+        schedule.remove_close(&cond, 1, &[], Duration::from_secs(2));
         let res = schedule.get_next_deadline(Duration::from_secs(10)).unwrap();
         assert_eq!(res.due, Duration::from_secs(5));
         assert_eq!(res.tasks, vec![EvaluationTask::Evaluate(0, vec![])]);
@@ -173,7 +202,7 @@ mod tests {
         assert_eq!(res.due, Duration::from_secs(10));
         assert_eq!(res.tasks, vec![EvaluationTask::Evaluate(0, vec![])]);
 
-        schedule.remove_evaluation(0, &[], Duration::from_secs(5));
+        schedule.remove_evaluation(&cond, 0, &[], Duration::from_secs(5));
         let res = schedule.get_next_deadline(Duration::from_secs(20)).unwrap();
         assert_eq!(res.due, Duration::from_secs(14));
         assert_eq!(res.tasks, vec![EvaluationTask::Evaluate(2, vec![])]);
@@ -182,17 +211,18 @@ mod tests {
         let res = schedule.get_next_deadline(Duration::from_secs(30)).unwrap();
         assert_eq!(res.due, Duration::from_secs(21));
         assert_eq!(res.tasks, vec![EvaluationTask::Evaluate(2, vec![])]);
-        schedule.remove_evaluation(2, &[], Duration::from_secs(7));
+        schedule.remove_evaluation(&cond, 2, &[], Duration::from_secs(7));
         assert!(schedule.get_next_deadline(Duration::from_secs(50)).is_none());
     }
 
     #[test]
     fn test_involved() {
+        let cond = Condvar::new();
         let mut schedule = DynamicSchedule::new();
         let now = Duration::default();
-        schedule.schedule_evaluation(0, &[], now, Duration::from_secs(5));
-        schedule.schedule_close(1, &[], now, Duration::from_secs(2));
-        schedule.schedule_evaluation(2, &[], now, Duration::from_secs(7));
+        schedule.schedule_evaluation(&cond, 0, &[], now, Duration::from_secs(5));
+        schedule.schedule_close(&cond, 1, &[], now, Duration::from_secs(2));
+        schedule.schedule_evaluation(&cond, 2, &[], now, Duration::from_secs(7));
 
         let res = schedule.get_next_deadline(Duration::from_secs(10)).unwrap();
         assert_eq!(res.due, Duration::from_secs(2));
@@ -203,7 +233,7 @@ mod tests {
         assert_eq!(res.tasks, vec![EvaluationTask::Close(1, vec![])]);
 
         let para = vec![Value::Bool(true), Value::Signed(42)];
-        schedule.schedule_evaluation(3, &para, Duration::from_secs(4), Duration::from_secs(1));
+        schedule.schedule_evaluation(&cond, 3, &para, Duration::from_secs(4), Duration::from_secs(1));
 
         let res = schedule.get_next_deadline(Duration::from_secs(10)).unwrap();
         assert_eq!(res.due, Duration::from_secs(5));
@@ -215,7 +245,7 @@ mod tests {
         assert!(res.tasks.contains(&EvaluationTask::Close(1, vec![])));
         assert!(res.tasks.contains(&EvaluationTask::Evaluate(3, para.clone())));
 
-        schedule.remove_evaluation(3, &para, Duration::from_secs(1));
+        schedule.remove_evaluation(&cond, 3, &para, Duration::from_secs(1));
 
         let res = schedule.get_next_deadline(Duration::from_secs(10)).unwrap();
         assert_eq!(res.due, Duration::from_secs(7));

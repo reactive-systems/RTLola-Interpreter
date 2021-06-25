@@ -9,7 +9,7 @@ use crate::evaluator::{Evaluator, EvaluatorData};
 use crossbeam_channel::{bounded, unbounded};
 use rtlola_frontend::mir::{PacingType, Deadline, OutputReference, RtLolaMir, Task};
 use std::error::Error;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Instant;
 
@@ -21,13 +21,14 @@ pub(crate) struct Controller {
     /// Handles all kind of output behavior according to config.
     pub(crate) output_handler: Arc<OutputHandler>,
 
-    dyn_schedule: Arc<Mutex<DynamicSchedule>>,
+    /// Dynamic schedules handles dynamic deadline; condition is notified whenever the schedule changes
+    dyn_schedule: Arc<(Mutex<DynamicSchedule>, Condvar)>,
 }
 
 impl Controller {
     pub(crate) fn new(ir: RtLolaMir, config: EvalConfig) -> Self {
         let output_handler = Arc::new(OutputHandler::new(&config, ir.triggers.len()));
-        let dyn_schedule = Arc::new(Mutex::new(DynamicSchedule::new()));
+        let dyn_schedule = Arc::new((Mutex::new(DynamicSchedule::new()), Condvar::new()));
         Self { ir, config, output_handler, dyn_schedule }
     }
 

@@ -4,7 +4,7 @@ use crate::evaluator::{Evaluator, EvaluatorData};
 use crate::storage::Value;
 use rtlola_frontend::mir::{Deadline, InputReference, OutputReference, RtLolaMir, Task, Type};
 use std::marker::PhantomData;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 /**
@@ -110,7 +110,7 @@ pub struct Monitor<V: VerdictRepresentation = Incremental> {
 impl<V: VerdictRepresentation> Monitor<V> {
     ///setup
     pub(crate) fn setup(ir: RtLolaMir, output_handler: Arc<OutputHandler>, config: EvalConfig,
-                        dyn_schedule: Arc<Mutex<DynamicSchedule>>) -> Monitor<V> {
+                        dyn_schedule: Arc<(Mutex<DynamicSchedule>, Condvar)>) -> Monitor<V> {
         // Note: start_time only accessed in online mode.
         let eval_data = EvaluatorData::new(ir.clone(), config, output_handler.clone(), None, dyn_schedule);
 
