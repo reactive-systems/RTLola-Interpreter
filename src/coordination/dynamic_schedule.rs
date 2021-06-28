@@ -1,7 +1,7 @@
 use crate::coordination::EvaluationTask;
 use crate::{Time, Value};
 use priority_queue::PriorityQueue;
-use rtlola_frontend::mir::{OutputReference, Stream};
+use rtlola_frontend::mir::OutputReference;
 use rtlola_frontend::RtLolaMir;
 use std::cmp::Reverse;
 use std::sync::Condvar;
@@ -25,11 +25,7 @@ pub(crate) struct DynamicDeadline {
 
 impl DynamicDeadline {
     pub(crate) fn sort(&mut self, ir: &RtLolaMir) {
-        self.tasks.sort_by_key(|s| match s {
-            EvaluationTask::Evaluate(idx, _) => ir.outputs[*idx].eval_layer().inner(),
-            EvaluationTask::Spawn(idx) => ir.outputs[*idx].spawn_layer().inner(),
-            EvaluationTask::Close(_, _) => usize::MAX,
-        });
+        self.tasks.sort_by_key(|s| s.get_sort_key(ir));
     }
 }
 
@@ -45,7 +41,7 @@ impl DynamicSchedule {
     /// Schedule the evaluation of stream or of an instance if parameters are given.
     pub(crate) fn schedule_evaluation(
         &mut self,
-        condition: &Condvar,
+        schedule_changed: &Condvar,
         target: OutputReference,
         parameter: &[Value],
         now: Time,
@@ -53,13 +49,13 @@ impl DynamicSchedule {
     ) {
         let task = ScheduledTask { task: EvaluationTask::Evaluate(target, parameter.to_vec()), period };
         self.queue.push(task, Reverse(now + period));
-        condition.notify_all();
+        schedule_changed.notify_all();
     }
 
     /// Schedule the close evaluation of a stream or of an instance if parameters are given.
     pub(crate) fn schedule_close(
         &mut self,
-        condition: &Condvar,
+        schedule_changed: &Condvar,
         target: OutputReference,
         parameter: &[Value],
         now: Time,
@@ -67,33 +63,33 @@ impl DynamicSchedule {
     ) {
         let task = ScheduledTask { task: EvaluationTask::Close(target, parameter.to_vec()), period };
         self.queue.push(task, Reverse(now + period));
-        condition.notify_all();
+        schedule_changed.notify_all();
     }
 
     /// Removes a scheduled evaluation from the schedule
     pub(crate) fn remove_evaluation(
         &mut self,
-        condition: &Condvar,
+        schedule_changed: &Condvar,
         target: OutputReference,
         parameter: &[Value],
         period: Duration,
     ) {
         let task = ScheduledTask { task: EvaluationTask::Evaluate(target, parameter.to_vec()), period };
         self.queue.remove(&task);
-        condition.notify_all();
+        schedule_changed.notify_all();
     }
 
     /// Removes a scheduled close from the schedule
     pub(crate) fn remove_close(
         &mut self,
-        condition: &Condvar,
+        schedule_changed: &Condvar,
         target: OutputReference,
         parameter: &[Value],
         period: Duration,
     ) {
         let task = ScheduledTask { task: EvaluationTask::Close(target, parameter.to_vec()), period };
         self.queue.remove(&task);
-        condition.notify_all();
+        schedule_changed.notify_all();
     }
 
     /// Returns the next scheduled task until and including the given time

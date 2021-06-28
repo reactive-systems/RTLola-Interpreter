@@ -21,7 +21,7 @@ pub(crate) struct Controller {
     /// Handles all kind of output behavior according to config.
     pub(crate) output_handler: Arc<OutputHandler>,
 
-    /// Dynamic schedules handles dynamic deadline; condition is notified whenever the schedule changes
+    /// Dynamic schedules handles dynamic deadlines; The condition is notified whenever the schedule changes
     dyn_schedule: Arc<(Mutex<DynamicSchedule>, Condvar)>,
 }
 
@@ -48,9 +48,7 @@ impl Controller {
         let now = Instant::now();
         let copy_output_handler = self.output_handler.clone();
 
-        let has_time_driven = !self.ir.time_driven.is_empty()
-            || self.ir.outputs.iter().any(|o| matches!(o.instance_template.spawn.pacing, PacingType::Periodic(_)));
-        if has_time_driven {
+        if self.ir.has_time_driven_features() {
             let work_tx_clone = work_tx.clone();
             let ir_clone = self.ir.clone();
             let ds_clone = self.dyn_schedule.clone();
