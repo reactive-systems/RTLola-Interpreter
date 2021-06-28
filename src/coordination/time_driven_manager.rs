@@ -227,8 +227,10 @@ impl TimeDrivenManager {
         if !self.has_time_drive {
             return;
         }
-        while ts > self.get_next_due() {
-            self.eval_next_deadline(evaluator, ts);
+        let schedule_copy = self.dyn_schedule.clone();
+        let mut schedule = schedule_copy.0.lock().unwrap();
+        while self.get_next_due_locked(&schedule).is_some() && ts > self.get_next_due_locked(&schedule).unwrap() {
+            self.eval_next_deadline_locked(evaluator, &mut schedule, ts);
         }
     }
 
@@ -237,26 +239,37 @@ impl TimeDrivenManager {
         if !self.has_time_drive {
             return;
         }
-
-        // schedule last timed event before terminating
-        while ts == self.get_next_due() {
-            self.eval_next_deadline(evaluator, ts);
+        let schedule_copy = self.dyn_schedule.clone();
+        let mut schedule = schedule_copy.0.lock().unwrap();
+        while self.get_next_due_locked(&schedule).is_some() && ts == self.get_next_due_locked(&schedule).unwrap() {
+            self.eval_next_deadline_locked(evaluator, &mut schedule, ts);
         }
     }
 
     /// Evaluates the next deadline that is due
     pub(crate) fn eval_next_deadline(&mut self, evaluator: &mut Evaluator, ts: Time) {
+        let schedule_copy = self.dyn_schedule.clone();
+        let mut schedule = schedule_copy.0.lock().unwrap();
+        self.eval_next_deadline_locked(evaluator, &mut schedule, ts);
+    }
+
+    pub(crate) fn eval_next_deadline_locked(
+        &mut self,
+        evaluator: &mut Evaluator,
+        schedule: &mut MutexGuard<DynamicSchedule>,
+        ts: Time,
+    ) {
         debug_assert!(
             !self.ir.time_driven.is_empty()
                 || self.ir.outputs.iter().any(|o| matches!(o.instance_template.spawn.pacing, PacingType::Periodic(_)))
         );
 
-        let schedule_copy = self.dyn_schedule.clone();
-        let mut schedule = schedule_copy.0.lock().unwrap();
-        let next_due = self.get_next_due_locked(&schedule);
+        if self.get_next_due_locked(&schedule).is_none() {
+            return;
+        }
+        let next_due = self.get_next_due_locked(&schedule).unwrap();
         if ts >= next_due {
-            let due_streams = self.get_next_deadline_locked(ts, &mut schedule);
-            drop(schedule);
+            let due_streams = self.get_next_deadline_locked(ts, schedule);
             self.handler.debug(|| format!("Schedule Timed-Event {:?}.", (&due_streams, next_due)));
             self.handler.new_event();
             evaluator.eval_time_driven_tasks(due_streams, next_due);
