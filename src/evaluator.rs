@@ -102,7 +102,7 @@ impl EvaluatorData {
         let global_store = GlobalStore::new(&ir, Time::default());
         let fresh_inputs = BitSet::with_capacity(ir.inputs.len());
         let fresh_outputs = BitSet::with_capacity(ir.outputs.len());
-        let fresh_triggers = BitSet::with_capacity(ir.triggers.len());
+        let fresh_triggers = BitSet::with_capacity(ir.outputs.len()); //trigger use their outputreferences
         let mut triggers = vec![None; ir.outputs.len()];
         for t in &ir.triggers {
             triggers[t.reference.out_ix()] = Some(t.clone());
@@ -186,6 +186,18 @@ impl Evaluator {
             .collect()
     }
 
+    pub(crate) fn violated_trigger(&self) -> Vec<OutputReference> {
+        self.fresh_triggers.iter().map(|ix| ix).collect()
+    }
+
+    pub(crate) fn peek_inputs(&self) -> Vec<Value> {
+        self.ir.inputs.iter().map(|elem| self.peek_value(elem.reference, &[], 0).map_or(Value::None, |v| v)).collect()
+    }
+
+    pub(crate) fn peek_outputs(&self) -> Vec<Value> {
+        self.ir.outputs.iter().map(|elem| self.peek_value(elem.reference, &[], 0).map_or(Value::None, |v| v)).collect()
+    }
+
     fn relative_time(&self, ts: Time) -> Time {
         if self.is_online() {
             self.start_time.elapsed()
@@ -266,6 +278,13 @@ impl Evaluator {
             .render_positional(args.as_slice())
     }
 
+    /// Return the current values of the info streams
+    pub(crate) fn info_stream_values(&self, trigger_ref: OutputReference) -> Vec<Value> {
+        let trigger = self.is_trigger(trigger_ref).expect("Output reference must refer to a trigger");
+        let (expr_eval, _) = self.as_ExpressionEvaluator();
+        trigger.info_streams.iter().map(|sr| expr_eval.lookup_latest(*sr)).collect()
+    }
+
     fn eval_stream(&mut self, output: OutputReference, ts: Time) {
         let ix = output;
         self.handler.debug(|| format!("Evaluating stream {}: {}.", ix, self.ir.output(StreamReference::Out(ix)).name));
@@ -323,7 +342,6 @@ impl Evaluator {
                 self.global_store.get_in_instance(ix).get_value(offset)
             }
             StreamReference::Out(ix) => {
-                //let inst = (ix, Vec::from(args));
                 let inst = ix;
                 self.global_store.get_out_instance(inst).and_then(|st| st.get_value(offset))
             }

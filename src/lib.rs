@@ -30,7 +30,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 pub use crate::basics::{EvalConfig, Time, TimeFormat, TimeRepresentation};
-pub use crate::coordination::{monitor::Update, Monitor};
+pub use crate::coordination::{
+    monitor::{Incremental, Total, TriggerMessage, TriggersWithInfovalues, VerdictRepresentation, Verdicts},
+    Event, Monitor,
+};
 pub use crate::storage::Value;
 
 // TODO add example to doc
@@ -400,9 +403,10 @@ impl Config {
     /**
     Turns a `Config` that was created through a call to `new_api` into a `Monitor`.
     */
-    pub fn into_monitor(self) -> Result<Monitor, Box<dyn std::error::Error>> {
+    pub fn as_api<V: VerdictRepresentation>(self) -> Monitor<V> {
         assert_eq!(self.cfg.mode, ExecutionMode::API);
-        Controller::new(self.ir, self.cfg).start().map(|res| res.left().unwrap())
+        let output_handler = Arc::new(OutputHandler::new(&self.cfg, self.ir.triggers.len()));
+        Monitor::setup(self.ir, output_handler, self.cfg)
     }
 
     /**
@@ -410,8 +414,6 @@ impl Config {
     */
     pub fn run(self) -> Result<Arc<OutputHandler>, Box<dyn std::error::Error>> {
         // TODO: Rather than returning OutputHandler publicly --- let alone an Arc ---, transform into more suitable format or make OutputHandler more accessible.
-        Controller::new(self.ir, self.cfg)
-            .start()
-            .map(|r| r.right().expect("Running the config should never return a Monitor."))
+        Controller::new(self.ir, self.cfg).start()
     }
 }
