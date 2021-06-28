@@ -2,6 +2,7 @@
   "spec_file": "../tests/specs/count_1_4.lola",
   "input_file": "../traces/tests/count_1_4.csv",
   "rationale": "",
+  "modes": ["offline"],
   "triggers": {
     "count is 0": {
       "expected_count": 0,

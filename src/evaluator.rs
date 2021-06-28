@@ -314,6 +314,7 @@ impl Evaluator {
     }
 
     pub(crate) fn eval_time_driven_tasks(&mut self, tasks: Vec<EvaluationTask>, ts: Time) {
+        // Todo: handle empty vec of tasks
         let relative_ts = self.relative_time(ts);
         self.clear_freshness();
         self.prepare_evaluation(relative_ts);

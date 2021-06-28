@@ -190,6 +190,36 @@ cargo:bench:
       metrics: metrics.txt
   allow_failure: true
 
+online_integration_tests:
+  stage: test
+  only:
+    - merge_requests
+    - pipelines
+    - tags
+    - web
+  tags:
+    - docker
+  image: rust:latest
+  cache:
+    key: "release"
+    policy: pull-push
+    paths:
+      - target/
+      - $CARGO_HOME
+  before_script:
+    - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
+    - apt-get update -yqq
+    - apt-get install -yqq --no-install-recommends libpcap-dev python3-pip
+    - pip3 install junit-xml
+  variables:
+    BUILD_MODE: "release"
+  script:
+    - python3 ./tests/rtlola-interpreter-e2e-tests.py --online
+  artifacts:
+    when: always
+    reports:
+      junit: e2e-results.xml
+
 # For the release build we do not use the Cargo.lock file, because we haven't investigated how it interacts with different platforms.
 # Windows, Linux, and MacOS could resolve to different Cargo.lock files.
 # However, we keep the Cargo.lock files as artifacts.
