@@ -279,79 +279,10 @@ impl<V: VerdictRepresentation> Monitor<V> {
             .find(|time_driven_stream| time_driven_stream.reference.out_ix() == id)
             .map(|time_driven_stream| time_driven_stream.period_in_duration())
     }
-}
 
-/// Public interface of [Monitor] with the [Incremental] verdictrepresentation.
-impl Monitor<Incremental> {
-    /// Changes the verdictrepresentation of the monitor to [Total].
-    pub fn as_total(self) -> Monitor<Total> {
+    /// Switch [VerdictRepresentation]s of the [Monitor].
+    pub fn with_verdict_representation<T: VerdictRepresentation>(self) -> Monitor<T> {
         let Monitor { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: _ } = self;
-        Monitor::<Total> { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: PhantomData }
-    }
-
-    /// Changes the verdictrepresentation of the monitor to [TriggerMessage].
-    pub fn as_trigger_message(self) -> Monitor<TriggerMessage> {
-        let Monitor { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: _ } = self;
-        Monitor::<TriggerMessage> { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: PhantomData }
-    }
-
-    /// Changes the verdictrepresentation of the monitor to [TriggersWithInfovalues].
-    pub fn as_triggers_with_info_values(self) -> Monitor<TriggersWithInfovalues> {
-        let Monitor { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: _ } = self;
-        Monitor::<TriggersWithInfovalues> { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: PhantomData }
-    }
-}
-
-/// Public interface of [Monitor] with the [Total] verdictrepresentation.
-impl Monitor<Total> {
-    pub fn as_incremental(self) -> Monitor<Incremental> {
-        let Monitor { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: _ } = self;
-        Monitor::<Incremental> { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: PhantomData }
-    }
-
-    pub fn as_trigger_message(self) -> Monitor<TriggerMessage> {
-        let Monitor { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: _ } = self;
-        Monitor::<TriggerMessage> { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: PhantomData }
-    }
-
-    pub fn as_triggers_with_info_values(self) -> Monitor<TriggersWithInfovalues> {
-        let Monitor { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: _ } = self;
-        Monitor::<TriggersWithInfovalues> { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: PhantomData }
-    }
-}
-
-/// Public interface of [Monitor] with the [TriggerMessage] verdictrepresentation.
-impl Monitor<TriggerMessage> {
-    pub fn as_total(self) -> Monitor<Total> {
-        let Monitor { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: _ } = self;
-        Monitor::<Total> { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: PhantomData }
-    }
-
-    pub fn as_incremental(self) -> Monitor<Incremental> {
-        let Monitor { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: _ } = self;
-        Monitor::<Incremental> { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: PhantomData }
-    }
-
-    pub fn as_triggers_with_info_values(self) -> Monitor<TriggersWithInfovalues> {
-        let Monitor { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: _ } = self;
-        Monitor::<TriggersWithInfovalues> { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: PhantomData }
-    }
-}
-
-/// Public interface of [Monitor] with the [TriggersWithInfovalues] verdictrepresentation.
-impl Monitor<TriggersWithInfovalues> {
-    pub fn as_total(self) -> Monitor<Total> {
-        let Monitor { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: _ } = self;
-        Monitor::<Total> { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: PhantomData }
-    }
-
-    pub fn as_incremental(self) -> Monitor<Incremental> {
-        let Monitor { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: _ } = self;
-        Monitor::<Incremental> { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: PhantomData }
-    }
-
-    pub fn as_trigger_message(self) -> Monitor<TriggerMessage> {
-        let Monitor { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: _ } = self;
-        Monitor::<TriggerMessage> { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: PhantomData }
+        Monitor::<T> { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: PhantomData }
     }
 }
