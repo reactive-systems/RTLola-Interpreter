@@ -160,7 +160,7 @@ impl EvaluatorData {
             .ir
             .outputs
             .iter()
-            .map(|o| match o.instance_template.filter.as_ref() {
+            .map(|o| match o.instance_template.filter.target.as_ref() {
                 None => o.expr.clone().compile(),
                 Some(filter_exp) => CompiledExpr::create_filter(filter_exp.clone().compile(), o.expr.clone().compile()),
             })
@@ -188,7 +188,11 @@ impl EvaluatorData {
             .outputs
             .iter()
             .map(|o| {
-                o.instance_template.close.as_ref().map_or(CompiledExpr::new(|_| Value::None), |e| e.clone().compile())
+                o.instance_template
+                    .close
+                    .target
+                    .as_ref()
+                    .map_or(CompiledExpr::new(|_| Value::None), |e| e.clone().compile())
             })
             .collect();
 
