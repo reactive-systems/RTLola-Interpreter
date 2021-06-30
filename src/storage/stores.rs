@@ -39,7 +39,7 @@ impl InstanceCollection {
     /// Creates a new instance if not existing and returns a reference to the *new* instance if created
     pub(crate) fn create_instance(&mut self, parameter: &[Value]) -> Option<&InstanceStore> {
         if !self.instances.contains_key(parameter) {
-            self.instances.insert(parameter.to_vec(), InstanceStore::new(&self.value_type, self.bound));
+            self.instances.insert(parameter.to_vec(), InstanceStore::new(&self.value_type, self.bound, true));
             self.instances.get(parameter)
         } else {
             None
@@ -82,8 +82,8 @@ impl SlidingWindowCollection {
     pub(crate) fn create_window(&mut self, parameters: &[Value], start_time: Time) -> Option<&SlidingWindow> {
         if !self.windows.contains_key(parameters) {
             let window = match self.duration {
-                Either::Left(dur) => SlidingWindow::from_sliding(dur, self.wait, self.op, start_time, &self.ty),
-                Either::Right(dur) => SlidingWindow::from_discrete(dur, self.wait, self.op, start_time, &self.ty),
+                Either::Left(dur) => SlidingWindow::from_sliding(dur, self.wait, self.op, start_time, &self.ty, true),
+                Either::Right(dur) => SlidingWindow::from_discrete(dur, self.wait, self.op, start_time, &self.ty, true),
             };
             self.windows.insert(parameters.to_vec(), window);
             self.windows.get(parameters)
@@ -205,18 +205,24 @@ impl GlobalStore {
         debug_assert!(discrete_window_index_map.iter().all(Option::is_some));
         let discrete_window_index_map = discrete_window_index_map.into_iter().flatten().collect();
 
-        let np_outputs = nps.iter().map(|o| InstanceStore::new(&o.ty, o.memory_bound)).collect();
+        let np_outputs = nps.iter().map(|o| InstanceStore::new(&o.ty, o.memory_bound, !o.is_spawned())).collect();
         let p_outputs = ps.iter().map(|o| InstanceCollection::new(&o.ty, o.memory_bound)).collect();
-        let inputs = ir.inputs.iter().map(|i| InstanceStore::new(&i.ty, i.memory_bound)).collect();
-        let np_windows =
-            np_windows.iter().map(|w| SlidingWindow::from_sliding(w.duration, w.wait, w.op, ts, &w.ty)).collect();
+        let inputs = ir.inputs.iter().map(|i| InstanceStore::new(&i.ty, i.memory_bound, true)).collect();
+        let np_windows = np_windows
+            .iter()
+            .map(|w| {
+                SlidingWindow::from_sliding(w.duration, w.wait, w.op, ts, &w.ty, !ir.stream(w.target).is_spawned())
+            })
+            .collect();
         let p_windows = p_windows
             .iter()
             .map(|w| SlidingWindowCollection::new_for_sliding(w.duration, w.wait, w.op, &w.ty))
             .collect();
         let np_discrete_windows = np_discrete_windows
             .iter()
-            .map(|w| SlidingWindow::from_discrete(w.duration, w.wait, w.op, ts, &w.ty))
+            .map(|w| {
+                SlidingWindow::from_discrete(w.duration, w.wait, w.op, ts, &w.ty, !ir.stream(w.target).is_spawned())
+            })
             .collect();
         let p_discrete_windows = p_discrete_windows
             .iter()
@@ -321,6 +327,8 @@ pub(crate) struct InstanceStore {
     buffer: VecDeque<Value>,
     /// Bound of the buffer
     bound: MemorizationBound,
+    /// Is the instance currently spawned
+    active: bool,
 }
 
 const SIZE: usize = 256;
@@ -328,18 +336,19 @@ const SIZE: usize = 256;
 impl InstanceStore {
     // _type might be used later.
     /// Returns the storage of a stream instance, by setting the size of the buffer to the given bound
-    pub(crate) fn new(_type: &Type, bound: MemorizationBound) -> InstanceStore {
+    pub(crate) fn new(_type: &Type, bound: MemorizationBound, active: bool) -> InstanceStore {
         match bound {
             MemorizationBound::Bounded(limit) => {
-                InstanceStore { buffer: VecDeque::with_capacity(limit as usize), bound }
+                InstanceStore { buffer: VecDeque::with_capacity(limit as usize), bound, active }
             }
-            MemorizationBound::Unbounded => InstanceStore { buffer: VecDeque::with_capacity(SIZE), bound },
+            MemorizationBound::Unbounded => InstanceStore { buffer: VecDeque::with_capacity(SIZE), bound, active },
         }
     }
 
     /// Returns the current value of a stream instance at the given offset
     pub(crate) fn get_value(&self, offset: i16) -> Option<Value> {
         assert!(offset <= 0);
+        assert!(self.active);
         if offset == 0 {
             self.buffer.front().cloned()
         } else {
@@ -350,6 +359,7 @@ impl InstanceStore {
 
     /// Updates the buffer of stream instance
     pub(crate) fn push_value(&mut self, v: Value) {
+        assert!(self.active);
         if let MemorizationBound::Bounded(limit) = self.bound {
             if self.buffer.len() == limit as usize {
                 self.buffer.pop_back();
@@ -358,8 +368,17 @@ impl InstanceStore {
         self.buffer.push_front(v);
     }
 
+    pub(crate) fn activate(&mut self) {
+        self.active = true;
+    }
+
+    pub(crate) fn is_activate(&self) -> bool {
+        self.active
+    }
+
     /// removes all values of the instance
-    pub(crate) fn clear(&mut self) {
+    pub(crate) fn deactivate(&mut self) {
+        self.active = false;
         self.buffer.clear()
     }
 }

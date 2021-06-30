@@ -337,8 +337,10 @@ impl Evaluator {
             self.global_store.get_out_instance_mut(output).activate();
 
             //active windows over this stream
-            for (_, window) in &stream.aggregated_by {
-                //self.global_store.get_window_mut(window).activate();
+            for (_, win_ref) in &stream.aggregated_by {
+                let window = self.global_store.get_window_mut(*win_ref);
+                debug_assert!(!window.is_active());
+                window.activate(ts);
             }
         }
     }

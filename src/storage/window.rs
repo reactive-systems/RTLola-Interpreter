@@ -10,6 +10,66 @@ use std::fmt::Debug;
 use std::ops::Add;
 use std::time::Duration;
 
+#[macro_export]
+macro_rules! match_and_run {
+    ( $window:expr, $name:ident $( , $arg:ident )* ) => {
+        match $window {
+            SlidingWindow::Count(wi) => wi.$name($($arg),*),
+            SlidingWindow::CountDiscrete(wi) => wi.$name($($arg),*),
+            SlidingWindow::MinUnsigned(wi) => wi.$name($($arg),*),
+            SlidingWindow::MinUnsignedDiscrete(wi) => wi.$name($($arg),*),
+            SlidingWindow::MinSigned(wi) => wi.$name($($arg),*),
+            SlidingWindow::MinSignedDiscrete(wi) => wi.$name($($arg),*),
+            SlidingWindow::MinFloat(wi) => wi.$name($($arg),*),
+            SlidingWindow::MinFloatDiscrete(wi) => wi.$name($($arg),*),
+            SlidingWindow::MaxUnsigned(wi) => wi.$name($($arg),*),
+            SlidingWindow::MaxUnsignedDiscrete(wi) => wi.$name($($arg),*),
+            SlidingWindow::MaxSigned(wi) => wi.$name($($arg),*),
+            SlidingWindow::MaxSignedDiscrete(wi) => wi.$name($($arg),*),
+            SlidingWindow::MaxFloat(wi) => wi.$name($($arg),*),
+            SlidingWindow::MaxFloatDiscrete(wi) => wi.$name($($arg),*),
+            SlidingWindow::SumUnsigned(wi) => wi.$name($($arg),*),
+            SlidingWindow::SumUnsignedDiscrete(wi) => wi.$name($($arg),*),
+            SlidingWindow::SumSigned(wi) => wi.$name($($arg),*),
+            SlidingWindow::SumSignedDiscrete(wi) => wi.$name($($arg),*),
+            SlidingWindow::SumFloat(wi) => wi.$name($($arg),*),
+            SlidingWindow::SumFloatDiscrete(wi) => wi.$name($($arg),*),
+            SlidingWindow::SumBool(wi) => wi.$name($($arg),*),
+            SlidingWindow::SumBoolDiscrete(wi) => wi.$name($($arg),*),
+            SlidingWindow::Conjunction(wi) => wi.$name($($arg),*),
+            SlidingWindow::ConjunctionDiscrete(wi) => wi.$name($($arg),*),
+            SlidingWindow::Disjunction(wi) => wi.$name($($arg),*),
+            SlidingWindow::DisjunctionDiscrete(wi) => wi.$name($($arg),*),
+            SlidingWindow::AvgUnsigned(wi) => wi.$name($($arg),*),
+            SlidingWindow::AvgUnsignedDiscrete(wi) => wi.$name($($arg),*),
+            SlidingWindow::AvgSigned(wi) => wi.$name($($arg),*),
+            SlidingWindow::AvgSignedDiscrete(wi) => wi.$name($($arg),*),
+            SlidingWindow::AvgFloat(wi) => wi.$name($($arg),*),
+            SlidingWindow::AvgFloatDiscrete(wi) => wi.$name($($arg),*),
+            SlidingWindow::Integral(wi) => wi.$name($($arg),*),
+            SlidingWindow::IntegralDiscrete(wi) => wi.$name($($arg),*),
+            SlidingWindow::LastSigned(wi) => wi.$name($($arg),*),
+            SlidingWindow::LastUnsigned(wi) => wi.$name($($arg),*),
+            SlidingWindow::LastFloat(wi) => wi.$name($($arg),*),
+            SlidingWindow::LastDiscreteSigned(wi) => wi.$name($($arg),*),
+            SlidingWindow::LastDiscreteUnsigned(wi) => wi.$name($($arg),*),
+            SlidingWindow::LastDiscreteFloat(wi) => wi.$name($($arg),*),
+            SlidingWindow::PercentileSigned(_, wi) => wi.$name($($arg),*),
+            SlidingWindow::PercentileUnsigned(_, wi) => wi.$name($($arg),*),
+            SlidingWindow::PercentileFloat(_, wi) => wi.$name($($arg),*),
+            SlidingWindow::PercentileDiscreteSigned(_, wi) => wi.$name($($arg),*),
+            SlidingWindow::PercentileDiscreteUnsigned(_, wi) => wi.$name($($arg),*),
+            SlidingWindow::PercentileDiscreteFloat(_, wi) => wi.$name($($arg),*),
+            SlidingWindow::Variance(wi) => wi.$name($($arg),*),
+            SlidingWindow::VarianceDiscrete(wi) => wi.$name($($arg),*),
+            SlidingWindow::StandardDeviation(wi) => wi.$name($($arg),*),
+            SlidingWindow::StandardDeviationDiscrete(wi) => wi.$name($($arg),*),
+            SlidingWindow::Covariance(wi) => wi.$name($($arg),*),
+            SlidingWindow::CovarianceDiscrete(wi) => wi.$name($($arg),*),
+        }
+    };
+}
+
 const SIZE: usize = 64;
 
 /// Representation of sliding window aggregations:
@@ -19,57 +79,57 @@ const SIZE: usize = 64;
 /// * The aggregation function 'min' depends on the value type, e.g., the minimum value of unsigned values is 0, whereas the minimum value for signed values is negative.
 #[derive(Debug)]
 pub(crate) enum SlidingWindow {
-    Count(WindowInstance<CountIv>),
+    Count(RealTimeWindowInstance<CountIv>),
     CountDiscrete(DiscreteWindowInstance<CountIv>),
-    MinUnsigned(WindowInstance<MinIv<WindowSigned>>),
+    MinUnsigned(RealTimeWindowInstance<MinIv<WindowSigned>>),
     MinUnsignedDiscrete(DiscreteWindowInstance<MinIv<WindowSigned>>),
-    MinSigned(WindowInstance<MinIv<WindowUnsigned>>),
+    MinSigned(RealTimeWindowInstance<MinIv<WindowUnsigned>>),
     MinSignedDiscrete(DiscreteWindowInstance<MinIv<WindowUnsigned>>),
-    MinFloat(WindowInstance<MinIv<WindowFloat>>),
+    MinFloat(RealTimeWindowInstance<MinIv<WindowFloat>>),
     MinFloatDiscrete(DiscreteWindowInstance<MinIv<WindowFloat>>),
-    MaxUnsigned(WindowInstance<MaxIv<WindowSigned>>),
+    MaxUnsigned(RealTimeWindowInstance<MaxIv<WindowSigned>>),
     MaxUnsignedDiscrete(DiscreteWindowInstance<MaxIv<WindowSigned>>),
-    MaxSigned(WindowInstance<MaxIv<WindowUnsigned>>),
+    MaxSigned(RealTimeWindowInstance<MaxIv<WindowUnsigned>>),
     MaxSignedDiscrete(DiscreteWindowInstance<MaxIv<WindowUnsigned>>),
-    MaxFloat(WindowInstance<MaxIv<WindowFloat>>),
+    MaxFloat(RealTimeWindowInstance<MaxIv<WindowFloat>>),
     MaxFloatDiscrete(DiscreteWindowInstance<MaxIv<WindowFloat>>),
-    SumUnsigned(WindowInstance<SumIv<WindowUnsigned>>),
+    SumUnsigned(RealTimeWindowInstance<SumIv<WindowUnsigned>>),
     SumUnsignedDiscrete(DiscreteWindowInstance<SumIv<WindowUnsigned>>),
-    SumSigned(WindowInstance<SumIv<WindowSigned>>),
+    SumSigned(RealTimeWindowInstance<SumIv<WindowSigned>>),
     SumSignedDiscrete(DiscreteWindowInstance<SumIv<WindowSigned>>),
-    SumFloat(WindowInstance<SumIv<WindowFloat>>),
+    SumFloat(RealTimeWindowInstance<SumIv<WindowFloat>>),
     SumFloatDiscrete(DiscreteWindowInstance<SumIv<WindowFloat>>),
-    SumBool(WindowInstance<SumIv<WindowBool>>),
+    SumBool(RealTimeWindowInstance<SumIv<WindowBool>>),
     SumBoolDiscrete(DiscreteWindowInstance<SumIv<WindowBool>>),
-    AvgUnsigned(WindowInstance<AvgIv<WindowUnsigned>>),
+    AvgUnsigned(RealTimeWindowInstance<AvgIv<WindowUnsigned>>),
     AvgUnsignedDiscrete(DiscreteWindowInstance<AvgIv<WindowUnsigned>>),
-    AvgSigned(WindowInstance<AvgIv<WindowSigned>>),
+    AvgSigned(RealTimeWindowInstance<AvgIv<WindowSigned>>),
     AvgSignedDiscrete(DiscreteWindowInstance<AvgIv<WindowSigned>>),
-    AvgFloat(WindowInstance<AvgIv<WindowFloat>>),
+    AvgFloat(RealTimeWindowInstance<AvgIv<WindowFloat>>),
     AvgFloatDiscrete(DiscreteWindowInstance<AvgIv<WindowFloat>>),
-    Integral(WindowInstance<IntegralIv>),
+    Integral(RealTimeWindowInstance<IntegralIv>),
     IntegralDiscrete(DiscreteWindowInstance<IntegralIv>),
-    Conjunction(WindowInstance<ConjIv>),
+    Conjunction(RealTimeWindowInstance<ConjIv>),
     ConjunctionDiscrete(DiscreteWindowInstance<ConjIv>),
-    Disjunction(WindowInstance<DisjIv>),
+    Disjunction(RealTimeWindowInstance<DisjIv>),
     DisjunctionDiscrete(DiscreteWindowInstance<DisjIv>),
-    LastSigned(WindowInstance<LastIv<WindowSigned>>),
-    LastUnsigned(WindowInstance<LastIv<WindowUnsigned>>),
-    LastFloat(WindowInstance<LastIv<WindowFloat>>),
+    LastSigned(RealTimeWindowInstance<LastIv<WindowSigned>>),
+    LastUnsigned(RealTimeWindowInstance<LastIv<WindowUnsigned>>),
+    LastFloat(RealTimeWindowInstance<LastIv<WindowFloat>>),
     LastDiscreteSigned(DiscreteWindowInstance<LastIv<WindowSigned>>),
     LastDiscreteUnsigned(DiscreteWindowInstance<LastIv<WindowUnsigned>>),
     LastDiscreteFloat(DiscreteWindowInstance<LastIv<WindowFloat>>),
-    PercentileSigned(usize, WindowInstance<PercentileIv<WindowSigned>>),
-    PercentileUnsigned(usize, WindowInstance<PercentileIv<WindowUnsigned>>),
-    PercentileFloat(usize, WindowInstance<PercentileIv<WindowFloat>>),
+    PercentileSigned(usize, RealTimeWindowInstance<PercentileIv<WindowSigned>>),
+    PercentileUnsigned(usize, RealTimeWindowInstance<PercentileIv<WindowUnsigned>>),
+    PercentileFloat(usize, RealTimeWindowInstance<PercentileIv<WindowFloat>>),
     PercentileDiscreteSigned(usize, DiscreteWindowInstance<PercentileIv<WindowSigned>>),
     PercentileDiscreteUnsigned(usize, DiscreteWindowInstance<PercentileIv<WindowUnsigned>>),
     PercentileDiscreteFloat(usize, DiscreteWindowInstance<PercentileIv<WindowFloat>>),
-    Variance(WindowInstance<VarianceIv>),
+    Variance(RealTimeWindowInstance<VarianceIv>),
     VarianceDiscrete(DiscreteWindowInstance<VarianceIv>),
-    StandardDeviation(WindowInstance<SdIv>),
+    StandardDeviation(RealTimeWindowInstance<SdIv>),
     StandardDeviationDiscrete(DiscreteWindowInstance<SdIv>),
-    Covariance(WindowInstance<CovIv>),
+    Covariance(RealTimeWindowInstance<CovIv>),
     CovarianceDiscrete(DiscreteWindowInstance<CovIv>),
 }
 
@@ -81,116 +141,156 @@ impl SlidingWindow {
     /// * 'op' - the type of the aggregation function
     /// * 'ts' - the starting time of the window
     /// * 'ty' - the value type of the aggregated stream
-    pub(crate) fn from_sliding(dur: Duration, wait: bool, op: WinOp, ts: Time, ty: &Type) -> SlidingWindow {
+    pub(crate) fn from_sliding(
+        dur: Duration,
+        wait: bool,
+        op: WinOp,
+        ts: Time,
+        ty: &Type,
+        active: bool,
+    ) -> SlidingWindow {
         match (op, ty) {
-            (WinOp::Count, _) => SlidingWindow::Count(WindowInstance::new(dur, wait, ts)),
-            (WinOp::Min, Type::UInt(_)) => SlidingWindow::MinUnsigned(WindowInstance::new(dur, wait, ts)),
-            (WinOp::Min, Type::Int(_)) => SlidingWindow::MinSigned(WindowInstance::new(dur, wait, ts)),
-            (WinOp::Min, Type::Float(_)) => SlidingWindow::MinFloat(WindowInstance::new(dur, wait, ts)),
-            (WinOp::Max, Type::UInt(_)) => SlidingWindow::MaxUnsigned(WindowInstance::new(dur, wait, ts)),
-            (WinOp::Max, Type::Int(_)) => SlidingWindow::MaxSigned(WindowInstance::new(dur, wait, ts)),
-            (WinOp::Max, Type::Float(_)) => SlidingWindow::MaxFloat(WindowInstance::new(dur, wait, ts)),
-            (WinOp::Sum, Type::UInt(_)) => SlidingWindow::SumUnsigned(WindowInstance::new(dur, wait, ts)),
-            (WinOp::Sum, Type::Int(_)) => SlidingWindow::SumSigned(WindowInstance::new(dur, wait, ts)),
-            (WinOp::Sum, Type::Float(_)) => SlidingWindow::SumFloat(WindowInstance::new(dur, wait, ts)),
-            (WinOp::Sum, Type::Bool) => SlidingWindow::SumBool(WindowInstance::new(dur, wait, ts)),
-            (WinOp::Average, Type::UInt(_)) => SlidingWindow::AvgUnsigned(WindowInstance::new(dur, wait, ts)),
-            (WinOp::Average, Type::Int(_)) => SlidingWindow::AvgSigned(WindowInstance::new(dur, wait, ts)),
-            (WinOp::Average, Type::Float(_)) => SlidingWindow::AvgFloat(WindowInstance::new(dur, wait, ts)),
-            (WinOp::Integral, _) => SlidingWindow::Integral(WindowInstance::new(dur, wait, ts)),
-            (WinOp::Conjunction, Type::Bool) => SlidingWindow::Conjunction(WindowInstance::new(dur, wait, ts)),
-            (WinOp::Disjunction, Type::Bool) => SlidingWindow::Disjunction(WindowInstance::new(dur, wait, ts)),
-            (WinOp::Last, Type::Int(_)) => SlidingWindow::LastSigned(WindowInstance::new(dur, wait, ts)),
-            (WinOp::Last, Type::UInt(_)) => SlidingWindow::LastUnsigned(WindowInstance::new(dur, wait, ts)),
-            (WinOp::Last, Type::Float(_)) => SlidingWindow::LastFloat(WindowInstance::new(dur, wait, ts)),
+            (WinOp::Count, _) => SlidingWindow::Count(RealTimeWindowInstance::new(dur, wait, active, ts)),
+            (WinOp::Min, Type::UInt(_)) => {
+                SlidingWindow::MinUnsigned(RealTimeWindowInstance::new(dur, wait, active, ts))
+            }
+            (WinOp::Min, Type::Int(_)) => SlidingWindow::MinSigned(RealTimeWindowInstance::new(dur, wait, active, ts)),
+            (WinOp::Min, Type::Float(_)) => SlidingWindow::MinFloat(RealTimeWindowInstance::new(dur, wait, active, ts)),
+            (WinOp::Max, Type::UInt(_)) => {
+                SlidingWindow::MaxUnsigned(RealTimeWindowInstance::new(dur, wait, active, ts))
+            }
+            (WinOp::Max, Type::Int(_)) => SlidingWindow::MaxSigned(RealTimeWindowInstance::new(dur, wait, active, ts)),
+            (WinOp::Max, Type::Float(_)) => SlidingWindow::MaxFloat(RealTimeWindowInstance::new(dur, wait, active, ts)),
+            (WinOp::Sum, Type::UInt(_)) => {
+                SlidingWindow::SumUnsigned(RealTimeWindowInstance::new(dur, wait, active, ts))
+            }
+            (WinOp::Sum, Type::Int(_)) => SlidingWindow::SumSigned(RealTimeWindowInstance::new(dur, wait, active, ts)),
+            (WinOp::Sum, Type::Float(_)) => SlidingWindow::SumFloat(RealTimeWindowInstance::new(dur, wait, active, ts)),
+            (WinOp::Sum, Type::Bool) => SlidingWindow::SumBool(RealTimeWindowInstance::new(dur, wait, active, ts)),
+            (WinOp::Average, Type::UInt(_)) => {
+                SlidingWindow::AvgUnsigned(RealTimeWindowInstance::new(dur, wait, active, ts))
+            }
+            (WinOp::Average, Type::Int(_)) => {
+                SlidingWindow::AvgSigned(RealTimeWindowInstance::new(dur, wait, active, ts))
+            }
+            (WinOp::Average, Type::Float(_)) => {
+                SlidingWindow::AvgFloat(RealTimeWindowInstance::new(dur, wait, active, ts))
+            }
+            (WinOp::Integral, _) => SlidingWindow::Integral(RealTimeWindowInstance::new(dur, wait, active, ts)),
+            (WinOp::Conjunction, Type::Bool) => {
+                SlidingWindow::Conjunction(RealTimeWindowInstance::new(dur, wait, active, ts))
+            }
+            (WinOp::Disjunction, Type::Bool) => {
+                SlidingWindow::Disjunction(RealTimeWindowInstance::new(dur, wait, active, ts))
+            }
+            (WinOp::Last, Type::Int(_)) => SlidingWindow::LastSigned(RealTimeWindowInstance::new(dur, wait, active, ts)),
+            (WinOp::Last, Type::UInt(_)) => SlidingWindow::LastUnsigned(RealTimeWindowInstance::new(dur, wait, active, ts)),
+            (WinOp::Last, Type::Float(_)) => SlidingWindow::LastFloat(RealTimeWindowInstance::new(dur, wait, active, ts)),
             (WinOp::NthPercentile(x), Type::Int(_)) => {
-                SlidingWindow::PercentileSigned(x, WindowInstance::new(dur, wait, ts))
+                SlidingWindow::PercentileSigned(x, RealTimeWindowInstance::new(dur, wait, active, ts))
             }
             (WinOp::NthPercentile(x), Type::UInt(_)) => {
-                SlidingWindow::PercentileUnsigned(x, WindowInstance::new(dur, wait, ts))
+                SlidingWindow::PercentileUnsigned(x, RealTimeWindowInstance::new(dur, wait, active, ts))
             }
             (WinOp::NthPercentile(x), Type::Float(_)) => {
-                SlidingWindow::PercentileFloat(x, WindowInstance::new(dur, wait, ts))
+                SlidingWindow::PercentileFloat(x, RealTimeWindowInstance::new(dur, wait, active, ts))
             }
-            (WinOp::Variance, Type::Float(_)) => SlidingWindow::Variance(WindowInstance::new(dur, wait, ts)),
+            (WinOp::Variance, Type::Float(_)) => SlidingWindow::Variance(RealTimeWindowInstance::new(dur, wait, active, ts)),
             (WinOp::StandardDeviation, Type::Float(_)) => {
-                SlidingWindow::StandardDeviation(WindowInstance::new(dur, wait, ts))
+                SlidingWindow::StandardDeviation(RealTimeWindowInstance::new(dur, wait, active, ts))
             }
-            (WinOp::Covariance, Type::Float(_)) => SlidingWindow::Covariance(WindowInstance::new(dur, wait, ts)),
-            (_, Type::Option(t)) => SlidingWindow::from_sliding(dur, wait, op, ts, t),
+            (WinOp::Covariance, Type::Float(_)) => SlidingWindow::Covariance(RealTimeWindowInstance::new(dur, wait, active, ts)),
+            (_, Type::Option(t)) => SlidingWindow::from_sliding(dur, wait, op, ts, t, active),
             _ => unimplemented!(),
         }
     }
 
-    pub(crate) fn from_discrete(size: usize, wait: bool, op: WinOp, ts: Time, ty: &Type) -> SlidingWindow {
+    pub(crate) fn from_discrete(
+        size: usize,
+        wait: bool,
+        op: WinOp,
+        ts: Time,
+        ty: &Type,
+        active: bool,
+    ) -> SlidingWindow {
         match (op, ty) {
-            (WinOp::Count, _) => SlidingWindow::CountDiscrete(DiscreteWindowInstance::new(size, wait, ts)),
+            (WinOp::Count, _) => SlidingWindow::CountDiscrete(DiscreteWindowInstance::new(size, wait, active, ts)),
             (WinOp::Min, Type::UInt(_)) => {
-                SlidingWindow::MinUnsignedDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+                SlidingWindow::MinUnsignedDiscrete(DiscreteWindowInstance::new(size, wait, active, ts))
             }
-            (WinOp::Min, Type::Int(_)) => SlidingWindow::MinSignedDiscrete(DiscreteWindowInstance::new(size, wait, ts)),
+            (WinOp::Min, Type::Int(_)) => {
+                SlidingWindow::MinSignedDiscrete(DiscreteWindowInstance::new(size, wait, active, ts))
+            }
             (WinOp::Min, Type::Float(_)) => {
-                SlidingWindow::MinFloatDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+                SlidingWindow::MinFloatDiscrete(DiscreteWindowInstance::new(size, wait, active, ts))
             }
             (WinOp::Max, Type::UInt(_)) => {
-                SlidingWindow::MaxUnsignedDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+                SlidingWindow::MaxUnsignedDiscrete(DiscreteWindowInstance::new(size, wait, active, ts))
             }
-            (WinOp::Max, Type::Int(_)) => SlidingWindow::MaxSignedDiscrete(DiscreteWindowInstance::new(size, wait, ts)),
+            (WinOp::Max, Type::Int(_)) => {
+                SlidingWindow::MaxSignedDiscrete(DiscreteWindowInstance::new(size, wait, active, ts))
+            }
             (WinOp::Max, Type::Float(_)) => {
-                SlidingWindow::MaxFloatDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+                SlidingWindow::MaxFloatDiscrete(DiscreteWindowInstance::new(size, wait, active, ts))
             }
             (WinOp::Sum, Type::UInt(_)) => {
-                SlidingWindow::SumUnsignedDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+                SlidingWindow::SumUnsignedDiscrete(DiscreteWindowInstance::new(size, wait, active, ts))
             }
-            (WinOp::Sum, Type::Int(_)) => SlidingWindow::SumSignedDiscrete(DiscreteWindowInstance::new(size, wait, ts)),
+            (WinOp::Sum, Type::Int(_)) => {
+                SlidingWindow::SumSignedDiscrete(DiscreteWindowInstance::new(size, wait, active, ts))
+            }
             (WinOp::Sum, Type::Float(_)) => {
-                SlidingWindow::SumFloatDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+                SlidingWindow::SumFloatDiscrete(DiscreteWindowInstance::new(size, wait, active, ts))
             }
-            (WinOp::Sum, Type::Bool) => SlidingWindow::SumBoolDiscrete(DiscreteWindowInstance::new(size, wait, ts)),
+            (WinOp::Sum, Type::Bool) => {
+                SlidingWindow::SumBoolDiscrete(DiscreteWindowInstance::new(size, wait, active, ts))
+            }
             (WinOp::Average, Type::UInt(_)) => {
-                SlidingWindow::AvgUnsignedDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+                SlidingWindow::AvgUnsignedDiscrete(DiscreteWindowInstance::new(size, wait, active, ts))
             }
             (WinOp::Average, Type::Int(_)) => {
-                SlidingWindow::AvgSignedDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+                SlidingWindow::AvgSignedDiscrete(DiscreteWindowInstance::new(size, wait, active, ts))
             }
             (WinOp::Average, Type::Float(_)) => {
-                SlidingWindow::AvgFloatDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+                SlidingWindow::AvgFloatDiscrete(DiscreteWindowInstance::new(size, wait, active, ts))
             }
-            (WinOp::Integral, _) => SlidingWindow::IntegralDiscrete(DiscreteWindowInstance::new(size, wait, ts)),
+            (WinOp::Integral, _) => {
+                SlidingWindow::IntegralDiscrete(DiscreteWindowInstance::new(size, wait, active, ts))
+            }
             (WinOp::Conjunction, Type::Bool) => {
-                SlidingWindow::ConjunctionDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+                SlidingWindow::ConjunctionDiscrete(DiscreteWindowInstance::new(size, wait, active, ts))
             }
             (WinOp::Disjunction, Type::Bool) => {
-                SlidingWindow::DisjunctionDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+                SlidingWindow::DisjunctionDiscrete(DiscreteWindowInstance::new(size, wait, active, ts))
             }
             (WinOp::Last, Type::Int(_)) => {
-                SlidingWindow::LastDiscreteSigned(DiscreteWindowInstance::new(size, wait, ts))
+                SlidingWindow::LastDiscreteSigned(DiscreteWindowInstance::new(size, wait, active, ts))
             }
             (WinOp::Last, Type::UInt(_)) => {
-                SlidingWindow::LastDiscreteUnsigned(DiscreteWindowInstance::new(size, wait, ts))
+                SlidingWindow::LastDiscreteUnsigned(DiscreteWindowInstance::new(size, wait, active, ts))
             }
             (WinOp::Last, Type::Float(_)) => {
-                SlidingWindow::LastDiscreteFloat(DiscreteWindowInstance::new(size, wait, ts))
+                SlidingWindow::LastDiscreteFloat(DiscreteWindowInstance::new(size, wait, active, ts))
             }
             (WinOp::NthPercentile(x), Type::Int(_)) => {
-                SlidingWindow::PercentileDiscreteSigned(x, DiscreteWindowInstance::new(size, wait, ts))
+                SlidingWindow::PercentileDiscreteSigned(x, DiscreteWindowInstance::new(size, wait, active, ts))
             }
             (WinOp::NthPercentile(x), Type::UInt(_)) => {
-                SlidingWindow::PercentileDiscreteUnsigned(x, DiscreteWindowInstance::new(size, wait, ts))
+                SlidingWindow::PercentileDiscreteUnsigned(x, DiscreteWindowInstance::new(size, wait, active, ts))
             }
             (WinOp::NthPercentile(x), Type::Float(_)) => {
-                SlidingWindow::PercentileDiscreteFloat(x, DiscreteWindowInstance::new(size, wait, ts))
+                SlidingWindow::PercentileDiscreteFloat(x, DiscreteWindowInstance::new(size, wait, active, ts))
             }
             (WinOp::Variance, Type::Float(_)) => {
-                SlidingWindow::VarianceDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+                SlidingWindow::VarianceDiscrete(DiscreteWindowInstance::new(size, wait, active, ts))
             }
             (WinOp::StandardDeviation, Type::Float(_)) => {
-                SlidingWindow::StandardDeviationDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+                SlidingWindow::StandardDeviationDiscrete(DiscreteWindowInstance::new(size, wait, active, ts))
             }
             (WinOp::Covariance, Type::Float(_)) => {
-                SlidingWindow::CovarianceDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+                SlidingWindow::CovarianceDiscrete(DiscreteWindowInstance::new(size, wait, active, ts))
             }
-            (_, Type::Option(t)) => SlidingWindow::from_discrete(size, wait, op, ts, t),
+            (_, Type::Option(t)) => SlidingWindow::from_discrete(size, wait, op, ts, t, active),
             _ => unimplemented!(),
         }
     }
@@ -199,60 +299,7 @@ impl SlidingWindow {
     /// # Arguments:
     /// * 'ts' - the current timestamp of the monitor
     pub(crate) fn update(&mut self, ts: Time) {
-        match self {
-            SlidingWindow::Count(wi) => wi.update_buckets(ts),
-            SlidingWindow::CountDiscrete(wi) => wi.update_buckets(ts),
-            SlidingWindow::MinUnsigned(wi) => wi.update_buckets(ts),
-            SlidingWindow::MinUnsignedDiscrete(wi) => wi.update_buckets(ts),
-            SlidingWindow::MinSigned(wi) => wi.update_buckets(ts),
-            SlidingWindow::MinSignedDiscrete(wi) => wi.update_buckets(ts),
-            SlidingWindow::MinFloat(wi) => wi.update_buckets(ts),
-            SlidingWindow::MinFloatDiscrete(wi) => wi.update_buckets(ts),
-            SlidingWindow::MaxUnsigned(wi) => wi.update_buckets(ts),
-            SlidingWindow::MaxUnsignedDiscrete(wi) => wi.update_buckets(ts),
-            SlidingWindow::MaxSigned(wi) => wi.update_buckets(ts),
-            SlidingWindow::MaxSignedDiscrete(wi) => wi.update_buckets(ts),
-            SlidingWindow::MaxFloat(wi) => wi.update_buckets(ts),
-            SlidingWindow::MaxFloatDiscrete(wi) => wi.update_buckets(ts),
-            SlidingWindow::SumUnsigned(wi) => wi.update_buckets(ts),
-            SlidingWindow::SumUnsignedDiscrete(wi) => wi.update_buckets(ts),
-            SlidingWindow::SumSigned(wi) => wi.update_buckets(ts),
-            SlidingWindow::SumSignedDiscrete(wi) => wi.update_buckets(ts),
-            SlidingWindow::SumFloat(wi) => wi.update_buckets(ts),
-            SlidingWindow::SumFloatDiscrete(wi) => wi.update_buckets(ts),
-            SlidingWindow::SumBool(wi) => wi.update_buckets(ts),
-            SlidingWindow::SumBoolDiscrete(wi) => wi.update_buckets(ts),
-            SlidingWindow::Conjunction(wi) => wi.update_buckets(ts),
-            SlidingWindow::ConjunctionDiscrete(wi) => wi.update_buckets(ts),
-            SlidingWindow::Disjunction(wi) => wi.update_buckets(ts),
-            SlidingWindow::DisjunctionDiscrete(wi) => wi.update_buckets(ts),
-            SlidingWindow::AvgUnsigned(wi) => wi.update_buckets(ts),
-            SlidingWindow::AvgUnsignedDiscrete(wi) => wi.update_buckets(ts),
-            SlidingWindow::AvgSigned(wi) => wi.update_buckets(ts),
-            SlidingWindow::AvgSignedDiscrete(wi) => wi.update_buckets(ts),
-            SlidingWindow::AvgFloat(wi) => wi.update_buckets(ts),
-            SlidingWindow::AvgFloatDiscrete(wi) => wi.update_buckets(ts),
-            SlidingWindow::Integral(wi) => wi.update_buckets(ts),
-            SlidingWindow::IntegralDiscrete(wi) => wi.update_buckets(ts),
-            SlidingWindow::LastSigned(wi) => wi.update_buckets(ts),
-            SlidingWindow::LastUnsigned(wi) => wi.update_buckets(ts),
-            SlidingWindow::LastFloat(wi) => wi.update_buckets(ts),
-            SlidingWindow::LastDiscreteSigned(wi) => wi.update_buckets(ts),
-            SlidingWindow::LastDiscreteUnsigned(wi) => wi.update_buckets(ts),
-            SlidingWindow::LastDiscreteFloat(wi) => wi.update_buckets(ts),
-            SlidingWindow::PercentileSigned(_, wi) => wi.update_buckets(ts),
-            SlidingWindow::PercentileUnsigned(_, wi) => wi.update_buckets(ts),
-            SlidingWindow::PercentileFloat(_, wi) => wi.update_buckets(ts),
-            SlidingWindow::PercentileDiscreteSigned(_, wi) => wi.update_buckets(ts),
-            SlidingWindow::PercentileDiscreteUnsigned(_, wi) => wi.update_buckets(ts),
-            SlidingWindow::PercentileDiscreteFloat(_, wi) => wi.update_buckets(ts),
-            SlidingWindow::Variance(wi) => wi.update_buckets(ts),
-            SlidingWindow::VarianceDiscrete(wi) => wi.update_buckets(ts),
-            SlidingWindow::StandardDeviation(wi) => wi.update_buckets(ts),
-            SlidingWindow::StandardDeviationDiscrete(wi) => wi.update_buckets(ts),
-            SlidingWindow::Covariance(wi) => wi.update_buckets(ts),
-            SlidingWindow::CovarianceDiscrete(wi) => wi.update_buckets(ts),
-        }
+        match_and_run!(self, update_buckets, ts);
     }
 
     /// Computes the current value of a sliding window instance with the given timestamp:
@@ -321,60 +368,22 @@ impl SlidingWindow {
     /// * 'v' - the current value of the accessed stream
     /// * 'ts' - the current timestamp of the monitor
     pub(crate) fn accept_value(&mut self, v: Value, ts: Time) {
-        match self {
-            SlidingWindow::Count(wi) => wi.accept_value(v, ts),
-            SlidingWindow::CountDiscrete(wi) => wi.accept_value(v, ts),
-            SlidingWindow::MinUnsigned(wi) => wi.accept_value(v, ts),
-            SlidingWindow::MinUnsignedDiscrete(wi) => wi.accept_value(v, ts),
-            SlidingWindow::MinSigned(wi) => wi.accept_value(v, ts),
-            SlidingWindow::MinSignedDiscrete(wi) => wi.accept_value(v, ts),
-            SlidingWindow::MinFloat(wi) => wi.accept_value(v, ts),
-            SlidingWindow::MinFloatDiscrete(wi) => wi.accept_value(v, ts),
-            SlidingWindow::MaxUnsigned(wi) => wi.accept_value(v, ts),
-            SlidingWindow::MaxUnsignedDiscrete(wi) => wi.accept_value(v, ts),
-            SlidingWindow::MaxFloat(wi) => wi.accept_value(v, ts),
-            SlidingWindow::MaxFloatDiscrete(wi) => wi.accept_value(v, ts),
-            SlidingWindow::MaxSigned(wi) => wi.accept_value(v, ts),
-            SlidingWindow::MaxSignedDiscrete(wi) => wi.accept_value(v, ts),
-            SlidingWindow::SumUnsigned(wi) => wi.accept_value(v, ts),
-            SlidingWindow::SumUnsignedDiscrete(wi) => wi.accept_value(v, ts),
-            SlidingWindow::SumSigned(wi) => wi.accept_value(v, ts),
-            SlidingWindow::SumSignedDiscrete(wi) => wi.accept_value(v, ts),
-            SlidingWindow::SumFloat(wi) => wi.accept_value(v, ts),
-            SlidingWindow::SumFloatDiscrete(wi) => wi.accept_value(v, ts),
-            SlidingWindow::SumBool(wi) => wi.accept_value(v, ts),
-            SlidingWindow::SumBoolDiscrete(wi) => wi.accept_value(v, ts),
-            SlidingWindow::Conjunction(wi) => wi.accept_value(v, ts),
-            SlidingWindow::ConjunctionDiscrete(wi) => wi.accept_value(v, ts),
-            SlidingWindow::Disjunction(wi) => wi.accept_value(v, ts),
-            SlidingWindow::DisjunctionDiscrete(wi) => wi.accept_value(v, ts),
-            SlidingWindow::AvgUnsigned(wi) => wi.accept_value(v, ts),
-            SlidingWindow::AvgUnsignedDiscrete(wi) => wi.accept_value(v, ts),
-            SlidingWindow::AvgSigned(wi) => wi.accept_value(v, ts),
-            SlidingWindow::AvgSignedDiscrete(wi) => wi.accept_value(v, ts),
-            SlidingWindow::AvgFloat(wi) => wi.accept_value(v, ts),
-            SlidingWindow::AvgFloatDiscrete(wi) => wi.accept_value(v, ts),
-            SlidingWindow::Integral(wi) => wi.accept_value(v, ts),
-            SlidingWindow::IntegralDiscrete(wi) => wi.accept_value(v, ts),
-            SlidingWindow::LastSigned(wi) => wi.accept_value(v, ts),
-            SlidingWindow::LastUnsigned(wi) => wi.accept_value(v, ts),
-            SlidingWindow::LastFloat(wi) => wi.accept_value(v, ts),
-            SlidingWindow::LastDiscreteSigned(wi) => wi.accept_value(v, ts),
-            SlidingWindow::LastDiscreteUnsigned(wi) => wi.accept_value(v, ts),
-            SlidingWindow::LastDiscreteFloat(wi) => wi.accept_value(v, ts),
-            SlidingWindow::PercentileSigned(_, wi) => wi.accept_value(v, ts),
-            SlidingWindow::PercentileUnsigned(_, wi) => wi.accept_value(v, ts),
-            SlidingWindow::PercentileFloat(_, wi) => wi.accept_value(v, ts),
-            SlidingWindow::PercentileDiscreteSigned(_, wi) => wi.accept_value(v, ts),
-            SlidingWindow::PercentileDiscreteUnsigned(_, wi) => wi.accept_value(v, ts),
-            SlidingWindow::PercentileDiscreteFloat(_, wi) => wi.accept_value(v, ts),
-            SlidingWindow::Variance(wi) => wi.accept_value(v, ts),
-            SlidingWindow::VarianceDiscrete(wi) => wi.accept_value(v, ts),
-            SlidingWindow::StandardDeviation(wi) => wi.accept_value(v, ts),
-            SlidingWindow::StandardDeviationDiscrete(wi) => wi.accept_value(v, ts),
-            SlidingWindow::Covariance(wi) => wi.accept_value(v, ts),
-            SlidingWindow::CovarianceDiscrete(wi) => wi.accept_value(v, ts),
-        }
+        match_and_run!(self, accept_value, v, ts);
+    }
+
+    /// Clears the current sliding window state
+    pub(crate) fn deactivate(&mut self) {
+        match_and_run!(self, deactivate);
+    }
+
+    /// Returns true if the window instance is currently active. I.e. the target stream instance currently exists.
+    pub(crate) fn is_active(&self) -> bool {
+        match_and_run!(self, is_active)
+    }
+
+    /// Restarts the sliding window
+    pub(crate) fn activate(&mut self, ts: Time) {
+        match_and_run!(self, activate, ts);
     }
 }
 
@@ -388,15 +397,14 @@ pub(crate) trait WindowIv:
 
 /// Struct to summarize common logic for the different window aggregations, e.g. iterating over the buckets to compute the result of an aggregation
 #[derive(Debug)]
-pub(crate) struct WindowInstance<IV: WindowIv> {
+pub(crate) struct RealTimeWindowInstance<IV: WindowIv> {
     buckets: VecDeque<IV>,
     time_per_bucket: Duration,
     start_time: Time,
     last_bucket_ix: BIx,
     wait: bool,
     wait_duration: Duration,
-    #[cfg(debug)]
-    is_initialized: bool,
+    active: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -434,49 +442,48 @@ impl BIx {
     }
 }
 
-impl<IV: WindowIv> WindowInstance<IV> {
-    fn new(dur: Duration, wait: bool, ts: Time) -> WindowInstance<IV> {
+impl<IV: WindowIv> RealTimeWindowInstance<IV> {
+    /// Creates a new window instance
+    fn new(dur: Duration, wait: bool, active: bool, ts: Time) -> RealTimeWindowInstance<IV> {
         let time_per_bucket = dur / (SIZE as u32);
         let buckets = VecDeque::from(vec![IV::default(ts); SIZE]);
         // last bucket_ix is 1, so we consider all buckets, i.e. from 1 to end and from start to 0,
         // as in use. Whenever we progress by n buckets, we invalidate the pseudo-used ones.
         // This is safe since the value within is the neutral element of the operation.
-        WindowInstance {
+        RealTimeWindowInstance {
             buckets,
             time_per_bucket,
             start_time: ts,
             last_bucket_ix: BIx::new(0, 0),
             wait,
             wait_duration: dur,
-            #[cfg(debug)]
-            is_initialized: true,
+            active,
         }
     }
 
     /// Clears the current sliding window state
-    fn clear(&mut self) {
-        self.buckets = VecDeque::from(vec![IV::default(self.start_time); SIZE]);
+    fn deactivate(&mut self) {
         self.last_bucket_ix = BIx::new(0, 0);
-        #[cfg(debug)]
-        {
-            self.is_initialized = false;
-        }
+        self.active = false;
+    }
+
+    /// Returns true if the window instance is currently active. I.e. the target stream instance currently exists.
+    fn is_active(&self) -> bool {
+        self.active
     }
 
     /// Restarts the sliding window
-    fn restart(&mut self, ts: Time) {
+    fn activate(&mut self, ts: Time) {
         self.buckets = VecDeque::from(vec![IV::default(ts); SIZE]);
         self.start_time = ts;
-        #[cfg(debug)]
-        {
-            self.is_initialized = true;
-        }
+        self.active = true;
     }
 
     /// You should always call `WindowInstance::update_buckets` before calling `WindowInstance::get_value()`!
     fn get_value(&self, ts: Time) -> Value {
-        #[cfg(debug)]
-        assert!(self.is_initialized);
+        if !self.active {
+            return IV::default(ts).into();
+        }
         // Reversal is essential for non-commutative operations.
         if self.wait && ts < self.wait_duration {
             return Value::None;
@@ -485,16 +492,14 @@ impl<IV: WindowIv> WindowInstance<IV> {
     }
 
     fn accept_value(&mut self, v: Value, ts: Time) {
-        #[cfg(debug)]
-        assert!(self.is_initialized);
+        assert!(self.active);
         self.update_buckets(ts);
         let b = self.buckets.get_mut(0).expect("Bug!");
         *b = b.clone() + (v, ts).into(); // TODO: Require add_assign rather than add.
     }
 
     fn update_buckets(&mut self, ts: Time) {
-        #[cfg(debug)]
-        assert!(self.is_initialized);
+        assert!(self.active);
         let curr = self.get_current_bucket(ts);
         let last = self.last_bucket_ix;
 
@@ -504,8 +509,7 @@ impl<IV: WindowIv> WindowInstance<IV> {
     }
 
     fn invalidate_n(&mut self, n: usize, ts: Time) {
-        #[cfg(debug)]
-        assert!(self.is_initialized);
+        assert!(self.active);
         for _ in 0..n {
             self.buckets.pop_back();
             self.buckets.push_front(IV::default(ts));
@@ -513,8 +517,7 @@ impl<IV: WindowIv> WindowInstance<IV> {
     }
 
     fn get_current_bucket(&self, ts: Time) -> BIx {
-        #[cfg(debug)]
-        assert!(self.is_initialized);
+        assert!(self.active);
         // let overall_ix = ts.duration_since(self.start_time).div_duration(self.time_per_bucket);
         assert!(ts >= self.start_time, "Time does not behave monotonically!");
         let overall_ix = Self::quickfix_duration_div(ts - self.start_time, self.time_per_bucket);
