@@ -305,8 +305,40 @@ impl Evaluator {
         for task in tasks {
             match task {
                 Task::Evaluate(idx) => self.eval_event_driven_output(*idx, ts),
-                Task::Spawn(_) => unimplemented!("Spawn not yet implemented"),
+                Task::Spawn(idx) => self.eval_spawn(*idx, ts),
                 Task::Close(_) => unreachable!("Closes are not included in evaluation layer."),
+            }
+        }
+    }
+
+    fn eval_spawn(&mut self, output: OutputReference, ts: Time) {
+        // Check activation condition
+        if !self.spawn_activation_conditions[output].eval(self.fresh_inputs) {
+            return;
+        }
+
+        let stream = self.ir.output(StreamReference::Out(output));
+        debug_assert!(stream.is_spawned(), "tried to spawn stream that should not be spawned");
+
+        let ctx = self.as_EvaluationContext(ts);
+        let res = self.compiled_spawn_exprs[output].execute(&ctx);
+
+        let parameter_values = match res {
+            Value::None => return, // spawn condition evaluated to false
+            Value::Tuple(paras) => paras.to_vec(),
+            x => vec![x],
+        };
+        self.handler.debug(|| format!("Spawning stream {}: {} with {:?}", output, stream.name, &parameter_values));
+
+        if stream.is_parameterized() {
+            debug_assert!(!parameter_values.is_empty());
+        } else {
+            debug_assert!(parameter_values.is_empty());
+            self.global_store.get_out_instance_mut(output).activate();
+
+            //active windows over this stream
+            for (_, window) in &stream.aggregated_by {
+                //self.global_store.get_window_mut(window).activate();
             }
         }
     }
