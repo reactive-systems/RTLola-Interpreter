@@ -328,19 +328,67 @@ impl Evaluator {
             Value::Tuple(paras) => paras.to_vec(),
             x => vec![x],
         };
-        self.handler.debug(|| format!("Spawning stream {}: {} with {:?}", output, stream.name, &parameter_values));
 
         if stream.is_parameterized() {
             debug_assert!(!parameter_values.is_empty());
+            let instances = self.global_store.get_out_instance_collection_mut(output);
+            if instances.contains(parameter_values.as_slice()) {
+                // instance already exists -> nothing to do
+                return;
+            }
+            self.handler.debug(|| format!("Spawning stream {}: {} with {:?}", output, stream.name, &parameter_values));
+            instances.create_instance(parameter_values.as_slice());
+
+            //activate windows over this stream
+            for (_, win_ref) in &stream.aggregated_by {
+                let windows = self.global_store.get_window_collection_mut(*win_ref);
+                windows.create_window(parameter_values.as_slice(), ts);
+            }
         } else {
             debug_assert!(parameter_values.is_empty());
-            self.global_store.get_out_instance_mut(output).activate();
+            let inst = self.global_store.get_out_instance_mut(output);
+            if inst.is_active() {
+                // instance already exists -> nothing to do
+                return;
+            }
+            self.handler.debug(|| format!("Spawning stream {}: {} with {:?}", output, stream.name, &parameter_values));
+            inst.activate();
 
-            //active windows over this stream
+            //activate windows over this stream
             for (_, win_ref) in &stream.aggregated_by {
                 let window = self.global_store.get_window_mut(*win_ref);
                 debug_assert!(!window.is_active());
                 window.activate(ts);
+            }
+        }
+
+        // Todo: Make this more efficient
+        let td_stream = self.ir.time_driven.iter().find(|t| t.reference == stream.reference);
+
+        // Schedule instance evaluation if stream is periodic
+        if let Some(tds) = td_stream {
+            let mut schedule = self.dyn_schedule.0.lock().unwrap();
+            schedule.schedule_evaluation(
+                &self.dyn_schedule.1,
+                output,
+                parameter_values.as_slice(),
+                ts,
+                tds.period_in_duration(),
+            );
+
+            // Schedule close if it deponds on current instance
+            if stream.instance_template.close.has_self_reference {
+                // we have a synchronous access to self -> period of close should be the same as og self
+                debug_assert!(
+                    matches!(&stream.instance_template.close.pacing, PacingType::Periodic(f) if *f == tds.frequency)
+                );
+                schedule.schedule_close(
+                    &self.dyn_schedule.1,
+                    output,
+                    parameter_values.as_slice(),
+                    ts,
+                    tds.period_in_duration(),
+                );
             }
         }
     }

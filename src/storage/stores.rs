@@ -27,12 +27,12 @@ impl InstanceCollection {
     }
 
     /// Returns a reference to the instance store of the instance corresponding to the parameters
-    pub(crate) fn get_instance(&self, parameter: &[Value]) -> Option<&InstanceStore> {
+    pub(crate) fn instance(&self, parameter: &[Value]) -> Option<&InstanceStore> {
         self.instances.get(parameter)
     }
 
     /// Returns a mutable reference to the instance store of the instance corresponding to the parameters
-    pub(crate) fn get_instance_mut(&mut self, parameter: &[Value]) -> Option<&mut InstanceStore> {
+    pub(crate) fn instance_mut(&mut self, parameter: &[Value]) -> Option<&mut InstanceStore> {
         self.instances.get_mut(parameter)
     }
 
@@ -53,8 +53,13 @@ impl InstanceCollection {
     }
 
     /// Returns a vector of all parameters for which an instance exists
-    pub(crate) fn get_all_instances(&self) -> Vec<&[Value]> {
+    pub(crate) fn all_instances(&self) -> Vec<&[Value]> {
         self.instances.keys().map(|i| i.as_slice()).collect()
+    }
+
+    /// Returns true if the instance exists in the instance store
+    pub(crate) fn contains(&self, parameter: &[Value]) -> bool {
+        self.instances.contains_key(parameter)
     }
 }
 
@@ -372,7 +377,7 @@ impl InstanceStore {
         self.active = true;
     }
 
-    pub(crate) fn is_activate(&self) -> bool {
+    pub(crate) fn is_active(&self) -> bool {
         self.active
     }
 
