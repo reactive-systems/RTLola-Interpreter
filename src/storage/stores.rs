@@ -57,6 +57,11 @@ impl InstanceCollection {
         self.instances.keys().map(|i| i.as_slice()).collect()
     }
 
+    /// Returns a vector of all parameters for which an instance exists as a Vector
+    pub(crate) fn all_instances_owned(&self) -> Vec<Vec<Value>> {
+        self.instances.keys().map(|i| i.clone()).collect()
+    }
+
     /// Returns true if the instance exists in the instance store
     pub(crate) fn contains(&self, parameter: &[Value]) -> bool {
         self.instances.contains_key(parameter)

@@ -26,6 +26,7 @@ pub(crate) struct EvaluatorData {
     // Accessed by stream index
     stream_activation_conditions: Vec<ActivationConditionOp>,
     spawn_activation_conditions: Vec<ActivationConditionOp>,
+    close_activation_conditions: Vec<ActivationConditionOp>,
     global_store: GlobalStore,
     start_time: Instant,
     first_event: Option<Time>,
@@ -34,6 +35,7 @@ pub(crate) struct EvaluatorData {
     fresh_triggers: BitSet,
     triggers: Vec<Option<Trigger>>,
     trigger_templates: Vec<Option<Template>>,
+    closing_streams: Vec<OutputReference>,
     ir: RtLolaMir,
     handler: Arc<OutputHandler>,
     config: EvalConfig,
@@ -47,6 +49,7 @@ pub(crate) struct Evaluator {
     // Indexed by stream reference.
     stream_activation_conditions: &'static [ActivationConditionOp],
     spawn_activation_conditions: &'static [ActivationConditionOp],
+    close_activation_conditions: &'static [ActivationConditionOp],
     // Accessed by stream index
     // If Value::None is returned by an expression the filter was false
     compiled_stream_exprs: Vec<CompiledExpr>,
@@ -64,6 +67,7 @@ pub(crate) struct Evaluator {
     fresh_triggers: &'static mut BitSet,
     triggers: &'static [Option<Trigger>],
     trigger_templates: &'static [Option<Template>],
+    closing_streams: &'static [OutputReference],
     ir: &'static RtLolaMir,
     handler: &'static OutputHandler,
     config: &'static EvalConfig,
@@ -93,6 +97,12 @@ impl EvaluatorData {
             .map(|layer| layer.into_iter().map(Task::Evaluate).collect())
             .collect();
         let spawned_streams: Vec<&OutputStream> = ir.outputs.iter().filter(|o| o.is_spawned()).collect();
+        let closing_streams = ir
+            .outputs
+            .iter()
+            .filter(|s| s.instance_template.close.target.is_some())
+            .map(|s| s.reference.out_ix())
+            .collect();
         for ss in spawned_streams {
             let spawn_layer = ss.spawn_layer().inner();
             layers[spawn_layer].push(Task::Spawn(ss.reference.out_ix()));
@@ -118,7 +128,15 @@ impl EvaluatorData {
                 PacingType::Constant => ActivationConditionOp::True,
             })
             .collect();
-
+        let close_acs = ir
+            .outputs
+            .iter()
+            .map(|o| match &o.instance_template.close.pacing {
+                PacingType::Periodic(_) => ActivationConditionOp::TimeDriven,
+                PacingType::Event(ac) => ActivationConditionOp::new(ac, ir.inputs.len()),
+                PacingType::Constant => ActivationConditionOp::True,
+            })
+            .collect();
         let global_store = GlobalStore::new(&ir, Time::default());
         let fresh_inputs = BitSet::with_capacity(ir.inputs.len());
         let fresh_outputs = BitSet::with_capacity(ir.outputs.len());
@@ -133,6 +151,7 @@ impl EvaluatorData {
             layers,
             stream_activation_conditions: stream_acs,
             spawn_activation_conditions: spawn_acs,
+            close_activation_conditions: close_acs,
             global_store,
             start_time,
             first_event: None,
@@ -141,6 +160,7 @@ impl EvaluatorData {
             fresh_triggers,
             triggers,
             trigger_templates,
+            closing_streams,
             ir,
             handler,
             config,
@@ -200,6 +220,7 @@ impl EvaluatorData {
             layers: &leaked_data.layers,
             stream_activation_conditions: &leaked_data.stream_activation_conditions,
             spawn_activation_conditions: &leaked_data.spawn_activation_conditions,
+            close_activation_conditions: &leaked_data.close_activation_conditions,
             compiled_stream_exprs,
             compiled_spawn_exprs,
             compiled_close_exprs,
@@ -211,6 +232,7 @@ impl EvaluatorData {
             fresh_triggers: &mut leaked_data.fresh_triggers,
             triggers: &leaked_data.triggers,
             trigger_templates: &leaked_data.trigger_templates,
+            closing_streams: &leaked_data.closing_streams,
             ir: &leaked_data.ir,
             handler: &leaked_data.handler,
             config: &leaked_data.config,
@@ -298,25 +320,28 @@ impl Evaluator {
         for layer in self.layers {
             self.eval_event_driven_layer(layer, ts);
         }
-        //Todo: Eval all event driven close conditions
+        for close in self.closing_streams {
+            if self.close_activation_conditions[*close].eval(self.fresh_inputs) {
+                let stream_instances: Vec<Vec<Value>> =
+                    self.global_store.get_out_instance_collection(*close).all_instances_owned();
+                for instance in stream_instances {
+                    self.eval_close(*close, instance.as_slice(), ts);
+                }
+            }
+        }
     }
 
     fn eval_event_driven_layer(&mut self, tasks: &[Task], ts: Time) {
         for task in tasks {
             match task {
                 Task::Evaluate(idx) => self.eval_event_driven_output(*idx, ts),
-                Task::Spawn(idx) => self.eval_spawn(*idx, ts),
+                Task::Spawn(idx) => self.eval_event_driven_spawn(*idx, ts),
                 Task::Close(_) => unreachable!("Closes are not included in evaluation layer."),
             }
         }
     }
 
     fn eval_spawn(&mut self, output: OutputReference, ts: Time) {
-        // Check activation condition
-        if !self.spawn_activation_conditions[output].eval(self.fresh_inputs) {
-            return;
-        }
-
         let stream = self.ir.output(StreamReference::Out(output));
         debug_assert!(stream.is_spawned(), "tried to spawn stream that should not be spawned");
 
@@ -393,6 +418,41 @@ impl Evaluator {
         }
     }
 
+    fn eval_close(&mut self, output: OutputReference, parameter: &[Value], ts: Time) {
+        let stream = self.ir.output(StreamReference::Out(output));
+        let ctx = self.as_EvaluationContext(ts);
+        let res = self.compiled_close_exprs[output].execute(&ctx);
+        if !res.get_bool() {
+            return;
+        }
+
+        self.handler
+            .debug(|| format!("Closing stream instance of {}: {} with parameter{:?}", output, stream.name, &parameter));
+
+        if stream.is_parameterized() {
+            // close instance in store
+            self.global_store.get_out_instance_collection_mut(output).delete_instance(parameter);
+
+            // close all windows referencing this instance
+            for (_, win) in &stream.aggregated_by {
+                // we know this window instance exists as it was created together with the stream instance.
+                self.global_store.get_window_collection_mut(*win).delete_window(parameter);
+            }
+        } else {
+            self.global_store.get_out_instance_mut(output).deactivate();
+            //close windows
+            for (_, win) in &stream.aggregated_by {
+                self.global_store.get_window_mut(*win).deactivate();
+            }
+        }
+    }
+
+    fn eval_event_driven_spawn(&mut self, output: OutputReference, ts: Time) {
+        if self.spawn_activation_conditions[output].eval(self.fresh_inputs) {
+            self.eval_spawn(output, ts);
+        }
+    }
+
     fn eval_event_driven_output(&mut self, output: OutputReference, ts: Time) {
         if self.stream_activation_conditions[output].eval(self.fresh_inputs) {
             self.eval_stream(output, ts);
@@ -407,7 +467,7 @@ impl Evaluator {
         for task in tasks {
             match task {
                 EvaluationTask::Evaluate(idx, _) => self.eval_stream(idx, relative_ts),
-                EvaluationTask::Spawn(_) => unimplemented!("Time driven spawn not yet implemented"),
+                EvaluationTask::Spawn(idx) => self.eval_spawn(idx, ts),
                 EvaluationTask::Close(_, _) => unimplemented!("Time driven close not yet implemented"),
             }
         }
