@@ -9,19 +9,21 @@ use regex::bytes::Regex as BytesRegex;
 use regex::Regex;
 use rtlola_frontend::mir::{Constant, Expression, ExpressionKind, Offset, StreamAccessKind, Type};
 use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl, Shr, Sub};
+use std::rc::Rc;
 
 pub(crate) trait Expr {
     fn compile(self) -> CompiledExpr;
 }
 
-pub(crate) struct CompiledExpr(Box<dyn Fn(&EvaluationContext<'_>) -> Value>);
+#[derive(Clone)]
+pub(crate) struct CompiledExpr(Rc<dyn Fn(&mut EvaluationContext<'_>) -> Value>);
 // alternative: using Higher-Rank Trait Bounds (HRTBs)
 // pub(crate) struct CompiledExpr<'s>(Box<dyn 's + for<'a> Fn(&EvaluationContext<'a>) -> Value>);
 
 impl CompiledExpr {
     /// Creates a compiled expression IR from a generic closure.
-    pub(crate) fn new(closure: impl 'static + Fn(&EvaluationContext<'_>) -> Value) -> Self {
-        CompiledExpr(Box::new(closure))
+    pub(crate) fn new(closure: impl 'static + Fn(&mut EvaluationContext<'_>) -> Value) -> Self {
+        CompiledExpr(Rc::new(closure))
     }
 
     /// Creates a compiled expression returning the value of the `value_exp` if the `filter_exp` evaluates to true
@@ -33,7 +35,7 @@ impl CompiledExpr {
     }
 
     /// Executes a filter against a provided context with values.
-    pub(crate) fn execute(&self, ctx: &EvaluationContext) -> Value {
+    pub(crate) fn execute(&self, ctx: &mut EvaluationContext) -> Value {
         self.0(ctx)
     }
 }
@@ -52,7 +54,7 @@ impl Expr for Expression {
                 };
                 CompiledExpr::new(move |_| v.clone())
             }
-            ParameterAccess(_, _) => unimplemented!("Parameterization is currently not implemented"),
+            ParameterAccess(_target, idx) => CompiledExpr::new(move |ctx| ctx.parameter[idx].clone()),
             ArithLog(op, operands) => {
                 let f_operands: Vec<CompiledExpr> = operands.into_iter().map(|e| e.compile()).collect();
 
@@ -125,18 +127,27 @@ impl Expr for Expression {
             }
 
             StreamAccess { target, parameters, access_kind } => {
-                assert!(parameters.is_empty(), "Parametrization not yet implemented");
+                let paras: Vec<CompiledExpr> = parameters.into_iter().map(|e| e.compile()).collect();
+                macro_rules! create_access {
+                    ($fn:ident, $target:ident $( , $arg:ident )*) => {
+                        CompiledExpr::new(move |ctx| {
+                            let parameter: Vec<Value> = paras.iter().map(|p| p.execute(ctx)).collect();
+                            ctx.$fn($target, parameter.as_slice(), $($arg),*)
+                        })
+                    };
+                }
                 match access_kind {
-                    StreamAccessKind::Sync => CompiledExpr::new(move |ctx| ctx.lookup_latest_check(target)),
-                    StreamAccessKind::DiscreteWindow(wref) => CompiledExpr::new(move |ctx| ctx.lookup_window(wref)),
-                    StreamAccessKind::SlidingWindow(wref) => CompiledExpr::new(move |ctx| ctx.lookup_window(wref)),
-                    StreamAccessKind::Hold => CompiledExpr::new(move |ctx| ctx.lookup_latest(target)),
+                    StreamAccessKind::Sync => create_access!(lookup_latest_check, target),
+                    StreamAccessKind::DiscreteWindow(wref) | StreamAccessKind::SlidingWindow(wref) => {
+                        create_access!(lookup_window, wref)
+                    }
+                    StreamAccessKind::Hold => create_access!(lookup_latest, target),
                     StreamAccessKind::Offset(offset) => {
                         let offset = match offset {
                             Offset::Future(_) => unimplemented!(),
                             Offset::Past(u) => -(u as i16),
                         };
-                        CompiledExpr::new(move |ctx| ctx.lookup_with_offset(target, offset))
+                        create_access!(lookup_with_offset, target, offset)
                     }
                 }
             }

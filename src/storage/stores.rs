@@ -53,13 +53,8 @@ impl InstanceCollection {
     }
 
     /// Returns a vector of all parameters for which an instance exists
-    pub(crate) fn all_instances(&self) -> Vec<&[Value]> {
-        self.instances.keys().map(|i| i.as_slice()).collect()
-    }
-
-    /// Returns a vector of all parameters for which an instance exists as a Vector
-    pub(crate) fn all_instances_owned(&self) -> Vec<Vec<Value>> {
-        self.instances.keys().map(|i| i.clone()).collect()
+    pub(crate) fn all_instances(&self) -> Vec<Vec<Value>> {
+        self.instances.keys().cloned().collect()
     }
 
     /// Returns true if the instance exists in the instance store
@@ -89,26 +84,37 @@ impl SlidingWindowCollection {
     }
 
     /// Creates a new sliding window in the collection
-    pub(crate) fn create_window(&mut self, parameters: &[Value], start_time: Time) -> Option<&SlidingWindow> {
+    pub(crate) fn create_window(&mut self, parameters: &[Value], start_time: Time) -> Option<&mut SlidingWindow> {
         if !self.windows.contains_key(parameters) {
             let window = match self.duration {
-                Either::Left(dur) => SlidingWindow::from_sliding(dur, self.wait, self.op, start_time, &self.ty, true),
-                Either::Right(dur) => SlidingWindow::from_discrete(dur, self.wait, self.op, start_time, &self.ty, true),
+                Either::Left(dur) => SlidingWindow::from_sliding(dur, self.wait, self.op, start_time, &self.ty, false),
+                Either::Right(dur) => {
+                    SlidingWindow::from_discrete(dur, self.wait, self.op, start_time, &self.ty, false)
+                }
             };
             self.windows.insert(parameters.to_vec(), window);
-            self.windows.get(parameters)
+            self.windows.get_mut(parameters)
         } else {
             None
         }
     }
 
+    /// Returns the existing sliding window for the parameters or creates an instance if not existing
+    pub(crate) fn get_or_create(&mut self, parameters: &[Value], start_time: Time) -> &mut SlidingWindow {
+        if self.windows.contains_key(parameters) {
+            self.window_mut(parameters).unwrap()
+        } else {
+            self.create_window(parameters, start_time).unwrap()
+        }
+    }
+
     /// Returns a reference to the sliding window corresponding to the parameters
-    pub(crate) fn get_window(&self, parameter: &[Value]) -> Option<&SlidingWindow> {
+    pub(crate) fn window(&self, parameter: &[Value]) -> Option<&SlidingWindow> {
         self.windows.get(parameter)
     }
 
     /// Returns a mutable reference to the sliding window corresponding to the parameters
-    pub(crate) fn get_window_mut(&mut self, parameter: &[Value]) -> Option<&mut SlidingWindow> {
+    pub(crate) fn window_mut(&mut self, parameter: &[Value]) -> Option<&mut SlidingWindow> {
         self.windows.get_mut(parameter)
     }
 
@@ -118,9 +124,9 @@ impl SlidingWindowCollection {
         self.windows.remove(parameter);
     }
 
-    /// Returns a vector of all parameters for which an window exists
-    pub(crate) fn get_all_windows(&self) -> Vec<&[Value]> {
-        self.windows.keys().map(|i| i.as_slice()).collect()
+    /// Updates all windows in the collection with the given time
+    pub(crate) fn update_all(&mut self, ts: Time) {
+        self.windows.iter_mut().for_each(|(_, w)| w.update(ts));
     }
 }
 
@@ -299,15 +305,6 @@ impl GlobalStore {
         match window {
             WindowReference::Sliding(x) => &self.np_windows[self.window_index_map[x]],
             WindowReference::Discrete(x) => &self.np_discrete_windows[self.discrete_window_index_map[x]],
-        }
-    }
-
-    /// Returns the collection of all sliding window instances
-    /// Note: The windows target *must* be a parameterized stream
-    pub(crate) fn get_window_collection(&self, window: WindowReference) -> &SlidingWindowCollection {
-        match window {
-            WindowReference::Sliding(x) => &self.p_windows[self.window_index_map[x]],
-            WindowReference::Discrete(x) => &self.p_discrete_windows[self.discrete_window_index_map[x]],
         }
     }
 

@@ -5,7 +5,7 @@ use crate::storage::{GlobalStore, Value};
 use bit_set::BitSet;
 use rtlola_frontend::mir::{
     ActivationCondition as Activation, InputReference, OutputReference, OutputStream, PacingType, RtLolaMir, Stream,
-    StreamReference, Task, Trigger, WindowReference,
+    StreamReference, Task, TimeDrivenStream, Trigger, WindowReference,
 };
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Instant;
@@ -34,6 +34,7 @@ pub(crate) struct EvaluatorData {
     fresh_outputs: BitSet,
     fresh_triggers: BitSet,
     triggers: Vec<Option<Trigger>>,
+    time_driven_streams: Vec<Option<TimeDrivenStream>>,
     trigger_templates: Vec<Option<Template>>,
     closing_streams: Vec<OutputReference>,
     ir: RtLolaMir,
@@ -66,6 +67,7 @@ pub(crate) struct Evaluator {
     fresh_outputs: &'static mut BitSet,
     fresh_triggers: &'static mut BitSet,
     triggers: &'static [Option<Trigger>],
+    time_driven_streams: &'static [Option<TimeDrivenStream>],
     trigger_templates: &'static [Option<Template>],
     closing_streams: &'static [OutputReference],
     ir: &'static RtLolaMir,
@@ -77,9 +79,10 @@ pub(crate) struct Evaluator {
 
 pub(crate) struct EvaluationContext<'e> {
     ts: Time,
-    pub(crate) global_store: &'e GlobalStore,
+    pub(crate) global_store: &'e mut GlobalStore,
     pub(crate) fresh_inputs: &'e BitSet,
     pub(crate) fresh_outputs: &'e BitSet,
+    pub(crate) parameter: Vec<Value>,
 }
 
 impl EvaluatorData {
@@ -145,6 +148,10 @@ impl EvaluatorData {
         for t in &ir.triggers {
             triggers[t.reference.out_ix()] = Some(t.clone());
         }
+        let mut time_driven_streams = vec![None; ir.outputs.len()];
+        for t in &ir.time_driven {
+            time_driven_streams[t.reference.out_ix()] = Some(*t);
+        }
         let trigger_templates = triggers.iter().map(|t| t.as_ref().map(|t| Template::new(&t.message))).collect();
         let start_time = start_time.unwrap_or_else(Instant::now);
         EvaluatorData {
@@ -159,6 +166,7 @@ impl EvaluatorData {
             fresh_outputs,
             fresh_triggers,
             triggers,
+            time_driven_streams,
             trigger_templates,
             closing_streams,
             ir,
@@ -231,6 +239,7 @@ impl EvaluatorData {
             fresh_outputs: &mut leaked_data.fresh_outputs,
             fresh_triggers: &mut leaked_data.fresh_triggers,
             triggers: &leaked_data.triggers,
+            time_driven_streams: &leaked_data.time_driven_streams,
             trigger_templates: &leaked_data.trigger_templates,
             closing_streams: &leaked_data.closing_streams,
             ir: &leaked_data.ir,
@@ -323,7 +332,7 @@ impl Evaluator {
         for close in self.closing_streams {
             if self.close_activation_conditions[*close].eval(self.fresh_inputs) {
                 let stream_instances: Vec<Vec<Value>> =
-                    self.global_store.get_out_instance_collection(*close).all_instances_owned();
+                    self.global_store.get_out_instance_collection(*close).all_instances();
                 for instance in stream_instances {
                     self.eval_close(*close, instance.as_slice(), ts);
                 }
@@ -345,8 +354,9 @@ impl Evaluator {
         let stream = self.ir.output(StreamReference::Out(output));
         debug_assert!(stream.is_spawned(), "tried to spawn stream that should not be spawned");
 
-        let ctx = self.as_EvaluationContext(ts);
-        let res = self.compiled_spawn_exprs[output].execute(&ctx);
+        let expr = self.compiled_spawn_exprs[output].clone();
+        let mut ctx = self.as_EvaluationContext(vec![], ts);
+        let res = expr.execute(&mut ctx);
 
         let parameter_values = match res {
             Value::None => return, // spawn condition evaluated to false
@@ -367,7 +377,8 @@ impl Evaluator {
             //activate windows over this stream
             for (_, win_ref) in &stream.aggregated_by {
                 let windows = self.global_store.get_window_collection_mut(*win_ref);
-                windows.create_window(parameter_values.as_slice(), ts);
+                let window = windows.get_or_create(parameter_values.as_slice(), ts);
+                window.activate(ts);
             }
         } else {
             debug_assert!(parameter_values.is_empty());
@@ -387,11 +398,8 @@ impl Evaluator {
             }
         }
 
-        // Todo: Make this more efficient
-        let td_stream = self.ir.time_driven.iter().find(|t| t.reference == stream.reference);
-
         // Schedule instance evaluation if stream is periodic
-        if let Some(tds) = td_stream {
+        if let Some(tds) = self.time_driven_streams[output] {
             let mut schedule = self.dyn_schedule.0.lock().unwrap();
             schedule.schedule_evaluation(
                 &self.dyn_schedule.1,
@@ -401,7 +409,7 @@ impl Evaluator {
                 tds.period_in_duration(),
             );
 
-            // Schedule close if it deponds on current instance
+            // Schedule close if it depends on current instance
             if stream.instance_template.close.has_self_reference {
                 // we have a synchronous access to self -> period of close should be the same as og self
                 debug_assert!(
@@ -420,8 +428,10 @@ impl Evaluator {
 
     fn eval_close(&mut self, output: OutputReference, parameter: &[Value], ts: Time) {
         let stream = self.ir.output(StreamReference::Out(output));
-        let ctx = self.as_EvaluationContext(ts);
-        let res = self.compiled_close_exprs[output].execute(&ctx);
+
+        let expr = self.compiled_close_exprs[output].clone();
+        let mut ctx = self.as_EvaluationContext(parameter.to_vec(), ts);
+        let res = expr.execute(&mut ctx);
         if !res.get_bool() {
             return;
         }
@@ -445,6 +455,17 @@ impl Evaluator {
                 self.global_store.get_window_mut(*win).deactivate();
             }
         }
+
+        // Remove instance evaluation from schedule if stream is periodic
+        if let Some(tds) = self.time_driven_streams[output] {
+            let mut schedule = self.dyn_schedule.0.lock().unwrap();
+            schedule.remove_evaluation(&self.dyn_schedule.1, output, parameter, tds.period_in_duration());
+
+            // Remove close from schedule if it depends on current instance
+            if stream.instance_template.close.has_self_reference {
+                schedule.remove_close(&self.dyn_schedule.1, output, parameter, tds.period_in_duration());
+            }
+        }
     }
 
     fn eval_event_driven_spawn(&mut self, output: OutputReference, ts: Time) {
@@ -455,20 +476,30 @@ impl Evaluator {
 
     fn eval_event_driven_output(&mut self, output: OutputReference, ts: Time) {
         if self.stream_activation_conditions[output].eval(self.fresh_inputs) {
-            self.eval_stream(output, ts);
+            if self.ir.output(StreamReference::Out(output)).is_parameterized() {
+                for instance in self.global_store.get_out_instance_collection(output).all_instances() {
+                    self.eval_stream_instance(output, instance.as_slice(), ts);
+                }
+            } else {
+                self.eval_stream_instance(output, vec![].as_slice(), ts);
+            }
         }
     }
 
     pub(crate) fn eval_time_driven_tasks(&mut self, tasks: Vec<EvaluationTask>, ts: Time) {
-        // Todo: handle empty vec of tasks
+        if tasks.is_empty() {
+            return;
+        }
         let relative_ts = self.relative_time(ts);
         self.clear_freshness();
         self.prepare_evaluation(relative_ts);
         for task in tasks {
             match task {
-                EvaluationTask::Evaluate(idx, _) => self.eval_stream(idx, relative_ts),
+                EvaluationTask::Evaluate(idx, parameter) => {
+                    self.eval_stream_instance(idx, parameter.as_slice(), relative_ts)
+                }
                 EvaluationTask::Spawn(idx) => self.eval_spawn(idx, ts),
-                EvaluationTask::Close(_, _) => unimplemented!("Time driven close not yet implemented"),
+                EvaluationTask::Close(idx, parameter) => self.eval_close(idx, parameter.as_slice(), ts),
             }
         }
     }
@@ -477,7 +508,15 @@ impl Evaluator {
         // We need to copy the references first because updating needs exclusive access to `self`.
         let windows = &self.ir.sliding_windows;
         for win in windows {
-            self.global_store.get_window_mut(win.reference).update(ts);
+            let target = self.ir.stream(win.target);
+            if target.is_parameterized() {
+                self.global_store.get_window_collection_mut(win.reference).update_all(ts);
+            } else {
+                let window = self.global_store.get_window_mut(win.reference);
+                if window.is_active() {
+                    window.update(ts);
+                }
+            }
         }
     }
 
@@ -504,22 +543,32 @@ impl Evaluator {
         trigger.info_streams.iter().map(|sr| self.peek_value(*sr, &[], 0)).collect()
     }
 
-    fn eval_stream(&mut self, output: OutputReference, ts: Time) {
+    fn eval_stream_instance(&mut self, output: OutputReference, parameter: &[Value], ts: Time) {
         let ix = output;
         self.handler.debug(|| format!("Evaluating stream {}: {}.", ix, self.ir.output(StreamReference::Out(ix)).name));
 
-        let ctx = self.as_EvaluationContext(ts);
-        let res = self.compiled_stream_exprs[ix].execute(&ctx);
+        let expr = self.compiled_stream_exprs[ix].clone();
+        let mut ctx = self.as_EvaluationContext(parameter.to_vec(), ts);
+        let res = expr.execute(&mut ctx);
 
         // Filter evaluated to false
         if let Value::None = res {
             return;
         }
 
+        let is_parameterized = self.ir.outputs[ix].is_parameterized();
         match self.is_trigger(output) {
             None => {
                 // Register value in global store.
-                self.global_store.get_out_instance_mut(output).push_value(res.clone()); // TODO: unsafe unwrap.
+                let instance = if is_parameterized {
+                    self.global_store
+                        .get_out_instance_collection_mut(output)
+                        .instance_mut(parameter)
+                        .expect("tried to eval non existing instance")
+                } else {
+                    self.global_store.get_out_instance_mut(output)
+                };
+                instance.push_value(res.clone());
                 self.fresh_outputs.insert(ix);
                 self.handler.output(|| format!("OutputStream[{}] := {:?}.", ix, res.clone()));
             }
@@ -537,7 +586,15 @@ impl Evaluator {
         // Check linked streams and inform them.
         let extended = &self.ir.outputs[ix];
         for (_sr, win) in &extended.aggregated_by {
-            self.global_store.get_window_mut(*win).accept_value(res.clone(), ts)
+            let window = if is_parameterized {
+                self.global_store
+                    .get_window_collection_mut(*win)
+                    .window_mut(parameter)
+                    .expect("tried to extend non existing window")
+            } else {
+                self.global_store.get_window_mut(*win)
+            };
+            window.accept_value(res.clone(), ts);
         }
     }
 
@@ -565,26 +622,36 @@ impl Evaluator {
     }
 
     #[allow(non_snake_case)]
-    fn as_EvaluationContext(&self, ts: Time) -> EvaluationContext {
+    fn as_EvaluationContext(&mut self, parameter: Vec<Value>, ts: Time) -> EvaluationContext {
         EvaluationContext {
             ts,
-            global_store: &self.global_store,
+            global_store: &mut self.global_store,
             fresh_inputs: &self.fresh_inputs,
             fresh_outputs: &self.fresh_outputs,
+            parameter,
         }
     }
 }
 
 impl<'e> EvaluationContext<'e> {
-    pub(crate) fn lookup_latest(&self, stream_ref: StreamReference) -> Value {
-        let inst = match stream_ref {
-            StreamReference::In(ix) => self.global_store.get_in_instance(ix),
-            StreamReference::Out(ix) => self.global_store.get_out_instance(ix),
-        };
-        inst.get_value(0).unwrap_or(Value::None)
+    pub(crate) fn lookup_latest(&self, stream_ref: StreamReference, parameter: &[Value]) -> Value {
+        match stream_ref {
+            StreamReference::In(ix) => self.global_store.get_in_instance(ix).get_value(0).unwrap_or(Value::None),
+            StreamReference::Out(ix) => {
+                if parameter.is_empty() {
+                    self.global_store.get_out_instance(ix).get_value(0).unwrap_or(Value::None)
+                } else {
+                    self.global_store
+                        .get_out_instance_collection(ix)
+                        .instance(parameter)
+                        .and_then(|i| i.get_value(0))
+                        .unwrap_or(Value::None)
+                }
+            }
+        }
     }
 
-    pub(crate) fn lookup_latest_check(&self, stream_ref: StreamReference) -> Value {
+    pub(crate) fn lookup_latest_check(&self, stream_ref: StreamReference, parameter: &[Value]) -> Value {
         let inst = match stream_ref {
             StreamReference::In(ix) => {
                 debug_assert!(self.fresh_inputs.contains(ix), "ix={}", ix);
@@ -592,16 +659,33 @@ impl<'e> EvaluationContext<'e> {
             }
             StreamReference::Out(ix) => {
                 debug_assert!(self.fresh_outputs.contains(ix), "ix={}", ix);
-                self.global_store.get_out_instance(ix)
+                if parameter.is_empty() {
+                    self.global_store.get_out_instance(ix)
+                } else {
+                    self.global_store
+                        .get_out_instance_collection(ix)
+                        .instance(parameter)
+                        .expect("tried to sync access non existing instance")
+                }
             }
         };
         inst.get_value(0).unwrap_or(Value::None)
     }
 
-    pub(crate) fn lookup_with_offset(&self, stream_ref: StreamReference, offset: i16) -> Value {
+    pub(crate) fn lookup_with_offset(&self, stream_ref: StreamReference, parameter: &[Value], offset: i16) -> Value {
         let (inst, fresh) = match stream_ref {
             StreamReference::In(ix) => (self.global_store.get_in_instance(ix), self.fresh_inputs.contains(ix)),
-            StreamReference::Out(ix) => (self.global_store.get_out_instance(ix), self.fresh_outputs.contains(ix)),
+            StreamReference::Out(ix) => (
+                if parameter.is_empty() {
+                    self.global_store.get_out_instance(ix)
+                } else {
+                    self.global_store
+                        .get_out_instance_collection(ix)
+                        .instance(parameter)
+                        .expect("tried to sync access non existing instance")
+                },
+                self.fresh_outputs.contains(ix),
+            ),
         };
         if fresh {
             inst.get_value(offset).unwrap_or(Value::None)
@@ -610,8 +694,19 @@ impl<'e> EvaluationContext<'e> {
         }
     }
 
-    pub(crate) fn lookup_window(&self, window_ref: WindowReference) -> Value {
-        self.global_store.get_window(window_ref).get_value(self.ts)
+    pub(crate) fn lookup_window(&mut self, window_ref: WindowReference, parameter: &[Value]) -> Value {
+        let window = if parameter.is_empty() {
+            self.global_store.get_window(window_ref)
+        } else {
+            let window_collection = self.global_store.get_window_collection_mut(window_ref);
+            let window = window_collection.window(parameter);
+            if let Some(w) = window {
+                w
+            } else {
+                window_collection.create_window(parameter, self.ts).expect("window did not exists before.")
+            }
+        };
+        window.get_value(self.ts)
     }
 }
 
@@ -693,13 +788,13 @@ mod tests {
 
     macro_rules! eval_stream {
         ($eval:expr, $start:expr, $ix:expr) => {
-            $eval.eval_stream($ix, $start.elapsed());
+            $eval.eval_stream_instance($ix, vec![].as_slice(), $start.elapsed());
         };
     }
 
     macro_rules! eval_stream_timed {
         ($eval:expr, $ix:expr, $time:expr) => {
-            $eval.eval_stream($ix, $time);
+            $eval.eval_stream_instance($ix, vec![].as_slice(), $time);
         };
     }
 
