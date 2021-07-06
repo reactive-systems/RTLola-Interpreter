@@ -7,7 +7,7 @@ use crate::coordination::monitor::Monitor;
 use crate::coordination::{EventEvaluation, TimeEvaluation};
 use crate::evaluator::{Evaluator, EvaluatorData};
 use crossbeam_channel::{bounded, unbounded};
-use rtlola_frontend::mir::{PacingType, Deadline, OutputReference, RtLolaMir, Task};
+use rtlola_frontend::mir::{Deadline, OutputReference, PacingType, RtLolaMir, Task};
 use std::error::Error;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
