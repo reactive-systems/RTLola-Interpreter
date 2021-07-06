@@ -102,6 +102,7 @@ impl SlidingWindow {
             }
             (WinOp::Conjunction, Type::Bool) => create_window_instance!(ConjIv, dur, wait, ts, active),
             (WinOp::Disjunction, Type::Bool) => create_window_instance!(DisjIv, dur, wait, ts, active),
+            (_, Type::Option(t)) => Self::from_sliding(dur, wait, op, ts, t, active),
             (WinOp::Conjunction, _) | (WinOp::Disjunction, _) => {
                 panic!("conjunction and disjunction only defined on bool")
             }
@@ -173,6 +174,7 @@ impl SlidingWindow {
             }
             (WinOp::Conjunction, Type::Bool) => create_discrete_window_instance!(ConjIv, size, wait, ts, active),
             (WinOp::Disjunction, Type::Bool) => create_discrete_window_instance!(DisjIv, size, wait, ts, active),
+            (_, Type::Option(t)) => Self::from_discrete(size, wait, op, ts, t, active),
             (WinOp::Conjunction, _) | (WinOp::Disjunction, _) => {
                 panic!("conjunction and disjunction only defined on bool")
             }
