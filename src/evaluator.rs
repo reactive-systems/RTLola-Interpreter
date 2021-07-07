@@ -178,6 +178,7 @@ impl Evaluator {
         self.eval_all_event_driven_outputs(relative_ts);
     }
 
+    /// NOT for external use because the values are volatile
     pub(crate) fn peek_fresh(&self) -> Vec<(OutputReference, Value)> {
         self.fresh_outputs
             .iter()
@@ -186,16 +187,19 @@ impl Evaluator {
             .collect()
     }
 
-    pub(crate) fn violated_trigger(&self) -> Vec<OutputReference> {
-        self.fresh_triggers.iter().map(|ix| ix).collect()
+    /// NOT for external use because the values are volatile
+    pub(crate) fn peek_violated_triggers(&self) -> Vec<OutputReference> {
+        self.fresh_triggers.iter().collect()
     }
 
-    pub(crate) fn peek_inputs(&self) -> Vec<Value> {
-        self.ir.inputs.iter().map(|elem| self.peek_value(elem.reference, &[], 0).map_or(Value::None, |v| v)).collect()
+    /// NOT for external use because the values are volatile
+    pub(crate) fn peek_inputs(&self) -> Vec<Option<Value>> {
+        self.ir.inputs.iter().map(|elem| self.peek_value(elem.reference, &[], 0)).collect()
     }
 
-    pub(crate) fn peek_outputs(&self) -> Vec<Value> {
-        self.ir.outputs.iter().map(|elem| self.peek_value(elem.reference, &[], 0).map_or(Value::None, |v| v)).collect()
+    /// NOT for external use because the values are volatile
+    pub(crate) fn peek_outputs(&self) -> Vec<Option<Value>> {
+        self.ir.outputs.iter().map(|elem| self.peek_value(elem.reference, &[], 0)).collect()
     }
 
     fn relative_time(&self, ts: Time) -> Time {
@@ -266,11 +270,14 @@ impl Evaluator {
     }
 
     /// Creates the current trigger message by substituting the format placeholders with he current values of the info streams.
+    /// NOT for external use because the values are volatile
     pub(crate) fn format_trigger_message(&self, trigger_ref: OutputReference) -> String {
         let trigger = self.is_trigger(trigger_ref).expect("Output reference must refer to a trigger");
-        let (expr_eval, _) = self.as_ExpressionEvaluator();
-        let values: Vec<String> =
-            trigger.info_streams.iter().map(|sr| expr_eval.lookup_latest(*sr).to_string()).collect();
+        let values: Vec<String> = trigger
+            .info_streams
+            .iter()
+            .map(|sr| self.peek_value(*sr, &[], 0).map_or("None".to_string(), |v| v.to_string()))
+            .collect();
         let args: Vec<&str> = values.iter().map(|s| s.as_str()).collect();
         self.trigger_templates[trigger_ref]
             .as_ref()
@@ -279,10 +286,10 @@ impl Evaluator {
     }
 
     /// Return the current values of the info streams
-    pub(crate) fn info_stream_values(&self, trigger_ref: OutputReference) -> Vec<Value> {
+    /// NOT for external use because the values are volatile
+    pub(crate) fn peek_info_stream_values(&self, trigger_ref: OutputReference) -> Vec<Option<Value>> {
         let trigger = self.is_trigger(trigger_ref).expect("Output reference must refer to a trigger");
-        let (expr_eval, _) = self.as_ExpressionEvaluator();
-        trigger.info_streams.iter().map(|sr| expr_eval.lookup_latest(*sr)).collect()
+        trigger.info_streams.iter().map(|sr| self.peek_value(*sr, &[], 0)).collect()
     }
 
     fn eval_stream(&mut self, output: OutputReference, ts: Time) {

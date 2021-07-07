@@ -31,7 +31,7 @@ use std::sync::Arc;
 
 pub use crate::basics::{EvalConfig, Time, TimeFormat, TimeRepresentation};
 pub use crate::coordination::{
-    monitor::{Incremental, Total, TriggerMessage, TriggersWithInfovalues, VerdictRepresentation, Verdicts},
+    monitor::{Incremental, Total, TriggerMessages, TriggersWithInfoValues, VerdictRepresentation, Verdicts},
     Event, Monitor,
 };
 pub use crate::storage::Value;
@@ -51,7 +51,6 @@ pub struct Config {
 }
 
 impl Config {
-    // TODO find appropriate name
     /**
     Creates a new `Config` which can then be turned into a `Monitor` by `into_monitor`.
     */

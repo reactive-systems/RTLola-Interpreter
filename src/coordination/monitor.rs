@@ -35,8 +35,8 @@ impl VerdictRepresentation for Incremental {
 */
 #[derive(Debug)]
 pub struct Total {
-    pub inputs: Vec<Value>,
-    pub outputs: Vec<Value>,
+    pub inputs: Vec<Option<Value>>,
+    pub outputs: Vec<Option<Value>>,
 }
 
 impl VerdictRepresentation for Total {
@@ -48,14 +48,14 @@ impl VerdictRepresentation for Total {
 /**
     Represents the index and the formated message of all violated triggers.
 */
-pub type TriggerMessage = Vec<(OutputReference, String)>;
+pub type TriggerMessages = Vec<(OutputReference, String)>;
 
-impl VerdictRepresentation for TriggerMessage {
+impl VerdictRepresentation for TriggerMessages {
     fn create(mon: &Monitor<Self>) -> Self
     where
         Self: Sized,
     {
-        let violated_trigger = mon.eval.violated_trigger();
+        let violated_trigger = mon.eval.peek_violated_triggers();
         violated_trigger.into_iter().map(|sr| (sr, mon.eval.format_trigger_message(sr))).collect()
     }
 }
@@ -63,15 +63,15 @@ impl VerdictRepresentation for TriggerMessage {
 /**
     Represents the index and the info values of all violated triggers.
 */
-pub type TriggersWithInfovalues = Vec<(OutputReference, Vec<Value>)>;
+pub type TriggersWithInfoValues = Vec<(OutputReference, Vec<Option<Value>>)>;
 
-impl VerdictRepresentation for TriggersWithInfovalues {
+impl VerdictRepresentation for TriggersWithInfoValues {
     fn create(mon: &Monitor<Self>) -> Self
     where
         Self: Sized,
     {
-        let violated_trigger = mon.eval.violated_trigger();
-        violated_trigger.into_iter().map(|sr| (sr, mon.eval.info_stream_values(sr))).collect()
+        let violated_trigger = mon.eval.peek_violated_triggers();
+        violated_trigger.into_iter().map(|sr| (sr, mon.eval.peek_info_stream_values(sr))).collect()
     }
 }
 
