@@ -293,7 +293,7 @@ impl Evaluator {
             Some(trig) => {
                 // Check if we have to emit a warning.
                 if let Value::Bool(true) = res {
-                    let msg = self.format_trigger_message(output, ts);
+                    let msg = self.format_trigger_message(output);
                     self.handler.trigger(|| format!("Trigger: {}", msg), trig.trigger_reference, ts);
                     self.fresh_triggers.insert(ix);
                 }
