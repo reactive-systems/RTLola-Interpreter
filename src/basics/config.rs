@@ -6,7 +6,6 @@ pub struct EvalConfig {
     pub statistics: Statistics,
     pub verbosity: Verbosity,
     pub output_channel: OutputChannel,
-    pub evaluator: EvaluatorChoice,
     pub mode: ExecutionMode,
     pub time_presentation: TimeRepresentation,
 }
@@ -43,12 +42,6 @@ pub enum ExecutionMode {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum EvaluatorChoice {
-    ClosureBased,
-    Interpreted,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TimeRepresentation {
     Hide,
     Relative(TimeFormat),
@@ -68,11 +61,10 @@ impl EvalConfig {
         statistics: Statistics,
         verbosity: Verbosity,
         output: OutputChannel,
-        evaluator: EvaluatorChoice,
         mode: ExecutionMode,
         time_presentation: TimeRepresentation,
     ) -> Self {
-        EvalConfig { source, statistics, verbosity, output_channel: output, evaluator, mode, time_presentation }
+        EvalConfig { source, statistics, verbosity, output_channel: output, mode, time_presentation }
     }
 
     pub fn debug() -> Self {
@@ -85,7 +77,6 @@ impl EvalConfig {
     pub fn release(
         path: String,
         output: OutputChannel,
-        evaluator: EvaluatorChoice,
         mode: ExecutionMode,
         time_presentation: TimeRepresentation,
     ) -> Self {
@@ -94,7 +85,6 @@ impl EvalConfig {
             Statistics::None,
             Verbosity::Triggers,
             output,
-            evaluator,
             mode,
             time_presentation,
         )
@@ -106,7 +96,6 @@ impl EvalConfig {
             Statistics::None,
             Verbosity::Triggers,
             OutputChannel::None,
-            EvaluatorChoice::ClosureBased,
             ExecutionMode::API,
             time_representation,
         )
@@ -120,7 +109,6 @@ impl Default for EvalConfig {
             statistics: Statistics::None,
             verbosity: Verbosity::Triggers,
             output_channel: OutputChannel::StdOut,
-            evaluator: EvaluatorChoice::ClosureBased,
             mode: ExecutionMode::Offline,
             time_presentation: TimeRepresentation::Hide,
         }

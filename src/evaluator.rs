@@ -1,11 +1,10 @@
-use crate::basics::{EvalConfig, EvaluatorChoice::*, ExecutionMode, OutputHandler, Time};
+use crate::basics::{EvalConfig, ExecutionMode, OutputHandler, Time};
 use crate::closuregen::{CompiledExpr, Expr};
 use crate::storage::{GlobalStore, Value};
 use bit_set::BitSet;
-use regex::Regex;
 use rtlola_frontend::mir::{
-    ActivationCondition as Activation, Constant, Expression, InputReference, Offset, OutputReference, RtLolaMir,
-    StreamAccessKind, StreamReference, Trigger, Type, WindowReference,
+    ActivationCondition as Activation, InputReference, OutputReference, RtLolaMir, StreamReference, Trigger,
+    WindowReference,
 };
 use std::sync::Arc;
 use std::time::Instant;
@@ -25,8 +24,6 @@ pub(crate) struct EvaluatorData {
     layers: Vec<Vec<OutputReference>>,
     // Indexed by stream reference.
     activation_conditions: Vec<ActivationConditionOp>,
-    // Indexed by stream reference.
-    exprs: Vec<Expression>,
     global_store: GlobalStore,
     start_time: Instant,
     first_event: Option<Time>,
@@ -47,8 +44,6 @@ pub(crate) struct Evaluator {
     // Indexed by stream reference.
     activation_conditions: &'static Vec<ActivationConditionOp>,
     // Indexed by stream reference.
-    exprs: &'static Vec<Expression>,
-    // Indexed by stream reference.
     compiled_exprs: Vec<CompiledExpr>,
     global_store: &'static mut GlobalStore,
     start_time: &'static Instant,
@@ -62,12 +57,6 @@ pub(crate) struct Evaluator {
     handler: &'static OutputHandler,
     config: &'static EvalConfig,
     raw_data: *mut EvaluatorData,
-}
-
-struct ExpressionEvaluator<'e> {
-    global_store: &'e GlobalStore,
-    fresh_inputs: &'e BitSet,
-    fresh_outputs: &'e BitSet,
 }
 
 pub(crate) struct EvaluationContext<'e> {
@@ -98,7 +87,6 @@ impl EvaluatorData {
                 }
             })
             .collect();
-        let exprs = ir.outputs.iter().map(|o| o.expr.clone()).collect();
         let global_store = GlobalStore::new(&ir, Time::default());
         let fresh_inputs = BitSet::with_capacity(ir.inputs.len());
         let fresh_outputs = BitSet::with_capacity(ir.outputs.len());
@@ -112,7 +100,6 @@ impl EvaluatorData {
         EvaluatorData {
             layers,
             activation_conditions,
-            exprs,
             global_store,
             start_time,
             first_event: None,
@@ -133,16 +120,12 @@ impl EvaluatorData {
         // This is necessary since we leak the evaluator data.
         let heap_ptr: *mut EvaluatorData = &mut *on_heap;
         let leaked_data: &'static mut EvaluatorData = Box::leak(on_heap);
-        let compiled_exprs: Vec<CompiledExpr> = if leaked_data.config.evaluator == ClosureBased {
-            leaked_data.ir.outputs.iter().map(|o| o.expr.clone().compile()).collect()
-        } else {
-            vec![]
-        };
+        let compiled_exprs: Vec<CompiledExpr> =
+            leaked_data.ir.outputs.iter().map(|o| o.expr.clone().compile()).collect();
 
         Evaluator {
             layers: &leaked_data.layers,
             activation_conditions: &leaked_data.activation_conditions,
-            exprs: &leaked_data.exprs,
             compiled_exprs,
             global_store: &mut leaked_data.global_store,
             start_time: &leaked_data.start_time,
@@ -296,16 +279,8 @@ impl Evaluator {
         let ix = output;
         self.handler.debug(|| format!("Evaluating stream {}: {}.", ix, self.ir.output(StreamReference::Out(ix)).name));
 
-        let res = match self.config.evaluator {
-            ClosureBased => {
-                let (ctx, compiled_exprs) = self.as_EvaluationContext(ts);
-                compiled_exprs[ix].execute(&ctx)
-            }
-            Interpreted => {
-                let (expr_eval, exprs) = self.as_ExpressionEvaluator();
-                expr_eval.eval_expr(&exprs[ix], ts)
-            }
-        };
+        let (ctx, compiled_exprs) = self.as_EvaluationContext(ts);
+        let res = compiled_exprs[ix].execute(&ctx);
 
         match self.is_trigger(output) {
             None => {
@@ -318,7 +293,7 @@ impl Evaluator {
             Some(trig) => {
                 // Check if we have to emit a warning.
                 if let Value::Bool(true) = res {
-                    let msg = self.format_trigger_message(output);
+                    let msg = self.format_trigger_message(output, ts);
                     self.handler.trigger(|| format!("Trigger: {}", msg), trig.trigger_reference, ts);
                     self.fresh_triggers.insert(ix);
                 }
@@ -356,18 +331,6 @@ impl Evaluator {
     }
 
     #[allow(non_snake_case)]
-    fn as_ExpressionEvaluator<'n>(&'n self) -> (ExpressionEvaluator<'n>, &Vec<Expression>) {
-        (
-            ExpressionEvaluator {
-                global_store: &self.global_store,
-                fresh_inputs: &self.fresh_inputs,
-                fresh_outputs: &self.fresh_outputs,
-            },
-            &self.exprs,
-        )
-    }
-
-    #[allow(non_snake_case)]
     fn as_EvaluationContext(&self, ts: Time) -> (EvaluationContext, &Vec<CompiledExpr>) {
         (
             EvaluationContext {
@@ -378,254 +341,6 @@ impl Evaluator {
             },
             &self.compiled_exprs,
         )
-    }
-}
-
-impl<'a> ExpressionEvaluator<'a> {
-    fn eval_expr(&self, expr: &Expression, ts: Time) -> Value {
-        use rtlola_frontend::mir::ExpressionKind::*;
-        match &expr.kind {
-            LoadConstant(c) => match c {
-                Constant::Bool(b) => Value::Bool(*b),
-                Constant::UInt(u) => Value::Unsigned(*u),
-                Constant::Int(i) => Value::Signed(*i),
-                Constant::Float(f) => Value::Float((*f).into()),
-                Constant::Str(s) => Value::Str(s.clone().into_boxed_str()),
-            },
-            ParameterAccess(_, _) => unimplemented!("Parameterization is currently not implemented"),
-            ArithLog(op, operands) => {
-                use rtlola_frontend::mir::ArithLogOp::*;
-                // The explicit match here enables a compiler warning when a case was missed.
-                // Useful when the list in the parser is extended.
-                let arity = match op {
-                    Neg | Not | BitNot => 1,
-                    Add | Sub | Mul | Div | Rem | Pow | And | Or | Eq | Lt | Le | Ne | Ge | Gt | BitAnd | BitOr
-                    | BitXor | Shl | Shr => 2,
-                };
-                match arity {
-                    1 => {
-                        let operand = self.eval_expr(&operands[0], ts);
-                        match *op {
-                            Not => !operand,
-                            Neg => -operand,
-                            BitNot => !operand,
-                            _ => unreachable!(),
-                        }
-                    }
-                    2 => {
-                        let lhs = self.eval_expr(&operands[0], ts);
-
-                        if *op == And {
-                            // evaluate lazy
-                            return if lhs.get_bool() { self.eval_expr(&operands[1], ts) } else { Value::Bool(false) };
-                        }
-                        if *op == Or {
-                            // evaluate lazy
-                            return if lhs.get_bool() { Value::Bool(true) } else { self.eval_expr(&operands[1], ts) };
-                        }
-
-                        let rhs = self.eval_expr(&operands[1], ts);
-
-                        match *op {
-                            Add => lhs + rhs,
-                            Sub => lhs - rhs,
-                            Mul => lhs * rhs,
-                            Div => lhs / rhs,
-                            Rem => lhs % rhs,
-                            Pow => lhs.pow(rhs),
-                            Eq => Value::Bool(lhs == rhs),
-                            Lt => Value::Bool(lhs < rhs),
-                            Le => Value::Bool(lhs <= rhs),
-                            Ne => Value::Bool(lhs != rhs),
-                            Ge => Value::Bool(lhs >= rhs),
-                            Gt => Value::Bool(lhs > rhs),
-                            BitAnd => lhs & rhs,
-                            BitOr => lhs | rhs,
-                            BitXor => lhs ^ rhs,
-                            Shl => lhs << rhs,
-                            Shr => lhs >> rhs,
-                            Not | BitNot | Neg | And | Or => unreachable!(),
-                        }
-                    }
-                    _ => unreachable!(),
-                }
-            }
-
-            Ite { condition, consequence, alternative, .. } => {
-                if self.eval_expr(condition, ts).get_bool() {
-                    self.eval_expr(consequence, ts)
-                } else {
-                    self.eval_expr(alternative, ts)
-                }
-            }
-
-            StreamAccess { target, parameters, access_kind } => {
-                assert!(parameters.is_empty(), "Parametrization not yet implemented");
-                match access_kind {
-                    StreamAccessKind::Sync => self.lookup_latest_check(*target),
-                    StreamAccessKind::DiscreteWindow(win_ref) => self.lookup_window(*win_ref, ts),
-                    StreamAccessKind::SlidingWindow(win_ref) => self.lookup_window(*win_ref, ts),
-                    StreamAccessKind::Hold => self.lookup_latest(*target),
-                    StreamAccessKind::Offset(offset) => {
-                        let offset = match offset {
-                            Offset::Future(_) => unimplemented!(),
-                            Offset::Past(u) => -(*u as i16),
-                        };
-                        self.lookup_with_offset(*target, offset)
-                    }
-                }
-            }
-
-            Function(name, args) => {
-                assert!(!args.is_empty());
-                let fst = self.eval_expr(&args[0], ts);
-
-                macro_rules! create_float_arith {
-                    ($fn:ident) => {
-                        match fst {
-                            Value::Float(f) => Value::new_float(f.$fn()),
-                            v => unreachable!("wrong Value type of {:?} for function $fn", v),
-                        }
-                    };
-                }
-
-                macro_rules! create_binary_arith {
-                    ($fn:ident) => {{
-                        if args.len() != 2 {
-                            unreachable!("wrong number of arguments for function $fn")
-                        }
-                        let snd = self.eval_expr(&args[1], ts);
-                        match (fst, snd) {
-                            (Value::Float(f1), Value::Float(f2)) => Value::Float(f1.$fn(f2)),
-                            (Value::Signed(s1), Value::Signed(s2)) => Value::Signed(s1.$fn(s2)),
-                            (Value::Unsigned(u1), Value::Unsigned(u2)) => Value::Unsigned(u1.$fn(u2)),
-                            (v1, v2) => unreachable!("wrong Value types of {:?}, {:?} for function $fn", v1, v2),
-                        }
-                    }};
-                }
-
-                match name.as_ref() {
-                    "sqrt" => create_float_arith!(sqrt),
-                    "sin" => create_float_arith!(sin),
-                    "cos" => create_float_arith!(cos),
-                    "arctan" => create_float_arith!(atan),
-                    "abs" => match fst {
-                        Value::Float(f) => Value::new_float(f.abs()),
-                        Value::Signed(i) => Value::Signed(i.abs()),
-                        _ => {
-                            unreachable!();
-                        }
-                    },
-                    "min" => create_binary_arith!(min),
-                    "max" => create_binary_arith!(max),
-                    "matches" => {
-                        if args.len() != 2 {
-                            unreachable!("wrong number of arguments for match")
-                        }
-                        if let Value::Str(s) = fst {
-                            let re_str = match &args[1].kind {
-                                LoadConstant(Constant::Str(s)) => s,
-                                _ => unreachable!("regex should be a string literal"),
-                            };
-                            // compiling regex every time it is used is a performance problem
-                            // TODO: move it out of the eval loop
-                            let re = Regex::new(&re_str).expect("Given regular expression was invalid");
-                            Value::Bool(re.is_match(&s))
-                        } else {
-                            unreachable!()
-                        }
-                    }
-                    _ => unreachable!("Unknown function: {}, args: {:?}", name, args),
-                }
-            }
-
-            Tuple(entries) => Value::Tuple(entries.iter().map(|e| self.eval_expr(e, ts)).collect()),
-
-            Convert { expr: arg } => {
-                use Type::*;
-                let v = self.eval_expr(expr, ts);
-                let from_ty = &arg.ty;
-                let to_ty = &expr.ty;
-                match (from_ty, v) {
-                    (UInt(_), Value::Unsigned(u)) => match to_ty {
-                        UInt(_) => Value::Unsigned(u),
-                        Int(_) => Value::Signed(u as i64),
-                        Float(_) => Value::new_float(u as f64),
-                        _ => unreachable!(),
-                    },
-                    (Int(_), Value::Signed(i)) => match to_ty {
-                        UInt(_) => Value::Unsigned(i as u64),
-                        Int(_) => Value::Signed(i),
-                        Float(_) => Value::new_float(i as f64),
-                        _ => unreachable!(),
-                    },
-                    (Float(_), Value::Float(f)) => match to_ty {
-                        UInt(_) => Value::Unsigned(f.into_inner() as u64),
-                        Int(_) => Value::Signed(f.into_inner() as i64),
-                        Float(_) => Value::new_float(f.into_inner()),
-                        _ => unreachable!(),
-                    },
-                    (from, v) => panic!("Value type of {:?} does not match convert from type {:?}", v, from),
-                }
-            }
-
-            Default { expr, default, .. } => {
-                let v = self.eval_expr(expr, ts);
-                if let Value::None = v {
-                    self.eval_expr(default, ts)
-                } else {
-                    v
-                }
-            }
-
-            TupleAccess(expr, num) => {
-                if let Value::Tuple(entries) = self.eval_expr(expr, ts) {
-                    entries[*num].clone()
-                } else {
-                    unreachable!("verified by type checker")
-                }
-            }
-        }
-    }
-
-    fn lookup_latest(&self, stream_ref: StreamReference) -> Value {
-        let inst = match stream_ref {
-            StreamReference::In(ix) => self.global_store.get_in_instance(ix),
-            StreamReference::Out(ix) => self.global_store.get_out_instance(ix).expect("no out instance"),
-        };
-        inst.get_value(0).unwrap_or(Value::None)
-    }
-
-    fn lookup_latest_check(&self, stream_ref: StreamReference) -> Value {
-        let inst = match stream_ref {
-            StreamReference::In(ix) => {
-                debug_assert!(self.fresh_inputs.contains(ix), "ix={}", ix);
-                self.global_store.get_in_instance(ix)
-            }
-            StreamReference::Out(ix) => {
-                debug_assert!(self.fresh_outputs.contains(ix), "ix={}", ix);
-                self.global_store.get_out_instance(ix).expect("no out instance")
-            }
-        };
-        inst.get_value(0).unwrap_or(Value::None)
-    }
-
-    fn lookup_with_offset(&self, stream_ref: StreamReference, offset: i16) -> Value {
-        let (inst, fresh) = match stream_ref {
-            StreamReference::In(ix) => (self.global_store.get_in_instance(ix), self.fresh_inputs.contains(ix)),
-            StreamReference::Out(ix) => {
-                (self.global_store.get_out_instance(ix).expect("no out instance"), self.fresh_outputs.contains(ix))
-            }
-        };
-        if fresh {
-            inst.get_value(offset).unwrap_or(Value::None)
-        } else {
-            inst.get_value(offset + 1).unwrap_or(Value::None)
-        }
-    }
-
-    fn lookup_window(&self, window_ref: WindowReference, ts: Time) -> Value {
-        self.global_store.get_window(window_ref).get_value(ts)
     }
 }
 

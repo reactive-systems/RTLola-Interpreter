@@ -14,7 +14,6 @@ fn run(spec: &str, data: &str) -> Result<Arc<OutputHandler>, Box<dyn std::error:
         Statistics::Debug,
         Verbosity::Silent,
         OutputChannel::StdErr,
-        EvaluatorChoice::ClosureBased,
         ExecutionMode::Offline,
         TimeRepresentation::Hide,
     );

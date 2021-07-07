@@ -102,7 +102,7 @@ tests_wrong_out = []
 return_code = 0
 with open("e2e-results.xml", 'w') as results_file:
     testcases = []
-    for (mode, config) in [('interpreted', ["--interpreted"]), ('closure', []), ('time-info', ["--time-info-rep", "absolute"])]:
+    for (mode, config) in [('closure', []), ('time-info', ["--time-info-rep", "absolute"])]:
         check_time_info = "--time-info-rep" in config
         for test_file in tests:
             total_number_of_tests += 1
