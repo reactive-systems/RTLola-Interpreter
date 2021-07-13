@@ -2,11 +2,9 @@ use super::event_driven_manager::EventDrivenManager;
 use super::time_driven_manager::TimeDrivenManager;
 use super::{WorkItem, CAP_WORK_QUEUE};
 use crate::basics::{EvalConfig, ExecutionMode::*, OutputHandler, Time};
-use crate::coordination::monitor::Monitor;
 use crate::coordination::{EventEvaluation, TimeEvaluation};
 use crate::evaluator::{Evaluator, EvaluatorData};
 use crossbeam_channel::{bounded, unbounded};
-use either::Either;
 use rtlola_frontend::mir::{Deadline, OutputReference, RtLolaMir, Task};
 use std::error::Error;
 use std::sync::Arc;
@@ -28,17 +26,13 @@ impl Controller {
         Self { ir, config, output_handler }
     }
 
-    pub(crate) fn start(self) -> Result<Either<Monitor, Arc<OutputHandler>>, Box<dyn Error>> {
+    pub(crate) fn start(self) -> Result<Arc<OutputHandler>, Box<dyn Error>> {
         // TODO: Returning the Arc here makes no sense, fix asap.
         match self.config.mode {
-            Offline => self.evaluate_offline().map(|_| Either::Right(self.output_handler)),
-            Online => self.evaluate_online().map(|_| Either::Right(self.output_handler)),
-            API => Ok(Either::Left(self.setup_api())),
+            Offline => self.evaluate_offline().map(|_| self.output_handler),
+            Online => self.evaluate_online().map(|_| self.output_handler),
+            API => unreachable!(),
         }
-    }
-
-    fn setup_api(self) -> Monitor {
-        Monitor::setup(self.ir, self.output_handler, self.config)
     }
 
     /// Starts the online evaluation process, i.e. periodically computes outputs for time-driven streams

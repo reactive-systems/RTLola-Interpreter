@@ -90,7 +90,7 @@ impl EvaluatorData {
         let global_store = GlobalStore::new(&ir, Time::default());
         let fresh_inputs = BitSet::with_capacity(ir.inputs.len());
         let fresh_outputs = BitSet::with_capacity(ir.outputs.len());
-        let fresh_triggers = BitSet::with_capacity(ir.triggers.len());
+        let fresh_triggers = BitSet::with_capacity(ir.outputs.len()); //trigger use their outputreferences
         let mut triggers = vec![None; ir.outputs.len()];
         for t in &ir.triggers {
             triggers[t.reference.out_ix()] = Some(t.clone());
@@ -161,12 +161,28 @@ impl Evaluator {
         self.eval_all_event_driven_outputs(relative_ts);
     }
 
+    /// NOT for external use because the values are volatile
     pub(crate) fn peek_fresh(&self) -> Vec<(OutputReference, Value)> {
         self.fresh_outputs
             .iter()
             .map(|elem| (elem, self.peek_value(StreamReference::Out(elem), &[], 0).expect("Marked as fresh.")))
             .chain(self.fresh_triggers.iter().map(|ix| (ix, Value::Bool(true))))
             .collect()
+    }
+
+    /// NOT for external use because the values are volatile
+    pub(crate) fn peek_violated_triggers(&self) -> Vec<OutputReference> {
+        self.fresh_triggers.iter().collect()
+    }
+
+    /// NOT for external use because the values are volatile
+    pub(crate) fn peek_inputs(&self) -> Vec<Option<Value>> {
+        self.ir.inputs.iter().map(|elem| self.peek_value(elem.reference, &[], 0)).collect()
+    }
+
+    /// NOT for external use because the values are volatile
+    pub(crate) fn peek_outputs(&self) -> Vec<Option<Value>> {
+        self.ir.outputs.iter().map(|elem| self.peek_value(elem.reference, &[], 0)).collect()
     }
 
     fn relative_time(&self, ts: Time) -> Time {
@@ -237,16 +253,26 @@ impl Evaluator {
     }
 
     /// Creates the current trigger message by substituting the format placeholders with he current values of the info streams.
-    pub(crate) fn format_trigger_message(&self, trigger_ref: OutputReference, ts: Time) -> String {
+    /// NOT for external use because the values are volatile
+    pub(crate) fn format_trigger_message(&self, trigger_ref: OutputReference) -> String {
         let trigger = self.is_trigger(trigger_ref).expect("Output reference must refer to a trigger");
-        let (expr_eval, _) = self.as_EvaluationContext(ts);
-        let values: Vec<String> =
-            trigger.info_streams.iter().map(|sr| expr_eval.lookup_latest(*sr).to_string()).collect();
+        let values: Vec<String> = trigger
+            .info_streams
+            .iter()
+            .map(|sr| self.peek_value(*sr, &[], 0).map_or("None".to_string(), |v| v.to_string()))
+            .collect();
         let args: Vec<&str> = values.iter().map(|s| s.as_str()).collect();
         self.trigger_templates[trigger_ref]
             .as_ref()
             .expect("Output reference must refer to a trigger")
             .render_positional(args.as_slice())
+    }
+
+    /// Return the current values of the info streams
+    /// NOT for external use because the values are volatile
+    pub(crate) fn peek_info_stream_values(&self, trigger_ref: OutputReference) -> Vec<Option<Value>> {
+        let trigger = self.is_trigger(trigger_ref).expect("Output reference must refer to a trigger");
+        trigger.info_streams.iter().map(|sr| self.peek_value(*sr, &[], 0)).collect()
     }
 
     fn eval_stream(&mut self, output: OutputReference, ts: Time) {
@@ -267,7 +293,7 @@ impl Evaluator {
             Some(trig) => {
                 // Check if we have to emit a warning.
                 if let Value::Bool(true) = res {
-                    let msg = self.format_trigger_message(output, ts);
+                    let msg = self.format_trigger_message(output);
                     self.handler.trigger(|| format!("Trigger: {}", msg), trig.trigger_reference, ts);
                     self.fresh_triggers.insert(ix);
                 }
@@ -298,7 +324,6 @@ impl Evaluator {
                 self.global_store.get_in_instance(ix).get_value(offset)
             }
             StreamReference::Out(ix) => {
-                //let inst = (ix, Vec::from(args));
                 let inst = ix;
                 self.global_store.get_out_instance(inst).and_then(|st| st.get_value(offset))
             }
