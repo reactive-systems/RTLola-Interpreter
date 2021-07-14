@@ -125,7 +125,7 @@ impl Value {
     }
 
     /// Returns the boolean value of a 'Bool' value type
-    pub(crate) fn get_bool(&self) -> bool {
+    pub(crate) fn as_bool(&self) -> bool {
         if let Bool(b) = *self {
             b
         } else {

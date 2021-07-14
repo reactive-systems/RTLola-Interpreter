@@ -428,7 +428,7 @@ impl Evaluator {
         let expr = self.compiled_close_exprs[output].clone();
         let mut ctx = self.as_EvaluationContext(parameter.to_vec(), ts);
         let res = expr.execute(&mut ctx);
-        if !res.get_bool() {
+        if !res.as_bool() {
             return;
         }
 

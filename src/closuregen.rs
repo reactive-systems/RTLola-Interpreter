@@ -30,7 +30,7 @@ impl CompiledExpr {
     /// and None otherwise.
     pub(crate) fn create_filter(filter_exp: CompiledExpr, value_exp: CompiledExpr) -> Self {
         CompiledExpr::new(
-            move |ctx| if filter_exp.execute(ctx).get_bool() { value_exp.execute(ctx) } else { Value::None },
+            move |ctx| if filter_exp.execute(ctx).as_bool() { value_exp.execute(ctx) } else { Value::None },
         )
     }
 
@@ -158,7 +158,7 @@ impl Expr for Expression {
                 let f_alternative = alternative.compile();
 
                 CompiledExpr::new(move |ctx| {
-                    let cond = f_condition.execute(ctx).get_bool();
+                    let cond = f_condition.execute(ctx).as_bool();
                     if cond {
                         f_consequence.execute(ctx)
                     } else {
