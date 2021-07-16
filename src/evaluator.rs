@@ -759,6 +759,7 @@ impl ActivationConditionOp {
 mod tests {
 
     use super::*;
+    use crate::coordination::dynamic_schedule::*;
     use crate::storage::Value::*;
     use ordered_float::NotNan;
     use rtlola_frontend::mir::RtLolaMir;
@@ -788,7 +789,7 @@ mod tests {
 
     macro_rules! eval_stream_instances {
         ($eval:expr, $start:expr, $ix:expr) => {
-            $eval.eval_event_driven_output($ix, $start.elapsed());
+            $eval.eval_event_driven_output($ix.out_ix(), $start.elapsed());
         };
     }
 
@@ -804,9 +805,19 @@ mod tests {
         };
     }
 
+    macro_rules! spawn_stream_timed {
+        ($eval:expr, $time:expr, $ix:expr) => {
+            $eval.eval_event_driven_spawn($ix.out_ix(), $time);
+        };
+    }
+
     macro_rules! stream_has_instance {
         ($eval:expr, $ix:expr, $parameter:expr) => {
-            $eval.global_store.get_out_instance_collection($ix.out_ix()).contains($parameter.as_slice())
+            if $parameter.is_empty() {
+                $eval.global_store.get_out_instance($ix.out_ix()).is_active()
+            } else {
+                $eval.global_store.get_out_instance_collection($ix.out_ix()).contains($parameter.as_slice())
+            }
         };
     }
 
@@ -830,7 +841,7 @@ mod tests {
 
     macro_rules! peek_assert_eq {
         ($eval:expr, $start:expr, $ix:expr, $parameter:expr, $value:expr) => {
-            eval_stream!($eval, $start, $ix, vec![]);
+            eval_stream!($eval, $start, $ix, $parameter);
             assert_eq!($eval.peek_value(StreamReference::Out($ix), $parameter.as_slice(), 0).unwrap(), $value);
         };
     }
@@ -1837,11 +1848,99 @@ mod tests {
 
         assert!(stream_has_instance!(eval, out_ref, vec![Signed(15)]));
 
-        // eval_stream!(eval, start, out_ref.out_ix());
-        // assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0), Option::None);
-        //
-        // accept_input!(eval, start, in_ref, Signed(42));
-        // eval_stream!(eval, start, out_ref.out_ix());
-        // assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), Signed(50));
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &vec![Signed(15)], 0).unwrap(), Signed(30));
+    }
+
+    #[test]
+    fn test_spawn_timedriven() {
+        let (_, eval, mut time) = setup_time(
+            "input a: Int32\n\
+                  output b(x: Int32) @1Hz spawn with a := x + a.hold(or: 42)",
+        );
+        let mut eval = eval.into_evaluator();
+        let out_ref = StreamReference::Out(0);
+        let in_ref = StreamReference::In(0);
+
+        time += Duration::from_secs(5);
+        accept_input_timed!(eval, in_ref, Signed(15), time);
+        spawn_stream_timed!(eval, time, out_ref);
+        assert!(stream_has_instance!(eval, out_ref, vec![Signed(15)]));
+
+        time += Duration::from_secs(1);
+        let mut schedule = eval.dyn_schedule.0.lock().unwrap();
+        let next_due = schedule.get_next_deadline_due().unwrap();
+        let next_deadline = schedule.get_next_deadline(time).unwrap();
+        assert_eq!(next_due, Duration::from_secs(6));
+        assert_eq!(
+            next_deadline,
+            DynamicDeadline {
+                due: Duration::from_secs(6),
+                tasks: vec![EvaluationTask::Evaluate(out_ref.out_ix(), vec![Signed(15)])]
+            }
+        );
+
+        eval_stream_timed!(eval, out_ref.out_ix(), vec![Signed(15)], time);
+        assert_eq!(eval.peek_value(out_ref, &vec![Signed(15)], 0).unwrap(), Signed(30));
+    }
+
+    #[test]
+    fn test_spawn_eventbased_unit() {
+        let (_, eval, start) = setup(
+            "input a: Int32\n\
+                  output b spawn if a == 42 := a",
+        );
+        let mut eval = eval.into_evaluator();
+        let out_ref = StreamReference::Out(0);
+        let in_ref = StreamReference::In(0);
+        accept_input!(eval, start, in_ref, Signed(15));
+        spawn_stream!(eval, start, out_ref);
+
+        assert!(!stream_has_instance!(eval, out_ref, Vec::<Value>::new()));
+
+        accept_input!(eval, start, in_ref, Signed(42));
+        spawn_stream!(eval, start, out_ref);
+
+        assert!(stream_has_instance!(eval, out_ref, Vec::<Value>::new()));
+
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &Vec::<Value>::new(), 0).unwrap(), Signed(42));
+    }
+
+    #[test]
+    fn test_spawn_timedriven_unit() {
+        let (_, eval, mut time) = setup_time(
+            "input a: Int32\n\
+                  output b @1Hz spawn if a == 42 := a.hold(or: 42)",
+        );
+        let mut eval = eval.into_evaluator();
+        let out_ref = StreamReference::Out(0);
+        let in_ref = StreamReference::In(0);
+
+        time += Duration::from_secs(5);
+        accept_input_timed!(eval, in_ref, Signed(15), time);
+        spawn_stream_timed!(eval, time, out_ref);
+        assert!(!stream_has_instance!(eval, out_ref, Vec::<Value>::new()));
+
+        time += Duration::from_secs(5);
+        accept_input_timed!(eval, in_ref, Signed(42), time);
+        spawn_stream_timed!(eval, time, out_ref);
+        assert!(stream_has_instance!(eval, out_ref, Vec::<Value>::new()));
+
+        time += Duration::from_secs(1);
+        let mut schedule = eval.dyn_schedule.0.lock().unwrap();
+        let next_due = schedule.get_next_deadline_due().unwrap();
+        let next_deadline = schedule.get_next_deadline(time).unwrap();
+        assert_eq!(next_due, Duration::from_secs(11));
+        assert_eq!(
+            next_deadline,
+            DynamicDeadline {
+                due: Duration::from_secs(11),
+                tasks: vec![EvaluationTask::Evaluate(out_ref.out_ix(), vec![])]
+            }
+        );
+
+        eval_stream_timed!(eval, out_ref.out_ix(), vec![], time);
+        assert_eq!(eval.peek_value(out_ref, &vec![], 0).unwrap(), Signed(42));
     }
 }

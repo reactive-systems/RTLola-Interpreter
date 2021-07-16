@@ -16,7 +16,7 @@ pub(crate) struct ScheduledTask {
     period: Duration,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DynamicDeadline {
     /// Relative to the start of the monitor
     pub(crate) due: Time,
@@ -29,6 +29,7 @@ impl DynamicDeadline {
     }
 }
 
+#[derive(Debug, Clone)]
 pub(crate) struct DynamicSchedule {
     queue: PriorityQueue<ScheduledTask, Reverse<Time>>,
 }

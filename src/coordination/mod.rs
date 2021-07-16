@@ -1,5 +1,5 @@
 mod controller;
-mod dynamic_schedule;
+pub(crate) mod dynamic_schedule;
 mod event_driven_manager;
 pub mod monitor;
 mod time_driven_manager;

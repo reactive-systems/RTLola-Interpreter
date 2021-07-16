@@ -87,7 +87,7 @@ impl Expr for Expression {
                 macro_rules! create_lazyop {
                     ($b:expr) => {
                         CompiledExpr::new(move |ctx| {
-                            let lhs = f_operands[0].execute(ctx).get_bool();
+                            let lhs = f_operands[0].execute(ctx).as_bool();
                             if lhs == $b {
                                 Value::Bool($b)
                             } else {
@@ -324,15 +324,15 @@ impl Expr for Expression {
 
                 use Type::*;
                 match (from_ty, to_ty) {
-                    (UInt(_), UInt(_)) => CompiledExpr::new(move |ctx| f_expr.execute(ctx)),
+                    (UInt(_), UInt(_)) => f_expr,
                     (UInt(_), Int(_)) => create_convert!(Unsigned, Signed, i64),
                     (UInt(_), Float(_)) => create_convert!(Unsigned, Float, f64),
                     (Int(_), UInt(_)) => create_convert!(Signed, Unsigned, u64),
-                    (Int(_), Int(_)) => CompiledExpr::new(move |ctx| f_expr.execute(ctx)),
+                    (Int(_), Int(_)) => f_expr,
                     (Int(_), Float(_)) => create_convert!(Signed, Float, f64),
                     (Float(_), UInt(_)) => create_convert!(Float, Unsigned, u64),
                     (Float(_), Int(_)) => create_convert!(Float, Signed, i64),
-                    (Float(_), Float(_)) => CompiledExpr::new(move |ctx| f_expr.execute(ctx)),
+                    (Float(_), Float(_)) => f_expr,
                     (from, to) => unreachable!("from: {:?}, to: {:?}", from, to),
                 }
             }
