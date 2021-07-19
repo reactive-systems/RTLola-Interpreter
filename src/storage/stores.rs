@@ -355,7 +355,9 @@ impl InstanceStore {
     /// Returns the current value of a stream instance at the given offset
     pub(crate) fn get_value(&self, offset: i16) -> Option<Value> {
         assert!(offset <= 0);
-        assert!(self.active);
+        if !self.active {
+            return None;
+        }
         if offset == 0 {
             self.buffer.front().cloned()
         } else {

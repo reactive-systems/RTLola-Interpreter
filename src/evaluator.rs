@@ -793,6 +793,12 @@ mod tests {
         };
     }
 
+    macro_rules! eval_stream_instances_timed {
+        ($eval:expr, $time:expr, $ix:expr) => {
+            $eval.eval_event_driven_output($ix.out_ix(), $time);
+        };
+    }
+
     macro_rules! eval_stream {
         ($eval:expr, $start:expr, $ix:expr, $parameter:expr) => {
             $eval.eval_stream_instance($ix, $parameter.as_slice(), $start.elapsed());
@@ -808,6 +814,18 @@ mod tests {
     macro_rules! spawn_stream_timed {
         ($eval:expr, $time:expr, $ix:expr) => {
             $eval.eval_event_driven_spawn($ix.out_ix(), $time);
+        };
+    }
+
+    macro_rules! eval_close {
+        ($eval:expr, $start:expr, $ix:expr, $parameter:expr) => {
+            $eval.eval_close($ix.out_ix(), $parameter.as_slice(), $start.elapsed());
+        };
+    }
+
+    macro_rules! eval_close_timed {
+        ($eval:expr, $time:expr, $ix:expr, $parameter:expr) => {
+            $eval.eval_close($ix.out_ix(), $parameter.as_slice(), $time);
         };
     }
 
@@ -1942,5 +1960,239 @@ mod tests {
 
         eval_stream_timed!(eval, out_ref.out_ix(), vec![], time);
         assert_eq!(eval.peek_value(out_ref, &vec![], 0).unwrap(), Signed(42));
+    }
+
+    // Window access a unit parameterized stream before it is spawned
+    #[test]
+    fn test_spawn_window_unit() {
+        let (_, eval, mut time) = setup_time(
+            "input a: Int32\n\
+                  output b spawn if a == 42 := a\n\
+                  output c @1Hz := b.aggregate(over: 1s, using: sum)",
+        );
+        let mut eval = eval.into_evaluator();
+        let b_ref = StreamReference::Out(0);
+        let c_ref = StreamReference::Out(1);
+        let in_ref = StreamReference::In(0);
+
+        //Stream is not spawned but c produced initial value
+        time += Duration::from_secs(1);
+        accept_input_timed!(eval, in_ref, Signed(15), time);
+        spawn_stream_timed!(eval, time, b_ref);
+        assert!(!stream_has_instance!(eval, b_ref, Vec::<Value>::new()));
+        eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
+        assert_eq!(eval.peek_value(c_ref, &vec![], 0).unwrap(), Signed(0));
+
+        //Stream is spawned
+        time += Duration::from_millis(200);
+        accept_input_timed!(eval, in_ref, Signed(42), time);
+        spawn_stream_timed!(eval, time, b_ref);
+        assert!(stream_has_instance!(eval, b_ref, Vec::<Value>::new()));
+        eval_stream_instances_timed!(eval, time, b_ref);
+        assert_eq!(eval.peek_value(b_ref, &vec![], 0).unwrap(), Signed(42));
+
+        //Stream gets new value
+        time += Duration::from_millis(200);
+        accept_input_timed!(eval, in_ref, Signed(18), time);
+        eval_stream_instances_timed!(eval, time, b_ref);
+        assert_eq!(eval.peek_value(b_ref, &vec![], 0).unwrap(), Signed(18));
+
+        //Stream gets new value
+        time += Duration::from_millis(200);
+        accept_input_timed!(eval, in_ref, Signed(17), time);
+        eval_stream_instances_timed!(eval, time, b_ref);
+        assert_eq!(eval.peek_value(b_ref, &vec![], 0).unwrap(), Signed(17));
+
+        //Stream gets new value. Window is evaluated.
+        time += Duration::from_millis(400);
+        accept_input_timed!(eval, in_ref, Signed(3), time);
+        eval_stream_instances_timed!(eval, time, b_ref);
+        assert_eq!(eval.peek_value(b_ref, &vec![], 0).unwrap(), Signed(3));
+        eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
+        assert_eq!(eval.peek_value(c_ref, &vec![], 0).unwrap(), Signed(80));
+    }
+
+    // Window access a unit parameterized stream after it is spawned
+    #[test]
+    fn test_spawn_window_unit2() {
+        let (_, eval, mut time) = setup_time(
+            "input a: Int32\n\
+                  output b spawn if a == 42 := a\n\
+                  output c @1Hz := b.aggregate(over: 1s, using: sum)",
+        );
+        let mut eval = eval.into_evaluator();
+        let b_ref = StreamReference::Out(0);
+        let c_ref = StreamReference::Out(1);
+        let in_ref = StreamReference::In(0);
+
+        //Stream is spawned
+        time += Duration::from_millis(200);
+        accept_input_timed!(eval, in_ref, Signed(42), time);
+        spawn_stream_timed!(eval, time, b_ref);
+        assert!(stream_has_instance!(eval, b_ref, Vec::<Value>::new()));
+        eval_stream_instances_timed!(eval, time, b_ref);
+        assert_eq!(eval.peek_value(b_ref, &vec![], 0).unwrap(), Signed(42));
+
+        //Stream gets new value
+        time += Duration::from_millis(200);
+        accept_input_timed!(eval, in_ref, Signed(18), time);
+        eval_stream_instances_timed!(eval, time, b_ref);
+        assert_eq!(eval.peek_value(b_ref, &vec![], 0).unwrap(), Signed(18));
+
+        //Stream gets new value
+        time += Duration::from_millis(200);
+        accept_input_timed!(eval, in_ref, Signed(17), time);
+        eval_stream_instances_timed!(eval, time, b_ref);
+        assert_eq!(eval.peek_value(b_ref, &vec![], 0).unwrap(), Signed(17));
+
+        //Stream gets new value. Window is evaluated.
+        time += Duration::from_millis(400);
+        accept_input_timed!(eval, in_ref, Signed(3), time);
+        eval_stream_instances_timed!(eval, time, b_ref);
+        assert_eq!(eval.peek_value(b_ref, &vec![], 0).unwrap(), Signed(3));
+        eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
+        assert_eq!(eval.peek_value(c_ref, &vec![], 0).unwrap(), Signed(80));
+    }
+
+    // p = true -> only gets 42 values
+    // p = false -> get als remaining values
+    #[test]
+    fn test_spawn_window_parameterized() {
+        let (_, eval, mut time) = setup_time(
+            "input a: Int32\n\
+                  output b(p: Bool) spawn with a == 42 filter !p || a == 42 := a\n\
+                  output c @1Hz := b(false).aggregate(over: 1s, using: sum)\n\
+                  output d @1Hz := b(true).aggregate(over: 1s, using: sum)",
+        );
+        let mut eval = eval.into_evaluator();
+        let b_ref = StreamReference::Out(0);
+        let c_ref = StreamReference::Out(1);
+        let d_ref = StreamReference::Out(2);
+        let in_ref = StreamReference::In(0);
+
+        //Intance b(false) is spawned
+        time += Duration::from_millis(500);
+        accept_input_timed!(eval, in_ref, Signed(15), time);
+        spawn_stream_timed!(eval, time, b_ref);
+        assert!(stream_has_instance!(eval, b_ref, vec![Bool(false)]));
+        assert!(!stream_has_instance!(eval, b_ref, vec![Bool(true)]));
+        eval_stream_instances_timed!(eval, time, b_ref);
+        assert_eq!(eval.peek_value(b_ref, &vec![Bool(false)], 0).unwrap(), Signed(15));
+
+        //Intance b(false) gets new value
+        //Intance b(true) is spawned
+        //Timed streams are evaluated
+        time += Duration::from_millis(500);
+        accept_input_timed!(eval, in_ref, Signed(42), time);
+        spawn_stream_timed!(eval, time, b_ref);
+        assert!(stream_has_instance!(eval, b_ref, vec![Bool(true)]));
+        eval_stream_instances_timed!(eval, time, b_ref);
+        assert_eq!(eval.peek_value(b_ref, &vec![Bool(false)], 0).unwrap(), Signed(42));
+        assert_eq!(eval.peek_value(b_ref, &vec![Bool(true)], 0).unwrap(), Signed(42));
+        eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
+        assert_eq!(eval.peek_value(c_ref, &vec![], 0).unwrap(), Signed(57));
+        eval_stream_timed!(eval, d_ref.out_ix(), vec![], time);
+        assert_eq!(eval.peek_value(d_ref, &vec![], 0).unwrap(), Signed(42));
+
+        //Intance b(false) gets new value
+        //Intance b(true) gets new value
+        //Timed streams are evaluated
+        time += Duration::from_secs(1);
+        accept_input_timed!(eval, in_ref, Signed(42), time);
+        eval_stream_instances_timed!(eval, time, b_ref);
+        assert_eq!(eval.peek_value(b_ref, &vec![Bool(false)], 0).unwrap(), Signed(42));
+        assert_eq!(eval.peek_value(b_ref, &vec![Bool(true)], 0).unwrap(), Signed(42));
+        eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
+        assert_eq!(eval.peek_value(c_ref, &vec![], 0).unwrap(), Signed(42));
+        eval_stream_timed!(eval, d_ref.out_ix(), vec![], time);
+        assert_eq!(eval.peek_value(d_ref, &vec![], 0).unwrap(), Signed(42));
+    }
+
+    /*
+        Todo: Close test cases
+        - close self ref
+        - close window parameterized
+        - close window unit
+    */
+
+    #[test]
+    fn test_close_parameterized() {
+        let (_, eval, start) = setup(
+            "input a: Int32\n\
+                  input b: Bool\n\
+                  output c(x: Int32) spawn with a close b && (x % 2 == 0) := x + a",
+        );
+        let mut eval = eval.into_evaluator();
+        let out_ref = StreamReference::Out(0);
+        let a_ref = StreamReference::In(0);
+        let b_ref = StreamReference::In(1);
+        accept_input!(eval, start, a_ref, Signed(15));
+        spawn_stream!(eval, start, out_ref);
+
+        assert!(stream_has_instance!(eval, out_ref, vec![Signed(15)]));
+
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &vec![Signed(15)], 0).unwrap(), Signed(30));
+
+        accept_input!(eval, start, b_ref, Bool(false));
+        accept_input!(eval, start, a_ref, Signed(8));
+        spawn_stream!(eval, start, out_ref);
+
+        assert!(stream_has_instance!(eval, out_ref, vec![Signed(15)]));
+        assert!(stream_has_instance!(eval, out_ref, vec![Signed(8)]));
+
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &vec![Signed(15)], 0).unwrap(), Signed(23));
+        assert_eq!(eval.peek_value(out_ref, &vec![Signed(8)], 0).unwrap(), Signed(16));
+
+        // Close has no effect, because it is false
+        eval_close!(eval, start, out_ref, vec![Signed(15)]);
+        eval_close!(eval, start, out_ref, vec![Signed(8)]);
+        assert!(stream_has_instance!(eval, out_ref, vec![Signed(15)]));
+        assert!(stream_has_instance!(eval, out_ref, vec![Signed(8)]));
+
+        accept_input!(eval, start, b_ref, Bool(true));
+
+        eval_close!(eval, start, out_ref, vec![Signed(15)]);
+        eval_close!(eval, start, out_ref, vec![Signed(8)]);
+        assert!(stream_has_instance!(eval, out_ref, vec![Signed(15)]));
+        assert!(!stream_has_instance!(eval, out_ref, vec![Signed(8)]));
+        assert!(eval.peek_value(out_ref, &vec![Signed(8)], 0).is_none());
+    }
+
+    #[test]
+    fn test_close_unit() {
+        let (_, eval, start) = setup(
+            "input a: Int32\n\
+                  input b: Bool\n\
+                  output c spawn if a = 42 close b := a",
+        );
+        let mut eval = eval.into_evaluator();
+        let out_ref = StreamReference::Out(0);
+        let a_ref = StreamReference::In(0);
+        let b_ref = StreamReference::In(1);
+        accept_input!(eval, start, a_ref, Signed(42));
+        spawn_stream!(eval, start, out_ref);
+
+        assert!(stream_has_instance!(eval, out_ref, Vec::<Value>::new()));
+
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &Vec::<Value>::new(), 0).unwrap(), Signed(42));
+
+        accept_input!(eval, start, b_ref, Bool(false));
+        accept_input!(eval, start, a_ref, Signed(8));
+
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &Vec::<Value>::new(), 0).unwrap(), Signed(8));
+
+        // Close has no effect, because it is false
+        eval_close!(eval, start, out_ref, Vec::<Value>::new());
+        assert!(stream_has_instance!(eval, out_ref, Vec::<Value>::new()));
+
+        accept_input!(eval, start, b_ref, Bool(true));
+
+        eval_close!(eval, start, out_ref, Vec::<Value>::new());
+        assert!(!stream_has_instance!(eval, out_ref, Vec::<Value>::new()));
+        assert!(eval.peek_value(out_ref, &Vec::<Value>::new(), 0).is_none());
     }
 }
