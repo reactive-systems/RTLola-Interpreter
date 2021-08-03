@@ -191,6 +191,9 @@ impl Expr for Expression {
                     "sqrt" => create_floatfn!(sqrt),
                     "sin" => create_floatfn!(sin),
                     "cos" => create_floatfn!(cos),
+                    "tan" => create_floatfn!(tan),
+                    "arcsin" => create_floatfn!(asin),
+                    "arccos" => create_floatfn!(acos),
                     "arctan" => create_floatfn!(atan),
                     "abs" => CompiledExpr::new(move |ctx| {
                         let arg = f_arg.execute(ctx);
