@@ -927,7 +927,7 @@ mod tests {
             ("count", Unsigned(5), false),
             ("min", Signed(21), true),
             ("max", Signed(25), true),
-            ("avg", Signed(23), false),
+            ("avg", Signed(23), true),
             ("integral", Value::new_float(92.0), false),
         ] {
             let mut spec = String::from("input a: Int16\noutput b @0.5Hz:= a.aggregate(over_discrete: 5, using: ");
