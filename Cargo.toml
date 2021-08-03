@@ -1,6 +1,6 @@
 [package]
 name = "rtlola-interpreter"
-version = "0.5.1"
+version = "0.6.0"
 authors = [
     "Jan Baumeister <jbaumeister@react.uni-saarland.de>",
     "Florian Kohn <kohn@react.uni-saarland.de>",
