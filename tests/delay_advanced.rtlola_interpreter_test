@@ -1,0 +1,68 @@
+{
+  "spec_file": "../tests/specs/delay_advanced.lola",
+  "input_file": "../traces/tests/count_1_2.csv",
+  "rationale": "Check that a 2 occurred 1 second after a 1",
+  "modes": ["offline"],
+  "triggers": {
+    "delay 1 fired": {
+      "expected_count": 1,
+      "time_info": [
+        "1.000000000"
+      ]
+    },
+    "delay 2 fired": {
+      "expected_count": 1,
+      "time_info": [
+        "1.500000000"
+      ]
+    },
+    "delay 3 fired": {
+      "expected_count": 0,
+      "time_info": []
+    },
+    "delay 4 fired": {
+      "expected_count": 0,
+      "time_info": []
+    },
+    "delay 5 fired": {
+      "expected_count": 0,
+      "time_info": []
+    },
+    "delay 6 fired": {
+      "expected_count": 0,
+      "time_info": []
+    },
+    "delay 7 fired": {
+      "expected_count": 0,
+      "time_info": []
+    },
+    "delay 8 fired": {
+      "expected_count": 1,
+      "time_info": [
+         "4.500000000"
+       ]
+    },
+    "delay 9 fired": {
+      "expected_count": 0,
+      "time_info": []
+    },
+    "delay 10 fired": {
+      "expected_count": 0,
+      "time_info": []
+    },
+    "delay 11 fired": {
+      "expected_count": 1,
+      "time_info": [
+        "6.000000000"
+      ]
+    },
+    "delay 12 fired": {
+      "expected_count": 0,
+      "time_info": []
+    },
+    "delay 13 fired": {
+      "expected_count": 0,
+      "time_info": []
+    }
+  }
+}

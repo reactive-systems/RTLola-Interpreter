@@ -336,7 +336,8 @@ impl Evaluator {
             self.eval_event_driven_layer(layer, ts);
         }
         for close in self.closing_streams {
-            if self.close_activation_conditions[*close].eval(self.fresh_inputs) {
+            let ac = &self.close_activation_conditions[*close];
+            if ac.is_eventdriven() && ac.eval(self.fresh_inputs) {
                 let stream_instances: Vec<Vec<Value>> =
                     self.global_store.get_out_instance_collection(*close).all_instances();
                 for instance in stream_instances {
@@ -464,6 +465,7 @@ impl Evaluator {
 
         // Remove instance evaluation from schedule if stream is periodic
         if let Some(tds) = self.time_driven_streams[output] {
+            println!("removing from schedule");
             let mut schedule = self.dyn_schedule.0.lock().unwrap();
             schedule.remove_evaluation(&self.dyn_schedule.1, output, parameter, tds.period_in_duration());
 
@@ -761,6 +763,13 @@ impl ActivationConditionOp {
             Conjunction(vec) => vec.iter().all(|ac| Self::eval_(ac, inputs)),
             Disjunction(vec) => vec.iter().any(|ac| Self::eval_(ac, inputs)),
             True => unreachable!(),
+        }
+    }
+
+    fn is_eventdriven(&self) -> bool {
+        match self {
+            ActivationConditionOp::TimeDriven => false,
+            _ => true,
         }
     }
 }

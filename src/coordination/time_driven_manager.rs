@@ -229,8 +229,15 @@ impl TimeDrivenManager {
         }
         let schedule_copy = self.dyn_schedule.clone();
         let mut schedule = schedule_copy.0.lock().unwrap();
-        while self.get_next_due_locked(&schedule).is_some() && ts > self.get_next_due_locked(&schedule).unwrap() {
-            self.eval_next_deadline_locked(evaluator, &mut schedule, ts);
+        while self.get_next_due_locked(&schedule).is_some() {
+            let due =  self.get_next_due_locked(&schedule).unwrap();
+            if due >= ts {
+                break;
+            }
+            let deadline = self.get_next_deadline_locked(ts, &mut schedule);
+            drop(schedule);
+            self.eval_deadline(evaluator, deadline, due);
+            schedule = schedule_copy.0.lock().unwrap();
         }
     }
 
@@ -241,39 +248,34 @@ impl TimeDrivenManager {
         }
         let schedule_copy = self.dyn_schedule.clone();
         let mut schedule = schedule_copy.0.lock().unwrap();
-        while self.get_next_due_locked(&schedule).is_some() && ts == self.get_next_due_locked(&schedule).unwrap() {
-            self.eval_next_deadline_locked(evaluator, &mut schedule, ts);
+        while self.get_next_due_locked(&schedule).is_some(){
+            let due =  self.get_next_due_locked(&schedule).unwrap();
+            if due != ts {
+                break;
+            }
+            let deadline = self.get_next_deadline_locked(ts, &mut schedule);
+            drop(schedule);
+            self.eval_deadline(evaluator, deadline, due);
+            schedule = schedule_copy.0.lock().unwrap();
         }
     }
 
-    /// Evaluates the next deadline that is due
-    pub(crate) fn eval_next_deadline(&mut self, evaluator: &mut Evaluator, ts: Time) {
-        let schedule_copy = self.dyn_schedule.clone();
-        let mut schedule = schedule_copy.0.lock().unwrap();
-        self.eval_next_deadline_locked(evaluator, &mut schedule, ts);
-    }
-
-    pub(crate) fn eval_next_deadline_locked(
+    /// Evaluates the given deadline
+    pub(crate) fn eval_deadline(
         &mut self,
         evaluator: &mut Evaluator,
-        schedule: &mut MutexGuard<DynamicSchedule>,
-        ts: Time,
+        deadline: Vec<EvaluationTask>,
+        due: Time,
     ) {
         debug_assert!(
             !self.ir.time_driven.is_empty()
                 || self.ir.outputs.iter().any(|o| matches!(o.instance_template.spawn.pacing, PacingType::Periodic(_)))
         );
 
-        if self.get_next_due_locked(&schedule).is_none() {
-            return;
-        }
-        let next_due = self.get_next_due_locked(&schedule).unwrap();
-        if ts >= next_due {
-            let due_streams = self.get_next_deadline_locked(ts, schedule);
-            self.handler.debug(|| format!("Schedule Timed-Event {:?}.", (&due_streams, next_due)));
-            self.handler.new_event();
-            evaluator.eval_time_driven_tasks(due_streams, next_due);
-        }
+
+        self.handler.debug(|| format!("Schedule Timed-Event {:?}.", (&deadline, due)));
+        self.handler.new_event();
+        evaluator.eval_time_driven_tasks(deadline, due);
     }
 
 
