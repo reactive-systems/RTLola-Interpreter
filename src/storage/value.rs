@@ -307,6 +307,32 @@ impl Ord for Value {
     }
 }
 
+// Implement From for Value
+
+impl From<bool> for Value {
+    fn from(b: bool) -> Self {
+        Bool(b)
+    }
+}
+
+impl From<i64> for Value {
+    fn from(i: i64) -> Self {
+        Signed(i)
+    }
+}
+
+impl From<u64> for Value {
+    fn from(u: u64) -> Self {
+        Unsigned(u)
+    }
+}
+
+impl From<f64> for Value {
+    fn from(f: f64) -> Self {
+        Self::new_float(f)
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
