@@ -126,7 +126,11 @@ impl SlidingWindowCollection {
 
     /// Updates all windows in the collection with the given time
     pub(crate) fn update_all(&mut self, ts: Time) {
-        self.windows.iter_mut().for_each(|(_, w)| w.update(ts));
+        self.windows.iter_mut().for_each(|(_, w)| {
+            if w.is_active() {
+                w.update(ts)
+            }
+        });
     }
 }
 

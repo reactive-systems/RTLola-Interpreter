@@ -3,6 +3,7 @@ use crate::closuregen::{CompiledExpr, Expr};
 use crate::coordination::{DynamicSchedule, EvaluationTask};
 use crate::storage::{GlobalStore, Value};
 use bit_set::BitSet;
+use rtlola_frontend::mir::ExpressionKind::StreamAccess;
 use rtlola_frontend::mir::{
     ActivationCondition as Activation, InputReference, OutputReference, PacingType, RtLolaMir, Stream, StreamReference,
     Task, TimeDrivenStream, Trigger, WindowReference,
@@ -465,7 +466,6 @@ impl Evaluator {
 
         // Remove instance evaluation from schedule if stream is periodic
         if let Some(tds) = self.time_driven_streams[output] {
-            println!("removing from schedule");
             let mut schedule = self.dyn_schedule.0.lock().unwrap();
             schedule.remove_evaluation(&self.dyn_schedule.1, output, parameter, tds.period_in_duration());
 
@@ -489,7 +489,9 @@ impl Evaluator {
                     self.eval_stream_instance(output, instance.as_slice(), ts);
                 }
             } else {
-                self.eval_stream_instance(output, vec![].as_slice(), ts);
+                if self.global_store.get_out_instance(output).is_active() {
+                    self.eval_stream_instance(output, vec![].as_slice(), ts);
+                }
             }
         }
     }
@@ -553,7 +555,6 @@ impl Evaluator {
 
     fn eval_stream_instance(&mut self, output: OutputReference, parameter: &[Value], ts: Time) {
         let ix = output;
-        self.handler.debug(|| format!("Evaluating stream {}: {}.", ix, self.ir.output(StreamReference::Out(ix)).name));
 
         let expr = self.compiled_stream_exprs[ix].clone();
         let mut ctx = self.as_EvaluationContext(parameter.to_vec(), ts);
@@ -563,6 +564,10 @@ impl Evaluator {
         if let Value::None = res {
             return;
         }
+
+        self.handler.debug(|| {
+            format!("Evaluating stream {}: {} <{:?}>.", ix, self.ir.output(StreamReference::Out(ix)).name, parameter)
+        });
 
         let is_parameterized = self.ir.outputs[ix].is_parameterized();
         match self.is_trigger(output) {
@@ -578,7 +583,7 @@ impl Evaluator {
                 };
                 instance.push_value(res.clone());
                 self.fresh_outputs.insert(ix);
-                self.handler.output(|| format!("OutputStream[{}] := {:?}.", ix, res.clone()));
+                self.handler.output(|| format!("OutputStream[{}]<{:?}> := {:?}.", ix, parameter, res.clone()));
             }
 
             Some(trig) => {

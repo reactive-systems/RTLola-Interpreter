@@ -230,7 +230,7 @@ impl TimeDrivenManager {
         let schedule_copy = self.dyn_schedule.clone();
         let mut schedule = schedule_copy.0.lock().unwrap();
         while self.get_next_due_locked(&schedule).is_some() {
-            let due =  self.get_next_due_locked(&schedule).unwrap();
+            let due = self.get_next_due_locked(&schedule).unwrap();
             if due >= ts {
                 break;
             }
@@ -248,8 +248,8 @@ impl TimeDrivenManager {
         }
         let schedule_copy = self.dyn_schedule.clone();
         let mut schedule = schedule_copy.0.lock().unwrap();
-        while self.get_next_due_locked(&schedule).is_some(){
-            let due =  self.get_next_due_locked(&schedule).unwrap();
+        while self.get_next_due_locked(&schedule).is_some() {
+            let due = self.get_next_due_locked(&schedule).unwrap();
             if due != ts {
                 break;
             }
@@ -261,17 +261,11 @@ impl TimeDrivenManager {
     }
 
     /// Evaluates the given deadline
-    pub(crate) fn eval_deadline(
-        &mut self,
-        evaluator: &mut Evaluator,
-        deadline: Vec<EvaluationTask>,
-        due: Time,
-    ) {
+    pub(crate) fn eval_deadline(&mut self, evaluator: &mut Evaluator, deadline: Vec<EvaluationTask>, due: Time) {
         debug_assert!(
             !self.ir.time_driven.is_empty()
                 || self.ir.outputs.iter().any(|o| matches!(o.instance_template.spawn.pacing, PacingType::Periodic(_)))
         );
-
 
         self.handler.debug(|| format!("Schedule Timed-Event {:?}.", (&deadline, due)));
         self.handler.new_event();
