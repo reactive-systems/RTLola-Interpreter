@@ -1,0 +1,14 @@
+input a:Int8
+
+output b @1Hz spawn if a % 2 == 0 := a.aggregate(over: 1s, using: sum)
+output c spawn if a % 2 == 0 := b + 42
+
+trigger @a b.hold(or: 0) = 2 "b is 2"
+trigger @a c.hold(or: 0) = 44 "c is 44"
+
+trigger @a b.hold(or: 0) = 3 "b is 3"
+trigger @a c.hold(or: 0) = 45 "c is 45"
+
+trigger @a b.hold(or: 0) = 4 "b is 4"
+trigger @a c.hold(or: 0) = 46 "c is 46"
+
