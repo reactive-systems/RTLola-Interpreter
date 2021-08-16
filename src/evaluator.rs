@@ -3,7 +3,6 @@ use crate::closuregen::{CompiledExpr, Expr};
 use crate::coordination::{DynamicSchedule, EvaluationTask};
 use crate::storage::{GlobalStore, Value};
 use bit_set::BitSet;
-use rtlola_frontend::mir::ExpressionKind::StreamAccess;
 use rtlola_frontend::mir::{
     ActivationCondition as Activation, InputReference, OutputReference, PacingType, RtLolaMir, Stream, StreamReference,
     Task, TimeDrivenStream, Trigger, WindowReference,
@@ -132,15 +131,6 @@ impl EvaluatorData {
             .outputs
             .iter()
             .map(|o| match &o.instance_template.close.pacing {
-                PacingType::Periodic(_) => ActivationConditionOp::TimeDriven,
-                PacingType::Event(ac) => ActivationConditionOp::new(ac, ir.inputs.len()),
-                PacingType::Constant => ActivationConditionOp::True,
-            })
-            .collect();
-        let spawn_acs = ir
-            .outputs
-            .iter()
-            .map(|o| match &o.instance_template.spawn.pacing {
                 PacingType::Periodic(_) => ActivationConditionOp::TimeDriven,
                 PacingType::Event(ac) => ActivationConditionOp::new(ac, ir.inputs.len()),
                 PacingType::Constant => ActivationConditionOp::True,

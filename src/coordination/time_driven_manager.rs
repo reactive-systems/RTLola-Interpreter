@@ -272,7 +272,6 @@ impl TimeDrivenManager {
         evaluator.eval_time_driven_tasks(deadline, due);
     }
 
-
     //The following code is useful and could partly be used again for robustness.
 
     /*

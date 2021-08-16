@@ -2,7 +2,7 @@ use crate::basics::{EvalConfig, OutputHandler, Time};
 use crate::coordination::{DynamicSchedule, EvaluationTask, Event};
 use crate::evaluator::{Evaluator, EvaluatorData};
 use crate::storage::Value;
-use rtlola_frontend::mir::{Deadline, InputReference, OutputReference, RtLolaMir, Task, Type};
+use rtlola_frontend::mir::{Deadline, InputReference, OutputReference, RtLolaMir, Type};
 use std::marker::PhantomData;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
