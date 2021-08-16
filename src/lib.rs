@@ -27,7 +27,7 @@ use basics::{CsvInputSource, EventSourceConfig, ExecutionMode, OutputChannel, St
 use clap::{App, AppSettings, Arg, ArgGroup, SubCommand};
 use rtlola_frontend::mir::RtLolaMir;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, Condvar};
+use std::sync::{Arc, Condvar, Mutex};
 
 pub use crate::basics::{EvalConfig, Time, TimeFormat, TimeRepresentation};
 pub use crate::coordination::{
