@@ -478,10 +478,8 @@ impl Evaluator {
                 for instance in self.global_store.get_out_instance_collection(output).all_instances() {
                     self.eval_stream_instance(output, instance.as_slice(), ts);
                 }
-            } else {
-                if self.global_store.get_out_instance(output).is_active() {
-                    self.eval_stream_instance(output, vec![].as_slice(), ts);
-                }
+            } else if self.global_store.get_out_instance(output).is_active() {
+                self.eval_stream_instance(output, vec![].as_slice(), ts);
             }
         }
     }
