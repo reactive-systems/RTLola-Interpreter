@@ -3,12 +3,15 @@ input a:Int8
 output b(p) @1Hz spawn with a if a % 2 == 0 filter a.hold(or: p) = p close a = 1 := a.aggregate(over: 1s, using: sum)
 output c(p) spawn with a if a % 2 == 0 filter a.hold(or: p) = p close a = 1 := b(p)
 
+trigger @a b(2).hold(or: 42) = 42 "b does not exist"
+trigger @a c(2).hold(or: 42) = 42 "c does not exist"
+
 trigger @a b(2).hold(or: 0) = 2 "b is 2"
-trigger @a c(2).hold(or: 0) = 44 "c is 2"
+trigger @a c(2).hold(or: 0) = 2 "c is 2"
 
 trigger @a b(2).hold(or: 0) = 3 "b is 3"
-trigger @a c(2).hold(or: 0) = 45 "c is 3"
+trigger @a c(2).hold(or: 0) = 3 "c is 3"
 
 trigger @a b(2).hold(or: 0) = 4 "b is 4"
-trigger @a c(2).hold(or: 0) = 46 "c is 4"
+trigger @a c(2).hold(or: 0) = 4 "c is 4"
 
