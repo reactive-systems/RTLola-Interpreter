@@ -1,6 +1,8 @@
 use super::window::WindowIV;
 use super::Value;
 use crate::basics::Time;
+use crate::storage::window::WindowGeneric;
+use crate::storage::window_aggregations::PercentileIV;
 use std::collections::VecDeque;
 
 #[derive(Debug)]
@@ -35,4 +37,17 @@ impl<IV: WindowIV> DiscreteWindowInstance<IV> {
     }
 
     pub(crate) fn update_buckets(&mut self, _ts: Time) {}
+}
+
+impl<G: WindowGeneric> DiscreteWindowInstance<PercentileIV<G>> {
+    pub(crate) fn get_value_percentile(&self, ts: Time, percentile: usize) -> Value {
+        let size = self.buckets.len();
+        self.buckets
+            .iter()
+            .cycle()
+            .skip(self.next_bucket)
+            .take(size)
+            .fold(PercentileIV::default(ts), |acc, e| acc + e.clone())
+            .percentile_get_value(percentile)
+    }
 }

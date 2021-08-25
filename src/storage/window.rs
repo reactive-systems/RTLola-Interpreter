@@ -53,6 +53,24 @@ pub(crate) enum SlidingWindow {
     ConjunctionDiscrete(DiscreteWindowInstance<ConjIV>),
     Disjunction(WindowInstance<DisjIV>),
     DisjunctionDiscrete(DiscreteWindowInstance<DisjIV>),
+    LastSigned(WindowInstance<LastIV<WindowSigned>>),
+    LastUnsigned(WindowInstance<LastIV<WindowUnsigned>>),
+    LastFloat(WindowInstance<LastIV<WindowFloat>>),
+    LastDiscreteSigned(DiscreteWindowInstance<LastIV<WindowSigned>>),
+    LastDiscreteUnsigned(DiscreteWindowInstance<LastIV<WindowUnsigned>>),
+    LastDiscreteFloat(DiscreteWindowInstance<LastIV<WindowFloat>>),
+    PercentileSigned(usize, WindowInstance<PercentileIV<WindowSigned>>),
+    PercentileUnsigned(usize, WindowInstance<PercentileIV<WindowUnsigned>>),
+    PercentileFloat(usize, WindowInstance<PercentileIV<WindowFloat>>),
+    PercentileDiscreteSigned(usize, DiscreteWindowInstance<PercentileIV<WindowSigned>>),
+    PercentileDiscreteUnsigned(usize, DiscreteWindowInstance<PercentileIV<WindowUnsigned>>),
+    PercentileDiscreteFloat(usize, DiscreteWindowInstance<PercentileIV<WindowFloat>>),
+    Variance(WindowInstance<VarianceIV>),
+    VarianceDiscrete(DiscreteWindowInstance<VarianceIV>),
+    StandardDeviation(WindowInstance<SDIV>),
+    StandardDeviationDiscrete(DiscreteWindowInstance<SDIV>),
+    Covariance(WindowInstance<CovIV>),
+    CovarianceDiscrete(DiscreteWindowInstance<CovIV>),
 }
 
 impl SlidingWindow {
@@ -82,6 +100,23 @@ impl SlidingWindow {
             (WinOp::Integral, _) => SlidingWindow::Integral(WindowInstance::new(dur, wait, ts)),
             (WinOp::Conjunction, Type::Bool) => SlidingWindow::Conjunction(WindowInstance::new(dur, wait, ts)),
             (WinOp::Disjunction, Type::Bool) => SlidingWindow::Disjunction(WindowInstance::new(dur, wait, ts)),
+            (WinOp::Last, Type::Int(_)) => SlidingWindow::LastSigned(WindowInstance::new(dur, wait, ts)),
+            (WinOp::Last, Type::UInt(_)) => SlidingWindow::LastUnsigned(WindowInstance::new(dur, wait, ts)),
+            (WinOp::Last, Type::Float(_)) => SlidingWindow::LastFloat(WindowInstance::new(dur, wait, ts)),
+            (WinOp::Percentile(x), Type::Int(_)) => {
+                SlidingWindow::PercentileSigned(x, WindowInstance::new(dur, wait, ts))
+            }
+            (WinOp::Percentile(x), Type::UInt(_)) => {
+                SlidingWindow::PercentileUnsigned(x, WindowInstance::new(dur, wait, ts))
+            }
+            (WinOp::Percentile(x), Type::Float(_)) => {
+                SlidingWindow::PercentileFloat(x, WindowInstance::new(dur, wait, ts))
+            }
+            (WinOp::Variance, Type::Float(_)) => SlidingWindow::Variance(WindowInstance::new(dur, wait, ts)),
+            (WinOp::StandardDeviation, Type::Float(_)) => {
+                SlidingWindow::StandardDeviation(WindowInstance::new(dur, wait, ts))
+            }
+            (WinOp::Covariance, Type::Float(_)) => SlidingWindow::Covariance(WindowInstance::new(dur, wait, ts)),
             (_, Type::Option(t)) => SlidingWindow::from_sliding(dur, wait, op, ts, t),
             _ => unimplemented!(),
         }
@@ -128,6 +163,33 @@ impl SlidingWindow {
             (WinOp::Disjunction, Type::Bool) => {
                 SlidingWindow::DisjunctionDiscrete(DiscreteWindowInstance::new(size, wait, ts))
             }
+            (WinOp::Last, Type::Int(_)) => {
+                SlidingWindow::LastDiscreteSigned(DiscreteWindowInstance::new(size, wait, ts))
+            }
+            (WinOp::Last, Type::UInt(_)) => {
+                SlidingWindow::LastDiscreteUnsigned(DiscreteWindowInstance::new(size, wait, ts))
+            }
+            (WinOp::Last, Type::Float(_)) => {
+                SlidingWindow::LastDiscreteFloat(DiscreteWindowInstance::new(size, wait, ts))
+            }
+            (WinOp::Percentile(x), Type::Int(_)) => {
+                SlidingWindow::PercentileDiscreteSigned(x, DiscreteWindowInstance::new(size, wait, ts))
+            }
+            (WinOp::Percentile(x), Type::UInt(_)) => {
+                SlidingWindow::PercentileDiscreteUnsigned(x, DiscreteWindowInstance::new(size, wait, ts))
+            }
+            (WinOp::Percentile(x), Type::Float(_)) => {
+                SlidingWindow::PercentileDiscreteFloat(x, DiscreteWindowInstance::new(size, wait, ts))
+            }
+            (WinOp::Variance, Type::Float(_)) => {
+                SlidingWindow::VarianceDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+            }
+            (WinOp::StandardDeviation, Type::Float(_)) => {
+                SlidingWindow::StandardDeviationDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+            }
+            (WinOp::Covariance, Type::Float(_)) => {
+                SlidingWindow::CovarianceDiscrete(DiscreteWindowInstance::new(size, wait, ts))
+            }
             (_, Type::Option(t)) => SlidingWindow::from_discrete(size, wait, op, ts, t),
             _ => unimplemented!(),
         }
@@ -172,6 +234,24 @@ impl SlidingWindow {
             SlidingWindow::AvgFloatDiscrete(wi) => wi.update_buckets(ts),
             SlidingWindow::Integral(wi) => wi.update_buckets(ts),
             SlidingWindow::IntegralDiscrete(wi) => wi.update_buckets(ts),
+            SlidingWindow::LastSigned(wi) => wi.update_buckets(ts),
+            SlidingWindow::LastUnsigned(wi) => wi.update_buckets(ts),
+            SlidingWindow::LastFloat(wi) => wi.update_buckets(ts),
+            SlidingWindow::LastDiscreteSigned(wi) => wi.update_buckets(ts),
+            SlidingWindow::LastDiscreteUnsigned(wi) => wi.update_buckets(ts),
+            SlidingWindow::LastDiscreteFloat(wi) => wi.update_buckets(ts),
+            SlidingWindow::PercentileSigned(_, wi) => wi.update_buckets(ts),
+            SlidingWindow::PercentileUnsigned(_, wi) => wi.update_buckets(ts),
+            SlidingWindow::PercentileFloat(_, wi) => wi.update_buckets(ts),
+            SlidingWindow::PercentileDiscreteSigned(_, wi) => wi.update_buckets(ts),
+            SlidingWindow::PercentileDiscreteUnsigned(_, wi) => wi.update_buckets(ts),
+            SlidingWindow::PercentileDiscreteFloat(_, wi) => wi.update_buckets(ts),
+            SlidingWindow::Variance(wi) => wi.update_buckets(ts),
+            SlidingWindow::VarianceDiscrete(wi) => wi.update_buckets(ts),
+            SlidingWindow::StandardDeviation(wi) => wi.update_buckets(ts),
+            SlidingWindow::StandardDeviationDiscrete(wi) => wi.update_buckets(ts),
+            SlidingWindow::Covariance(wi) => wi.update_buckets(ts),
+            SlidingWindow::CovarianceDiscrete(wi) => wi.update_buckets(ts),
         }
     }
 
@@ -215,6 +295,24 @@ impl SlidingWindow {
             SlidingWindow::AvgFloatDiscrete(wi) => wi.get_value(ts),
             SlidingWindow::Integral(wi) => wi.get_value(ts),
             SlidingWindow::IntegralDiscrete(wi) => wi.get_value(ts),
+            SlidingWindow::LastSigned(wi) => wi.get_value(ts),
+            SlidingWindow::LastUnsigned(wi) => wi.get_value(ts),
+            SlidingWindow::LastFloat(wi) => wi.get_value(ts),
+            SlidingWindow::LastDiscreteSigned(wi) => wi.get_value(ts),
+            SlidingWindow::LastDiscreteUnsigned(wi) => wi.get_value(ts),
+            SlidingWindow::LastDiscreteFloat(wi) => wi.get_value(ts),
+            SlidingWindow::PercentileSigned(p, wi) => wi.get_value_percentile(ts, *p),
+            SlidingWindow::PercentileUnsigned(p, wi) => wi.get_value_percentile(ts, *p),
+            SlidingWindow::PercentileFloat(p, wi) => wi.get_value_percentile(ts, *p),
+            SlidingWindow::PercentileDiscreteSigned(p, wi) => wi.get_value_percentile(ts, *p),
+            SlidingWindow::PercentileDiscreteUnsigned(p, wi) => wi.get_value_percentile(ts, *p),
+            SlidingWindow::PercentileDiscreteFloat(p, wi) => wi.get_value_percentile(ts, *p),
+            SlidingWindow::Variance(wi) => wi.get_value(ts),
+            SlidingWindow::VarianceDiscrete(wi) => wi.get_value(ts),
+            SlidingWindow::StandardDeviation(wi) => wi.get_value(ts),
+            SlidingWindow::StandardDeviationDiscrete(wi) => wi.get_value(ts),
+            SlidingWindow::Covariance(wi) => wi.get_value(ts),
+            SlidingWindow::CovarianceDiscrete(wi) => wi.get_value(ts),
         }
     }
 
@@ -258,6 +356,24 @@ impl SlidingWindow {
             SlidingWindow::AvgFloatDiscrete(wi) => wi.accept_value(v, ts),
             SlidingWindow::Integral(wi) => wi.accept_value(v, ts),
             SlidingWindow::IntegralDiscrete(wi) => wi.accept_value(v, ts),
+            SlidingWindow::LastSigned(wi) => wi.accept_value(v, ts),
+            SlidingWindow::LastUnsigned(wi) => wi.accept_value(v, ts),
+            SlidingWindow::LastFloat(wi) => wi.accept_value(v, ts),
+            SlidingWindow::LastDiscreteSigned(wi) => wi.accept_value(v, ts),
+            SlidingWindow::LastDiscreteUnsigned(wi) => wi.accept_value(v, ts),
+            SlidingWindow::LastDiscreteFloat(wi) => wi.accept_value(v, ts),
+            SlidingWindow::PercentileSigned(_, wi) => wi.accept_value(v, ts),
+            SlidingWindow::PercentileUnsigned(_, wi) => wi.accept_value(v, ts),
+            SlidingWindow::PercentileFloat(_, wi) => wi.accept_value(v, ts),
+            SlidingWindow::PercentileDiscreteSigned(_, wi) => wi.accept_value(v, ts),
+            SlidingWindow::PercentileDiscreteUnsigned(_, wi) => wi.accept_value(v, ts),
+            SlidingWindow::PercentileDiscreteFloat(_, wi) => wi.accept_value(v, ts),
+            SlidingWindow::Variance(wi) => wi.accept_value(v, ts),
+            SlidingWindow::VarianceDiscrete(wi) => wi.accept_value(v, ts),
+            SlidingWindow::StandardDeviation(wi) => wi.accept_value(v, ts),
+            SlidingWindow::StandardDeviationDiscrete(wi) => wi.accept_value(v, ts),
+            SlidingWindow::Covariance(wi) => wi.accept_value(v, ts),
+            SlidingWindow::CovarianceDiscrete(wi) => wi.accept_value(v, ts),
         }
     }
 }
@@ -435,5 +551,19 @@ impl WindowGeneric for WindowFloat {
             _ => unreachable!("Type error."),
         };
         Value::Float(NotNan::new(f).unwrap())
+    }
+}
+
+impl<G: WindowGeneric> WindowInstance<PercentileIV<G>> {
+    fn get_value_percentile(&self, ts: Time, percentile: usize) -> Value {
+        // Reversal is essential for non-commutative operations.
+        if self.wait && ts < self.wait_duration {
+            return Value::None;
+        }
+        self.buckets
+            .iter()
+            .rev()
+            .fold(PercentileIV::default(ts), |acc, e| acc + e.clone())
+            .percentile_get_value(percentile)
     }
 }

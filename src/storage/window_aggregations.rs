@@ -1,6 +1,6 @@
 use crate::basics::Time;
 use crate::storage::{
-    window::{WindowGeneric, WindowIV},
+    window::{WindowFloat, WindowGeneric, WindowIV},
     Value,
 };
 use std::marker::PhantomData;
@@ -338,5 +338,294 @@ impl<G: WindowGeneric> Add for MinIV<G> {
 impl<G: WindowGeneric> From<(Value, Time)> for MinIV<G> {
     fn from(v: (Value, Time)) -> MinIV<G> {
         MinIV { min: v.0, _marker: PhantomData }
+    }
+}
+
+//////////////////////////////////////////////
+//////////////////// LAST ////////////////////
+//////////////////////////////////////////////
+
+#[derive(Clone, Debug)]
+pub(crate) struct LastIV<G: WindowGeneric> {
+    val: Value,
+    ts: Time,
+    _marker: PhantomData<G>,
+}
+
+impl<G: WindowGeneric> WindowIV for LastIV<G> {
+    fn default(ts: Time) -> LastIV<G> {
+        LastIV { val: Value::None, ts, _marker: PhantomData }
+    }
+}
+
+impl<G: WindowGeneric> From<LastIV<G>> for Value {
+    fn from(iv: LastIV<G>) -> Value {
+        iv.val
+    }
+}
+
+impl<G: WindowGeneric> From<(Value, Time)> for LastIV<G> {
+    fn from(v: (Value, Time)) -> LastIV<G> {
+        LastIV { val: v.0, ts: v.1, _marker: PhantomData }
+    }
+}
+
+impl<G: WindowGeneric> Add for LastIV<G> {
+    type Output = LastIV<G>;
+    fn add(self, other: LastIV<G>) -> LastIV<G> {
+        let (val, ts) = match (self.val, self.ts, other.val, other.ts) {
+            (Value::None, _, Value::None, _) => (Value::None, Time::default()),
+            (Value::None, _, rhs, r_ts) => (rhs, r_ts),
+            (lhs, l_ts, Value::None, _) => (lhs, l_ts),
+            (Value::Unsigned(lhs), l_ts, Value::Unsigned(rhs), r_ts) => {
+                if l_ts > r_ts {
+                    (Value::Unsigned(lhs), l_ts)
+                } else {
+                    (Value::Unsigned(rhs), r_ts)
+                }
+            }
+            (Value::Signed(lhs), l_ts, Value::Signed(rhs), r_ts) => {
+                if l_ts > r_ts {
+                    (Value::Signed(lhs), l_ts)
+                } else {
+                    (Value::Signed(rhs), r_ts)
+                }
+            }
+            (Value::Float(lhs), l_ts, Value::Float(rhs), r_ts) => {
+                if l_ts > r_ts {
+                    (Value::Float(lhs), l_ts)
+                } else {
+                    (Value::Float(rhs), r_ts)
+                }
+            }
+            _ => unreachable!("Mixed types in sliding window aggregation."),
+        };
+        LastIV { val, ts, _marker: PhantomData }
+    }
+}
+
+///////////////////////////////////////////////
+///////////////// Percentile //////////////////
+//////////////////////////////////////////////
+
+#[derive(Clone, Debug)]
+pub(crate) struct PercentileIV<G: WindowGeneric> {
+    values: Vec<Value>,
+    count: usize,
+    _marker: PhantomData<G>,
+}
+
+impl<G: WindowGeneric> WindowIV for PercentileIV<G> {
+    fn default(_ts: Time) -> PercentileIV<G> {
+        PercentileIV { values: vec![], count: 0, _marker: PhantomData }
+    }
+}
+
+impl<G: WindowGeneric> PercentileIV<G> {
+    pub(crate) fn percentile_get_value(self, percentile: usize) -> Value {
+        let idx: f32 = self.count as f32 * (percentile as f32 / 100.0);
+        let int_idx = (idx.ceil() as usize) - 1;
+        let idx = idx;
+        if self.values.is_empty() {
+            return Value::None;
+        }
+        let PercentileIV { mut values, count: _, _marker: _ } = self;
+        values.sort_unstable_by(|a, b| match (a, b) {
+            (Value::Signed(x), Value::Signed(y)) => x.cmp(&y),
+            (Value::Unsigned(x), Value::Unsigned(y)) => x.cmp(&y),
+            (Value::Float(x), Value::Float(y)) => x.partial_cmp(&y).unwrap(),
+            _ => unimplemented!(),
+        });
+        let values = values;
+        let v_idx = values[int_idx].clone();
+
+        let denominator = match &values[0] {
+            Value::Unsigned(_) => Value::Unsigned(2),
+            Value::Signed(_) => Value::Signed(2),
+            Value::Float(_) => Value::new_float(2.0),
+            _ => unreachable!("Type error."),
+        };
+
+        if idx.fract() > 0.0 {
+            v_idx
+        } else {
+            (v_idx + values[int_idx + 1].clone()) / denominator
+        }
+    }
+}
+
+impl<G: WindowGeneric> From<PercentileIV<G>> for Value {
+    fn from(_iv: PercentileIV<G>) -> Value {
+        panic!("for percentile windows, call percentile_get_value(usize) instead")
+    }
+}
+
+impl<G: WindowGeneric> From<(Value, Time)> for PercentileIV<G> {
+    fn from(v: (Value, Time)) -> PercentileIV<G> {
+        let (values, count) = if matches!(v.0, Value::None) { (vec![], 0) } else { (vec![v.0], 1) };
+        PercentileIV { values, count, _marker: PhantomData }
+    }
+}
+
+impl<G: WindowGeneric> Add for PercentileIV<G> {
+    type Output = PercentileIV<G>;
+    fn add(self, other: PercentileIV<G>) -> PercentileIV<G> {
+        let PercentileIV { values, count, _marker: _ } = self;
+        let PercentileIV { values: o_values, count: o_count, _marker: _ } = other;
+        //TODO MERGE
+        let values = values.into_iter().chain(o_values).collect::<Vec<Value>>();
+        let count = count + o_count;
+        PercentileIV { values, count, _marker: PhantomData }
+    }
+}
+
+///////////////////////////////////////////////
+//////////////// SD/Variance //////////////////
+///////////////////////////////////////////////
+
+#[derive(Clone, Debug)]
+pub(crate) struct VarianceIV {
+    count: Value,
+    var: Value,
+    mean: Value,
+}
+
+impl WindowIV for VarianceIV {
+    fn default(_ts: Time) -> VarianceIV {
+        VarianceIV { count: Value::new_float(0.0), var: Value::None, mean: Value::None }
+    }
+}
+
+impl From<VarianceIV> for Value {
+    fn from(iv: VarianceIV) -> Value {
+        iv.var / iv.count
+    }
+}
+
+impl From<(Value, Time)> for VarianceIV {
+    fn from(v: (Value, Time)) -> VarianceIV {
+        VarianceIV { count: Value::new_float(1.0), var: Value::new_float(0.0), mean: v.0 }
+    }
+}
+
+impl Add for VarianceIV {
+    type Output = VarianceIV;
+    fn add(self, other: VarianceIV) -> VarianceIV {
+        if self.mean == Value::None {
+            return other;
+        }
+        if other.mean == Value::None {
+            return self;
+        }
+
+        let VarianceIV { count, var, mean } = self;
+
+        let VarianceIV { count: o_count, var: o_var, mean: o_mean } = other;
+
+        let mean_diff = o_mean - mean.clone();
+        let new_var = var
+            + o_var
+            + (mean_diff.clone())
+                * (mean_diff.clone())
+                * (count.clone() * o_count.clone() / (count.clone() + o_count.clone()));
+        let new_mean = mean + mean_diff * (o_count.clone() / (count.clone() + o_count.clone()));
+
+        let new_count = count + o_count;
+        VarianceIV { count: new_count, var: new_var, mean: new_mean }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct SDIV {
+    viv: VarianceIV,
+}
+
+impl WindowIV for SDIV {
+    fn default(ts: Time) -> SDIV {
+        SDIV { viv: VarianceIV::default(ts) }
+    }
+}
+
+impl From<SDIV> for Value {
+    fn from(iv: SDIV) -> Value {
+        let v: Value = iv.viv.into();
+        v.pow(Value::new_float(0.5))
+    }
+}
+
+impl From<(Value, Time)> for SDIV {
+    fn from(v: (Value, Time)) -> SDIV {
+        let viv = VarianceIV::from(v);
+        SDIV { viv }
+    }
+}
+
+impl Add for SDIV {
+    type Output = SDIV;
+    fn add(self, other: SDIV) -> SDIV {
+        SDIV { viv: self.viv + other.viv }
+    }
+}
+
+///////////////////////////////////////////////
+//////////////// Covariance //////////////////
+///////////////////////////////////////////////
+
+//TODO NOT FINAL DO NOT USE
+#[derive(Clone, Debug)]
+pub(crate) struct CovIV {
+    count: usize,
+    cov: Value,
+    mean: Value,
+    avg_iv: AvgIV<WindowFloat>,
+}
+
+impl WindowIV for CovIV {
+    fn default(ts: Time) -> CovIV {
+        CovIV { count: 0, cov: Value::None, mean: Value::None, avg_iv: AvgIV::default(ts) }
+    }
+}
+
+impl From<CovIV> for Value {
+    fn from(iv: CovIV) -> Value {
+        iv.cov
+    }
+}
+
+impl From<(Value, Time)> for CovIV {
+    fn from(v: (Value, Time)) -> CovIV {
+        CovIV { count: 1, cov: Value::new_float(0.0), mean: v.0.clone(), avg_iv: AvgIV::from(v) }
+    }
+}
+
+impl Add for CovIV {
+    type Output = CovIV;
+    fn add(self, other: CovIV) -> CovIV {
+        if self.mean == Value::None {
+            return other;
+        }
+        if other.mean == Value::None {
+            return self;
+        }
+
+        let CovIV { count, cov: _cov, mean, avg_iv } = self;
+
+        let CovIV { count: o_count, cov: o_cov, mean: o_mean, avg_iv: o_avg_iv } = other;
+
+        let count_var = Value::new_float(count as f64);
+        let o_count_var = Value::new_float(o_count as f64);
+        let mean_diff = mean.clone() - o_mean.clone();
+
+        let new_count = count + o_count;
+        let new_mean = mean.clone() + mean_diff * (o_count_var.clone() / (count_var.clone() + o_count_var.clone()));
+        let new_avg_iv = avg_iv + o_avg_iv;
+        let avg_value: Value = new_avg_iv.clone().into();
+        let new_cov = (count_var.clone() * o_count_var.clone()
+            + o_count_var.clone() * o_cov
+            + count_var.clone() * (mean - avg_value.clone()).pow(Value::new_float(2.0))
+            + o_count_var * (o_mean - avg_value).pow(Value::new_float(2.0)))
+            / count_var;
+
+        CovIV { count: new_count, cov: new_cov, mean: new_mean, avg_iv: new_avg_iv }
     }
 }
