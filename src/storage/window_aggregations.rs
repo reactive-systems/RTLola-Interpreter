@@ -434,7 +434,7 @@ impl<G: WindowGeneric> PercentileIV<G> {
             (Value::Signed(x), Value::Signed(y)) => x.cmp(&y),
             (Value::Unsigned(x), Value::Unsigned(y)) => x.cmp(&y),
             (Value::Float(x), Value::Float(y)) => x.partial_cmp(&y).unwrap(),
-            _ => unimplemented!(),
+            _ => unimplemented!("only primitive types implemented for percentile"),
         });
         let values = values;
         let v_idx = values[int_idx].clone();
@@ -472,7 +472,7 @@ impl<G: WindowGeneric> Add for PercentileIV<G> {
     fn add(self, other: PercentileIV<G>) -> PercentileIV<G> {
         let PercentileIV { values, count, _marker: _ } = self;
         let PercentileIV { values: o_values, count: o_count, _marker: _ } = other;
-        //TODO MERGE
+        //TODO MERGE - would save sorting in get_value
         let values = values.into_iter().chain(o_values).collect::<Vec<Value>>();
         let count = count + o_count;
         PercentileIV { values, count, _marker: PhantomData }
@@ -574,58 +574,55 @@ impl Add for SDIV {
 //TODO NOT FINAL DO NOT USE
 #[derive(Clone, Debug)]
 pub(crate) struct CovIV {
-    count: usize,
+    count: Value,
     cov: Value,
-    mean: Value,
+    mean_x: Value,
+    mean_y: Value,
     avg_iv: AvgIV<WindowFloat>,
 }
 
 impl WindowIV for CovIV {
     fn default(ts: Time) -> CovIV {
-        CovIV { count: 0, cov: Value::None, mean: Value::None, avg_iv: AvgIV::default(ts) }
+        CovIV {
+            count: Value::new_float(0.0),
+            cov: Value::None,
+            mean_x: Value::None,
+            mean_y: Value::None,
+            avg_iv: AvgIV::default(ts),
+        }
     }
 }
 
 impl From<CovIV> for Value {
     fn from(iv: CovIV) -> Value {
-        iv.cov
+        iv.cov / iv.count
     }
 }
 
 impl From<(Value, Time)> for CovIV {
     fn from(v: (Value, Time)) -> CovIV {
-        CovIV { count: 1, cov: Value::new_float(0.0), mean: v.0.clone(), avg_iv: AvgIV::from(v) }
+        let (x, y) = match v.0 {
+            Value::Tuple(ref inner_tup) => (inner_tup[0].clone(), inner_tup[1].clone()),
+            _ => unreachable!("covariance expects tuple input"),
+        };
+        CovIV { count: Value::new_float(1.0), cov: Value::new_float(0.0), mean_x: x, mean_y: y, avg_iv: AvgIV::from(v) }
     }
 }
 
 impl Add for CovIV {
     type Output = CovIV;
     fn add(self, other: CovIV) -> CovIV {
-        if self.mean == Value::None {
+        if self.mean_x == Value::None {
             return other;
         }
-        if other.mean == Value::None {
+        if other.mean_x == Value::None {
             return self;
         }
 
-        let CovIV { count, cov: _cov, mean, avg_iv } = self;
+        let CovIV { count, cov: _cov, mean_x, mean_y, avg_iv } = self;
 
-        let CovIV { count: o_count, cov: o_cov, mean: o_mean, avg_iv: o_avg_iv } = other;
+        let CovIV { count: o_count, cov: o_cov, mean_x: o_mean_x, mean_y: _o_mean_y, avg_iv: o_avg_iv } = other;
 
-        let count_var = Value::new_float(count as f64);
-        let o_count_var = Value::new_float(o_count as f64);
-        let mean_diff = mean.clone() - o_mean.clone();
-
-        let new_count = count + o_count;
-        let new_mean = mean.clone() + mean_diff * (o_count_var.clone() / (count_var.clone() + o_count_var.clone()));
-        let new_avg_iv = avg_iv + o_avg_iv;
-        let avg_value: Value = new_avg_iv.clone().into();
-        let new_cov = (count_var.clone() * o_count_var.clone()
-            + o_count_var.clone() * o_cov
-            + count_var.clone() * (mean - avg_value.clone()).pow(Value::new_float(2.0))
-            + o_count_var * (o_mean - avg_value).pow(Value::new_float(2.0)))
-            / count_var;
-
-        CovIV { count: new_count, cov: new_cov, mean: new_mean, avg_iv: new_avg_iv }
+        unimplemented!("covariance is not yet implemented")
     }
 }

@@ -920,28 +920,7 @@ mod tests {
         assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
     }
 
-    #[test]
-    fn test_percentile_window_float() {
-        let (_, eval, mut time) = setup_time(
-            "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over: 11s, using: pctl75).defaults(to:0.0)",
-        );
-        let mut eval: Evaluator = eval.into_evaluator();
-        time += Duration::from_secs(45);
-        let out_ref = StreamReference::Out(0);
-        let in_ref = StreamReference::In(0);
-        let n = 25;
-        for v in 1..=n {
-            accept_input_timed!(eval, in_ref, Float(NotNan::new(v as f64).unwrap()), time);
-            time += Duration::from_secs(1);
-        }
-        time += Duration::from_secs(1);
-        // 71 secs have passed. All values should be within the window.
-        eval_stream_timed!(eval, 0, time);
-        let expected = Float(NotNan::new(23.0).unwrap());
-        assert_eq!(eval.peek_value(in_ref, &Vec::new(), 0).unwrap(), Float(NotNan::new(25.0).unwrap()));
-        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
-    }
-
+    // New windows tests
     #[test]
     fn test_last_window_float() {
         let (_, eval, mut time) = setup_time(
@@ -1095,7 +1074,68 @@ mod tests {
             time += Duration::from_secs(1);
             // 66 secs have passed. All values should be within the window.
             eval_stream_timed!(eval, 0, time);
-            assert_eq!(eval.peek_value(in_ref, &Vec::new(), 0).unwrap(), Signed(20));
+            assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
+        }
+    }
+
+    #[test]
+    fn test_percentile_unsigned() {
+        for (pctl, exp) in &[
+            ("pctl25", Unsigned(13)),
+            ("pctl75", Unsigned(18)),
+            ("pctl10", Unsigned(11)),
+            ("pctl5", Unsigned(11)),
+            ("pctl90", Unsigned(19)),
+            ("med", Unsigned(15)),
+        ] {
+            let (_, eval, mut time) = setup_time(&format!(
+                "input a: UInt32\noutput b: UInt32 @1Hz:= a.aggregate(over: 10s, using: {}).defaults(to:0)",
+                pctl
+            ));
+            let mut eval: Evaluator = eval.into_evaluator();
+            time += Duration::from_secs(45);
+            let out_ref = StreamReference::Out(0);
+            let in_ref = StreamReference::In(0);
+            let n = 20;
+            for v in 1..=n {
+                accept_input_timed!(eval, in_ref, Unsigned(v), time);
+                time += Duration::from_secs(1);
+            }
+            time += Duration::from_secs(1);
+            // 66 secs have passed. All values should be within the window.
+            eval_stream_timed!(eval, 0, time);
+            assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
+        }
+    }
+
+    #[test]
+    fn test_percentile_discrete_float_unordered_input() {
+        for (pctl, exp) in &[
+            ("pctl25", Value::new_float(13.0)),
+            ("pctl75", Value::new_float(18.0)),
+            ("pctl10", Value::new_float(11.5)),
+            ("pctl5", Value::new_float(11.0)),
+            ("pctl90", Value::new_float(19.5)),
+            ("med", Value::new_float(15.5)),
+        ] {
+            let (_, eval, mut time) = setup_time(&format!(
+                "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over_discrete: 10, using: {}).defaults(to:0.0)",
+                pctl
+            ));
+            let mut eval: Evaluator = eval.into_evaluator();
+            time += Duration::from_secs(45);
+            let out_ref = StreamReference::Out(0);
+            let in_ref = StreamReference::In(0);
+            let n = 20;
+            let input_val = [1, 9, 8, 5, 4, 3, 7, 2, 10, 6, 20, 11, 19, 12, 18, 13, 17, 14, 16, 15];
+            for v in 0..n {
+                accept_input_timed!(eval, in_ref, Float(NotNan::new(input_val[v] as f64).unwrap()), time);
+                time += Duration::from_secs(1);
+            }
+            time += Duration::from_secs(1);
+            // 66 secs have passed. All values should be within the window.
+            eval_stream_timed!(eval, 0, time);
+            assert_eq!(eval.peek_value(in_ref, &Vec::new(), 0).unwrap(), Float(NotNan::new(15.0).unwrap()));
             assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
         }
     }
@@ -1192,6 +1232,76 @@ mod tests {
     }
 
     #[test]
+    fn test_var_discrete() {
+        for (duration, exp) in &[
+            ("2", Value::new_float(0.25)),
+            ("3", Value::new_float(2.0 / 3.0)),
+            ("4", Value::new_float(1.25)),
+            ("5", Value::new_float(2.0)),
+            ("6", Value::new_float(17.5 / 6.0)),
+            ("7", Value::new_float(4.0)),
+            ("8", Value::new_float(5.25)),
+            ("9", Value::new_float(60.0 / 9.0)),
+            ("10", Value::new_float(8.25)),
+            ("11", Value::new_float(10.0)),
+        ] {
+            let (_, eval, mut time) = setup_time(&format!(
+                "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over_discrete: {}, using: var).defaults(to:0.0)",
+                duration
+            ));
+            let mut eval: Evaluator = eval.into_evaluator();
+            time += Duration::from_secs(45);
+            let out_ref = StreamReference::Out(0);
+            let in_ref = StreamReference::In(0);
+            let n = 20;
+            for v in 1..=n {
+                accept_input_timed!(eval, in_ref, Float(NotNan::new(v as f64).unwrap()), time);
+                time += Duration::from_secs(1);
+            }
+            time += Duration::from_secs(1);
+            // 66 secs have passed. All values should be within the window.
+            eval_stream_timed!(eval, 0, time);
+            assert_eq!(eval.peek_value(in_ref, &Vec::new(), 0).unwrap(), Float(NotNan::new(20.0).unwrap()));
+            assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
+        }
+    }
+
+    #[test]
+    fn test_sd_discrete() {
+        for (duration, exp) in &[
+            ("2", Value::new_float(0.25f64.sqrt())),
+            ("3", Value::new_float((2.0 / 3.0f64).sqrt())),
+            ("4", Value::new_float(1.25f64.sqrt())),
+            ("5", Value::new_float(2.0f64.sqrt())),
+            ("6", Value::new_float((17.5 / 6.0f64).sqrt())),
+            ("7", Value::new_float(4.0f64.sqrt())),
+            ("8", Value::new_float(5.25f64.sqrt())),
+            ("9", Value::new_float((60.0 / 9.0f64).sqrt())),
+            ("10", Value::new_float(8.25f64.sqrt())),
+            ("11", Value::new_float(10.0f64.sqrt())),
+        ] {
+            let (_, eval, mut time) = setup_time(&format!(
+                "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over_discrete: {}, using: sd).defaults(to:0.0)",
+                duration
+            ));
+            let mut eval: Evaluator = eval.into_evaluator();
+            time += Duration::from_secs(45);
+            let out_ref = StreamReference::Out(0);
+            let in_ref = StreamReference::In(0);
+            let n = 20;
+            for v in 1..=n {
+                accept_input_timed!(eval, in_ref, Float(NotNan::new(v as f64).unwrap()), time);
+                time += Duration::from_secs(1);
+            }
+            time += Duration::from_secs(1);
+            // 66 secs have passed. All values should be within the window.
+            eval_stream_timed!(eval, 0, time);
+            assert_eq!(eval.peek_value(in_ref, &Vec::new(), 0).unwrap(), Float(NotNan::new(20.0).unwrap()));
+            assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
+        }
+    }
+
+    #[test]
     fn test_cases_window_discrete_float() {
         for (aggr, exp, default) in &[
             ("sum", Value::new_float(115.0), false),
@@ -1254,6 +1364,43 @@ mod tests {
             let n = 25;
             for v in 1..=n {
                 accept_input_timed!(eval, in_ref, Signed(v), time);
+                time += Duration::from_secs(1);
+            }
+            time += Duration::from_secs(1);
+            // 71 secs have passed. All values should be within the window.
+            eval_stream_timed!(eval, 0, time);
+            let expected = exp.clone();
+            assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn test_cases_window_discrete_unsigned() {
+        for (aggr, exp, default) in &[
+            ("sum", Unsigned(115), false),
+            ("count", Unsigned(5), false),
+            ("min", Unsigned(21), true),
+            ("max", Unsigned(25), true),
+            ("avg", Unsigned(23), true),
+            ("integral", Value::new_float(92.0), false),
+            ("last", Unsigned(25), true),
+            ("med", Unsigned(23), true),
+            ("pctl20", Unsigned(21), true),
+        ] {
+            let mut spec = String::from("input a: UInt16\noutput b @0.5Hz:= a.aggregate(over_discrete: 5, using: ");
+            spec += aggr;
+            spec += ")";
+            if *default {
+                spec += ".defaults(to:1337)"
+            }
+            let (_, eval, mut time) = setup_time(&spec);
+            let mut eval: Evaluator = eval.into_evaluator();
+            time += Duration::from_secs(45);
+            let out_ref = StreamReference::Out(0);
+            let in_ref = StreamReference::In(0);
+            let n = 25;
+            for v in 1..=n {
+                accept_input_timed!(eval, in_ref, Unsigned(v), time);
                 time += Duration::from_secs(1);
             }
             time += Duration::from_secs(1);
