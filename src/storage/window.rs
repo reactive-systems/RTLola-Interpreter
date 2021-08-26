@@ -19,58 +19,58 @@ const SIZE: usize = 64;
 /// * The aggregation function 'min' depends on the value type, e.g., the minimum value of unsigned values is 0, whereas the minimum value for signed values is negative.
 #[derive(Debug)]
 pub(crate) enum SlidingWindow {
-    Count(WindowInstance<CountIV>),
-    CountDiscrete(DiscreteWindowInstance<CountIV>),
-    MinUnsigned(WindowInstance<MinIV<WindowSigned>>),
-    MinUnsignedDiscrete(DiscreteWindowInstance<MinIV<WindowSigned>>),
-    MinSigned(WindowInstance<MinIV<WindowUnsigned>>),
-    MinSignedDiscrete(DiscreteWindowInstance<MinIV<WindowUnsigned>>),
-    MinFloat(WindowInstance<MinIV<WindowFloat>>),
-    MinFloatDiscrete(DiscreteWindowInstance<MinIV<WindowFloat>>),
-    MaxUnsigned(WindowInstance<MaxIV<WindowSigned>>),
-    MaxUnsignedDiscrete(DiscreteWindowInstance<MaxIV<WindowSigned>>),
-    MaxSigned(WindowInstance<MaxIV<WindowUnsigned>>),
-    MaxSignedDiscrete(DiscreteWindowInstance<MaxIV<WindowUnsigned>>),
-    MaxFloat(WindowInstance<MaxIV<WindowFloat>>),
-    MaxFloatDiscrete(DiscreteWindowInstance<MaxIV<WindowFloat>>),
-    SumUnsigned(WindowInstance<SumIV<WindowUnsigned>>),
-    SumUnsignedDiscrete(DiscreteWindowInstance<SumIV<WindowUnsigned>>),
-    SumSigned(WindowInstance<SumIV<WindowSigned>>),
-    SumSignedDiscrete(DiscreteWindowInstance<SumIV<WindowSigned>>),
-    SumFloat(WindowInstance<SumIV<WindowFloat>>),
-    SumFloatDiscrete(DiscreteWindowInstance<SumIV<WindowFloat>>),
-    SumBool(WindowInstance<SumIV<WindowBool>>),
-    SumBoolDiscrete(DiscreteWindowInstance<SumIV<WindowBool>>),
-    AvgUnsigned(WindowInstance<AvgIV<WindowUnsigned>>),
-    AvgUnsignedDiscrete(DiscreteWindowInstance<AvgIV<WindowUnsigned>>),
-    AvgSigned(WindowInstance<AvgIV<WindowSigned>>),
-    AvgSignedDiscrete(DiscreteWindowInstance<AvgIV<WindowSigned>>),
-    AvgFloat(WindowInstance<AvgIV<WindowFloat>>),
-    AvgFloatDiscrete(DiscreteWindowInstance<AvgIV<WindowFloat>>),
-    Integral(WindowInstance<IntegralIV>),
-    IntegralDiscrete(DiscreteWindowInstance<IntegralIV>),
-    Conjunction(WindowInstance<ConjIV>),
-    ConjunctionDiscrete(DiscreteWindowInstance<ConjIV>),
-    Disjunction(WindowInstance<DisjIV>),
-    DisjunctionDiscrete(DiscreteWindowInstance<DisjIV>),
-    LastSigned(WindowInstance<LastIV<WindowSigned>>),
-    LastUnsigned(WindowInstance<LastIV<WindowUnsigned>>),
-    LastFloat(WindowInstance<LastIV<WindowFloat>>),
-    LastDiscreteSigned(DiscreteWindowInstance<LastIV<WindowSigned>>),
-    LastDiscreteUnsigned(DiscreteWindowInstance<LastIV<WindowUnsigned>>),
-    LastDiscreteFloat(DiscreteWindowInstance<LastIV<WindowFloat>>),
-    PercentileSigned(usize, WindowInstance<PercentileIV<WindowSigned>>),
-    PercentileUnsigned(usize, WindowInstance<PercentileIV<WindowUnsigned>>),
-    PercentileFloat(usize, WindowInstance<PercentileIV<WindowFloat>>),
-    PercentileDiscreteSigned(usize, DiscreteWindowInstance<PercentileIV<WindowSigned>>),
-    PercentileDiscreteUnsigned(usize, DiscreteWindowInstance<PercentileIV<WindowUnsigned>>),
-    PercentileDiscreteFloat(usize, DiscreteWindowInstance<PercentileIV<WindowFloat>>),
-    Variance(WindowInstance<VarianceIV>),
-    VarianceDiscrete(DiscreteWindowInstance<VarianceIV>),
-    StandardDeviation(WindowInstance<SDIV>),
-    StandardDeviationDiscrete(DiscreteWindowInstance<SDIV>),
-    Covariance(WindowInstance<CovIV>),
-    CovarianceDiscrete(DiscreteWindowInstance<CovIV>),
+    Count(WindowInstance<CountIv>),
+    CountDiscrete(DiscreteWindowInstance<CountIv>),
+    MinUnsigned(WindowInstance<MinIv<WindowSigned>>),
+    MinUnsignedDiscrete(DiscreteWindowInstance<MinIv<WindowSigned>>),
+    MinSigned(WindowInstance<MinIv<WindowUnsigned>>),
+    MinSignedDiscrete(DiscreteWindowInstance<MinIv<WindowUnsigned>>),
+    MinFloat(WindowInstance<MinIv<WindowFloat>>),
+    MinFloatDiscrete(DiscreteWindowInstance<MinIv<WindowFloat>>),
+    MaxUnsigned(WindowInstance<MaxIv<WindowSigned>>),
+    MaxUnsignedDiscrete(DiscreteWindowInstance<MaxIv<WindowSigned>>),
+    MaxSigned(WindowInstance<MaxIv<WindowUnsigned>>),
+    MaxSignedDiscrete(DiscreteWindowInstance<MaxIv<WindowUnsigned>>),
+    MaxFloat(WindowInstance<MaxIv<WindowFloat>>),
+    MaxFloatDiscrete(DiscreteWindowInstance<MaxIv<WindowFloat>>),
+    SumUnsigned(WindowInstance<SumIv<WindowUnsigned>>),
+    SumUnsignedDiscrete(DiscreteWindowInstance<SumIv<WindowUnsigned>>),
+    SumSigned(WindowInstance<SumIv<WindowSigned>>),
+    SumSignedDiscrete(DiscreteWindowInstance<SumIv<WindowSigned>>),
+    SumFloat(WindowInstance<SumIv<WindowFloat>>),
+    SumFloatDiscrete(DiscreteWindowInstance<SumIv<WindowFloat>>),
+    SumBool(WindowInstance<SumIv<WindowBool>>),
+    SumBoolDiscrete(DiscreteWindowInstance<SumIv<WindowBool>>),
+    AvgUnsigned(WindowInstance<AvgIv<WindowUnsigned>>),
+    AvgUnsignedDiscrete(DiscreteWindowInstance<AvgIv<WindowUnsigned>>),
+    AvgSigned(WindowInstance<AvgIv<WindowSigned>>),
+    AvgSignedDiscrete(DiscreteWindowInstance<AvgIv<WindowSigned>>),
+    AvgFloat(WindowInstance<AvgIv<WindowFloat>>),
+    AvgFloatDiscrete(DiscreteWindowInstance<AvgIv<WindowFloat>>),
+    Integral(WindowInstance<IntegralIv>),
+    IntegralDiscrete(DiscreteWindowInstance<IntegralIv>),
+    Conjunction(WindowInstance<ConjIv>),
+    ConjunctionDiscrete(DiscreteWindowInstance<ConjIv>),
+    Disjunction(WindowInstance<DisjIv>),
+    DisjunctionDiscrete(DiscreteWindowInstance<DisjIv>),
+    LastSigned(WindowInstance<LastIv<WindowSigned>>),
+    LastUnsigned(WindowInstance<LastIv<WindowUnsigned>>),
+    LastFloat(WindowInstance<LastIv<WindowFloat>>),
+    LastDiscreteSigned(DiscreteWindowInstance<LastIv<WindowSigned>>),
+    LastDiscreteUnsigned(DiscreteWindowInstance<LastIv<WindowUnsigned>>),
+    LastDiscreteFloat(DiscreteWindowInstance<LastIv<WindowFloat>>),
+    PercentileSigned(usize, WindowInstance<PercentileIv<WindowSigned>>),
+    PercentileUnsigned(usize, WindowInstance<PercentileIv<WindowUnsigned>>),
+    PercentileFloat(usize, WindowInstance<PercentileIv<WindowFloat>>),
+    PercentileDiscreteSigned(usize, DiscreteWindowInstance<PercentileIv<WindowSigned>>),
+    PercentileDiscreteUnsigned(usize, DiscreteWindowInstance<PercentileIv<WindowUnsigned>>),
+    PercentileDiscreteFloat(usize, DiscreteWindowInstance<PercentileIv<WindowFloat>>),
+    Variance(WindowInstance<VarianceIv>),
+    VarianceDiscrete(DiscreteWindowInstance<VarianceIv>),
+    StandardDeviation(WindowInstance<SdIv>),
+    StandardDeviationDiscrete(DiscreteWindowInstance<SdIv>),
+    Covariance(WindowInstance<CovIv>),
+    CovarianceDiscrete(DiscreteWindowInstance<CovIv>),
 }
 
 impl SlidingWindow {
@@ -380,7 +380,7 @@ impl SlidingWindow {
 
 // TODO: Consider using None rather than Default.
 /// Trait to summarize common logic for the different window aggregations, e.g., returning a default value for an empty bucket
-pub(crate) trait WindowIV:
+pub(crate) trait WindowIv:
     Clone + Add<Output = Self> + From<(Value, Time)> + Sized + Debug + Into<Value>
 {
     fn default(ts: Time) -> Self;
@@ -388,7 +388,7 @@ pub(crate) trait WindowIV:
 
 /// Struct to summarize common logic for the different window aggregations, e.g. iterating over the buckets to compute the result of an aggregation
 #[derive(Debug)]
-pub(crate) struct WindowInstance<IV: WindowIV> {
+pub(crate) struct WindowInstance<IV: WindowIv> {
     buckets: VecDeque<IV>,
     time_per_bucket: Duration,
     start_time: Time,
@@ -432,7 +432,7 @@ impl BIx {
     }
 }
 
-impl<IV: WindowIV> WindowInstance<IV> {
+impl<IV: WindowIv> WindowInstance<IV> {
     fn new(dur: Duration, wait: bool, ts: Time) -> WindowInstance<IV> {
         let time_per_bucket = dur / (SIZE as u32);
         let buckets = VecDeque::from(vec![IV::default(ts); SIZE]);
@@ -554,7 +554,7 @@ impl WindowGeneric for WindowFloat {
     }
 }
 
-impl<G: WindowGeneric> WindowInstance<PercentileIV<G>> {
+impl<G: WindowGeneric> WindowInstance<PercentileIv<G>> {
     fn get_value_percentile(&self, ts: Time, percentile: usize) -> Value {
         // Reversal is essential for non-commutative operations.
         if self.wait && ts < self.wait_duration {
@@ -563,7 +563,7 @@ impl<G: WindowGeneric> WindowInstance<PercentileIV<G>> {
         self.buckets
             .iter()
             .rev()
-            .fold(PercentileIV::default(ts), |acc, e| acc + e.clone())
+            .fold(PercentileIv::default(ts), |acc, e| acc + e.clone())
             .percentile_get_value(percentile)
     }
 }

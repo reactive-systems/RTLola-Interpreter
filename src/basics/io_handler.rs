@@ -1,7 +1,7 @@
 #![allow(clippy::mutex_atomic)]
 
 use super::{EvalConfig, TimeFormat, TimeRepresentation, Verbosity};
-use crate::basics::{CSVEventSource, CSVInputSource, Time};
+use crate::basics::{CsvEventSource, CsvInputSource, Time};
 #[cfg(feature = "pcap_interface")]
 use crate::basics::{PCAPEventSource, PCAPInputSource};
 use crate::storage::Value;
@@ -23,14 +23,14 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone)]
 pub enum EventSourceConfig {
-    CSV {
-        src: CSVInputSource,
+    Csv {
+        src: CsvInputSource,
     },
     #[cfg(feature = "pcap_interface")]
     PCAP {
         src: PCAPInputSource,
     },
-    API,
+    Api,
 }
 
 /// A trait that represents the functioniality needed for an event source.
@@ -54,10 +54,10 @@ pub(crate) fn create_event_source(
 ) -> Result<Box<dyn EventSource>, Box<dyn Error>> {
     use EventSourceConfig::*;
     match config {
-        CSV { src } => CSVEventSource::setup(&src, ir, start_time),
+        Csv { src } => CsvEventSource::setup(&src, ir, start_time),
         #[cfg(feature = "pcap_interface")]
         PCAP { src } => PCAPEventSource::setup(&src, ir, start_time),
-        API => unimplemented!("Currently, there is no need to create an event source for the API."),
+        Api => unimplemented!("Currently, there is no need to create an event source for the API."),
     }
 }
 
