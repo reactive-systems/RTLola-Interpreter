@@ -103,13 +103,13 @@ impl SlidingWindow {
             (WinOp::Last, Type::Int(_)) => SlidingWindow::LastSigned(WindowInstance::new(dur, wait, ts)),
             (WinOp::Last, Type::UInt(_)) => SlidingWindow::LastUnsigned(WindowInstance::new(dur, wait, ts)),
             (WinOp::Last, Type::Float(_)) => SlidingWindow::LastFloat(WindowInstance::new(dur, wait, ts)),
-            (WinOp::Percentile(x), Type::Int(_)) => {
+            (WinOp::NthPercentile(x), Type::Int(_)) => {
                 SlidingWindow::PercentileSigned(x, WindowInstance::new(dur, wait, ts))
             }
-            (WinOp::Percentile(x), Type::UInt(_)) => {
+            (WinOp::NthPercentile(x), Type::UInt(_)) => {
                 SlidingWindow::PercentileUnsigned(x, WindowInstance::new(dur, wait, ts))
             }
-            (WinOp::Percentile(x), Type::Float(_)) => {
+            (WinOp::NthPercentile(x), Type::Float(_)) => {
                 SlidingWindow::PercentileFloat(x, WindowInstance::new(dur, wait, ts))
             }
             (WinOp::Variance, Type::Float(_)) => SlidingWindow::Variance(WindowInstance::new(dur, wait, ts)),
@@ -172,13 +172,13 @@ impl SlidingWindow {
             (WinOp::Last, Type::Float(_)) => {
                 SlidingWindow::LastDiscreteFloat(DiscreteWindowInstance::new(size, wait, ts))
             }
-            (WinOp::Percentile(x), Type::Int(_)) => {
+            (WinOp::NthPercentile(x), Type::Int(_)) => {
                 SlidingWindow::PercentileDiscreteSigned(x, DiscreteWindowInstance::new(size, wait, ts))
             }
-            (WinOp::Percentile(x), Type::UInt(_)) => {
+            (WinOp::NthPercentile(x), Type::UInt(_)) => {
                 SlidingWindow::PercentileDiscreteUnsigned(x, DiscreteWindowInstance::new(size, wait, ts))
             }
-            (WinOp::Percentile(x), Type::Float(_)) => {
+            (WinOp::NthPercentile(x), Type::Float(_)) => {
                 SlidingWindow::PercentileDiscreteFloat(x, DiscreteWindowInstance::new(size, wait, ts))
             }
             (WinOp::Variance, Type::Float(_)) => {
