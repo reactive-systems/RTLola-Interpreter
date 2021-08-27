@@ -289,7 +289,7 @@ impl<G: WindowGeneric> Add for MaxIv<G> {
             (Value::Unsigned(lhs), Value::Unsigned(rhs)) => Value::Unsigned(lhs.max(rhs)),
             (Value::Signed(lhs), Value::Signed(rhs)) => Value::Signed(lhs.max(rhs)),
             (Value::Float(lhs), Value::Float(rhs)) => Value::Float(lhs.max(rhs)),
-            _ => unreachable!("Mixed types in sliding window aggregation."),
+            _ => unreachable!("mixed types in sliding window aggregation"),
         };
         MaxIv { max, _marker: PhantomData }
     }
@@ -329,7 +329,7 @@ impl<G: WindowGeneric> Add for MinIv<G> {
             (Value::Unsigned(lhs), Value::Unsigned(rhs)) => Value::Unsigned(lhs.min(rhs)),
             (Value::Signed(lhs), Value::Signed(rhs)) => Value::Signed(lhs.min(rhs)),
             (Value::Float(lhs), Value::Float(rhs)) => Value::Float(lhs.min(rhs)),
-            _ => unreachable!("Mixed types in sliding window aggregation."),
+            _ => unreachable!("mixed types in sliding window aggregation"),
         };
         MinIv { min, _marker: PhantomData }
     }
@@ -398,7 +398,7 @@ impl<G: WindowGeneric> Add for LastIv<G> {
                     (Value::Float(rhs), r_ts)
                 }
             }
-            _ => unreachable!("Mixed types in sliding window aggregation."),
+            _ => unreachable!("mixed types in sliding window aggregation"),
         };
         LastIv { val, ts, _marker: PhantomData }
     }
