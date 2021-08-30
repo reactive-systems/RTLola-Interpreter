@@ -1232,6 +1232,56 @@ mod tests {
     }
 
     #[test]
+    fn test_cov() {
+        let (_, eval, mut time) =
+            setup_time("input in: Float32\n input in2: Float32\noutput t@in&in2:= (in,in2)\n output out: Float32 @1Hz := t.aggregate(over: 6s, using: cov).defaults(to: 1337.0)");
+        let mut eval: Evaluator = eval.into_evaluator();
+        time += Duration::from_secs(45);
+        let out_ref = StreamReference::Out(1);
+        let in_ref = StreamReference::In(0);
+        let in_ref_2 = StreamReference::In(1);
+        let n = 20;
+        for v in 1..=n {
+            accept_input_timed!(eval, in_ref, Value::new_float(v as f64), time);
+            accept_input_timed!(eval, in_ref_2, Value::new_float(v as f64), time);
+            eval_stream_timed!(eval, 0, time);
+            time += Duration::from_secs(1);
+        }
+        time += Duration::from_secs(1);
+        // 66 secs have passed. All values should be within the window.
+        eval_stream_timed!(eval, 1, time);
+        let expected = Float(NotNan::new(17.5 / 6.0).unwrap());
+        assert_eq!(eval.peek_value(in_ref, &Vec::new(), 0).unwrap(), Float(NotNan::new(20.0).unwrap()));
+        assert_eq!(eval.peek_value(in_ref_2, &Vec::new(), 0).unwrap(), Float(NotNan::new(20.0).unwrap()));
+        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_cov_2() {
+        let (_, eval, mut time) =
+            setup_time("input in: Float32\n input in2: Float32\noutput t@in&in2:= (in,in2)\n output out: Float32 @1Hz := t.aggregate(over: 5s, using: cov).defaults(to: 1337.0)");
+        let mut eval: Evaluator = eval.into_evaluator();
+        time += Duration::from_secs(45);
+        let out_ref = StreamReference::Out(1);
+        let in_ref = StreamReference::In(0);
+        let in_ref_2 = StreamReference::In(1);
+        let n = 20;
+        for v in 1..=n {
+            accept_input_timed!(eval, in_ref, Value::new_float(v as f64), time);
+            accept_input_timed!(eval, in_ref_2, Value::new_float(16.0), time);
+            eval_stream_timed!(eval, 0, time);
+            time += Duration::from_secs(1);
+        }
+        time += Duration::from_secs(1);
+        // 66 secs have passed. All values should be within the window.
+        eval_stream_timed!(eval, 1, time);
+        let expected = Float(NotNan::new(0.0).unwrap());
+        assert_eq!(eval.peek_value(in_ref, &Vec::new(), 0).unwrap(), Float(NotNan::new(20.0).unwrap()));
+        assert_eq!(eval.peek_value(in_ref_2, &Vec::new(), 0).unwrap(), Float(NotNan::new(16.0).unwrap()));
+        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
+    }
+
+    #[test]
     fn test_var_discrete() {
         for (duration, exp) in &[
             ("2", Value::new_float(0.25)),

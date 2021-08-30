@@ -1,6 +1,6 @@
 use crate::basics::Time;
 use crate::storage::{
-    window::{WindowFloat, WindowGeneric, WindowIv},
+    window::{WindowGeneric, WindowIv},
     Value,
 };
 use std::marker::PhantomData;
@@ -431,9 +431,9 @@ impl<G: WindowGeneric> PercentileIv<G> {
         }
         let PercentileIv { mut values, count: _, _marker: _ } = self;
         values.sort_unstable_by(|a, b| match (a, b) {
-            (Value::Signed(x), Value::Signed(y)) => x.cmp(&y),
-            (Value::Unsigned(x), Value::Unsigned(y)) => x.cmp(&y),
-            (Value::Float(x), Value::Float(y)) => x.partial_cmp(&y).unwrap(),
+            (Value::Signed(x), Value::Signed(y)) => x.cmp(y),
+            (Value::Unsigned(x), Value::Unsigned(y)) => x.cmp(y),
+            (Value::Float(x), Value::Float(y)) => x.partial_cmp(y).unwrap(),
             _ => unimplemented!("only primitive types implemented for percentile"),
         });
         let values = values;
@@ -574,27 +574,20 @@ impl Add for SdIv {
 #[derive(Clone, Debug)]
 pub(crate) struct CovIv {
     count: Value,
-    cov: Value,
+    co_moment: Value,
     mean_x: Value,
     mean_y: Value,
-    avg_iv: AvgIv<WindowFloat>,
 }
 
 impl WindowIv for CovIv {
-    fn default(ts: Time) -> CovIv {
-        CovIv {
-            count: Value::new_float(0.0),
-            cov: Value::None,
-            mean_x: Value::None,
-            mean_y: Value::None,
-            avg_iv: AvgIv::default(ts),
-        }
+    fn default(_ts: Time) -> CovIv {
+        CovIv { count: Value::new_float(0.0), co_moment: Value::None, mean_x: Value::None, mean_y: Value::None }
     }
 }
 
 impl From<CovIv> for Value {
     fn from(iv: CovIv) -> Value {
-        iv.cov / iv.count
+        iv.co_moment / iv.count
     }
 }
 
@@ -602,9 +595,9 @@ impl From<(Value, Time)> for CovIv {
     fn from(v: (Value, Time)) -> CovIv {
         let (x, y) = match v.0 {
             Value::Tuple(ref inner_tup) => (inner_tup[0].clone(), inner_tup[1].clone()),
-            _ => unreachable!("covariance expects tuple input"),
+            _ => unreachable!("covariance expects tuple input, ensured by type checker"),
         };
-        CovIv { count: Value::new_float(1.0), cov: Value::new_float(0.0), mean_x: x, mean_y: y, avg_iv: AvgIv::from(v) }
+        CovIv { count: Value::new_float(1.0), co_moment: Value::new_float(0.0), mean_x: x, mean_y: y }
     }
 }
 
@@ -618,10 +611,22 @@ impl Add for CovIv {
             return self;
         }
 
-        //let CovIv { count, cov, mean_x, mean_y, avg_iv } = self;
+        let CovIv { count, co_moment, mean_x, mean_y } = self;
 
-        //let CovIv { count: o_count, cov: o_cov, mean_x: o_mean_x, mean_y: _o_mean_y, avg_iv: o_avg_iv } = other;
+        let CovIv { count: o_count, co_moment: o_co_moment, mean_x: o_mean_x, mean_y: o_mean_y } = other;
 
-        unimplemented!("covariance is not yet implemented")
+        let new_count = count.clone() + o_count.clone();
+
+        let mean_diff_x = o_mean_x.clone() - mean_x.clone();
+        let new_mean_x = mean_x.clone() + mean_diff_x * (o_count.clone() / (count.clone() + o_count.clone()));
+
+        let mean_diff_y = o_mean_y.clone() - mean_y.clone();
+        let new_mean_y = mean_y.clone() + mean_diff_y * (o_count.clone() / (count.clone() + o_count.clone()));
+
+        let new_co_moment = co_moment
+            + o_co_moment
+            + (mean_x - o_mean_x) * (mean_y - o_mean_y) * (count * o_count / (new_count.clone()));
+
+        CovIv { count: new_count, co_moment: new_co_moment, mean_x: new_mean_x, mean_y: new_mean_y }
     }
 }
