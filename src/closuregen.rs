@@ -233,7 +233,7 @@ impl Expr for Expression {
                             _ => unreachable!("regex should be a string literal"),
                         };
                         if !is_bytes {
-                            let re = Regex::new(&re_str).expect("Given regular expression was invalid");
+                            let re = Regex::new(re_str).expect("Given regular expression was invalid");
                             CompiledExpr::new(move |ctx| {
                                 let val = f_arg.execute(ctx);
                                 if let Value::Str(s) = &val {
@@ -243,7 +243,7 @@ impl Expr for Expression {
                                 }
                             })
                         } else {
-                            let re = BytesRegex::new(&re_str).expect("Given regular expression was invalid");
+                            let re = BytesRegex::new(re_str).expect("Given regular expression was invalid");
                             CompiledExpr::new(move |ctx| {
                                 let val = f_arg.execute(ctx);
                                 if let Value::Bytes(b) = &val {

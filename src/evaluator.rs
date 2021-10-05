@@ -631,8 +631,8 @@ impl Evaluator {
         EvaluationContext {
             ts,
             global_store: &mut self.global_store,
-            fresh_inputs: &self.fresh_inputs,
-            fresh_outputs: &self.fresh_outputs,
+            fresh_inputs: self.fresh_inputs,
+            fresh_outputs: self.fresh_outputs,
             parameter,
         }
     }
@@ -760,10 +760,7 @@ impl ActivationConditionOp {
     }
 
     fn is_eventdriven(&self) -> bool {
-        match self {
-            ActivationConditionOp::TimeDriven => false,
-            _ => true,
-        }
+        !matches!(self, ActivationConditionOp::TimeDriven)
     }
 }
 

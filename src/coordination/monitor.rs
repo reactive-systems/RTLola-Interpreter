@@ -172,7 +172,7 @@ impl<V: VerdictRepresentation> Monitor<V> {
             self.next_dl = Some(ts + self.deadlines[0].pause);
         }
 
-        let mut next_deadline = self.next_dl.clone().expect("monitor lacks start time");
+        let mut next_deadline = self.next_dl.expect("monitor lacks start time");
         let mut timed_changes: Vec<(Time, V)> = vec![];
 
         while ts > next_deadline {

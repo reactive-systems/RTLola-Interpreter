@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `From` implementation for values
+- Support for parameterization
 - New window operations: last, median, nth-percentile, variance, standard deviation, covariance
 
 ## [0.6.0] - 2021-08-03
