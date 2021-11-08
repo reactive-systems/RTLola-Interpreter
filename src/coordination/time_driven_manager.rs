@@ -44,7 +44,7 @@ pub(crate) type TimeEvaluation = Vec<EvaluationTask>;
 
 pub(crate) struct TimeDrivenManager {
     ir: RtLolaMir,
-    has_time_drive: bool,
+    has_time_driven: bool,
     deadlines: Vec<Deadline>,
     dyn_schedule: Arc<(Mutex<DynamicSchedule>, Condvar)>,
     handler: Arc<OutputHandler>,
@@ -66,7 +66,7 @@ impl TimeDrivenManager {
             // return dummy
             return Ok(TimeDrivenManager {
                 ir,
-                has_time_drive: false,
+                has_time_driven: false,
                 deadlines: vec![],
                 dyn_schedule,
                 handler,
@@ -85,7 +85,7 @@ impl TimeDrivenManager {
 
         Ok(TimeDrivenManager {
             ir,
-            has_time_drive: true,
+            has_time_driven: true,
             deadlines: schedule.deadlines,
             dyn_schedule,
             handler,
@@ -130,7 +130,7 @@ impl TimeDrivenManager {
         now: Time,
         dyn_schedule: &mut MutexGuard<DynamicSchedule>,
     ) -> Vec<EvaluationTask> {
-        debug_assert!(self.has_time_drive);
+        debug_assert!(self.has_time_driven);
 
         let static_due = self.next_static_deadline;
         let dyn_due = dyn_schedule.get_next_deadline_due();
@@ -166,7 +166,7 @@ impl TimeDrivenManager {
     }
 
     pub(crate) fn start_online(mut self, start_time: Instant, work_chan: Sender<WorkItem>) -> ! {
-        debug_assert!(self.has_time_drive);
+        debug_assert!(self.has_time_driven);
         let now = Instant::now();
         assert!(now >= start_time, "Time does not behave monotonically!");
         let time = now - start_time;
@@ -224,7 +224,7 @@ impl TimeDrivenManager {
 
     /// Evaluates all deadlines due before time `ts`
     pub(crate) fn accept_time_offline(&mut self, evaluator: &mut Evaluator, ts: Time) {
-        if !self.has_time_drive {
+        if !self.has_time_driven {
             return;
         }
         let schedule_copy = self.dyn_schedule.clone();
@@ -243,7 +243,7 @@ impl TimeDrivenManager {
 
     /// Evaluates all deadlines due at time `ts`
     pub(crate) fn end_offline(&mut self, evaluator: &mut Evaluator, ts: Time) {
-        if !self.has_time_drive {
+        if !self.has_time_driven {
             return;
         }
         let schedule_copy = self.dyn_schedule.clone();

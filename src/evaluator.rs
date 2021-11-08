@@ -772,15 +772,12 @@ mod tests {
     use crate::storage::Value::*;
     use ordered_float::NotNan;
     use rtlola_frontend::mir::RtLolaMir;
-    use rtlola_frontend::{FrontEndErr, ParserConfig};
+    use rtlola_frontend::ParserConfig;
     use std::time::{Duration, Instant};
 
-    fn parse(spec: &str) -> Result<RtLolaMir, FrontEndErr> {
-        rtlola_frontend::parse(ParserConfig::for_string(spec.to_string()))
-    }
-
     fn setup(spec: &str) -> (RtLolaMir, EvaluatorData, Instant) {
-        let ir = parse(spec).unwrap_or_else(|e| panic!("spec is invalid: {:?}", e));
+        let ir = rtlola_frontend::parse(ParserConfig::for_string(spec.to_string()))
+            .unwrap_or_else(|e| panic!("spec is invalid: {:?}", e));
         let mut config = EvalConfig::default();
         config.verbosity = crate::basics::Verbosity::WarningsOnly;
         let handler = Arc::new(OutputHandler::new(&config, ir.triggers.len()));

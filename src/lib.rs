@@ -262,10 +262,11 @@ impl Config {
                 eprintln!("{}", e);
                 std::process::exit(1)
             });
+            let handler = rtlola_frontend::Handler::from(config.clone());
             match rtlola_frontend::parse(config) {
                 Ok(_) => std::process::exit(0),
                 Err(e) => {
-                    eprintln!("{}", e);
+                    handler.emit_error(&e);
                     std::process::exit(1)
                 }
             }
@@ -286,9 +287,10 @@ impl Config {
             eprintln!("{}", e);
             std::process::exit(1)
         });
+        let handler = rtlola_frontend::Handler::from(config.clone());
 
         let ir = rtlola_frontend::parse(config).unwrap_or_else(|e| {
-            eprintln!("{}", e);
+            handler.emit_error(&e);
             std::process::exit(1);
         });
 

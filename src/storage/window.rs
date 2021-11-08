@@ -3,7 +3,7 @@ use super::window_aggregations::*;
 use super::Value;
 use crate::basics::Time;
 use ordered_float::NotNan;
-use rtlola_frontend::mir::{Type, WindowOperation as WinOp};
+use rtlola_frontend::mir::{Type, WindowOperation as WinOp, WindowOperation};
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::fmt::Debug;
@@ -125,6 +125,11 @@ impl SlidingWindow {
             (WinOp::StandardDeviation, Type::Float(_)) => create_window_instance!(SdIv, dur, wait, ts, active),
             (WinOp::Covariance, Type::Float(_)) => create_window_instance!(CovIv, dur, wait, ts, active),
             (WinOp::Product, _) => unimplemented!("product not implemented"),
+            (WindowOperation::Last, _) => unimplemented!(),
+            (WindowOperation::Variance, _) => unimplemented!(),
+            (WindowOperation::Covariance, _) => unimplemented!(),
+            (WindowOperation::StandardDeviation, _) => unimplemented!(),
+            (WindowOperation::NthPercentile(_), _) => unimplemented!(),
         }
     }
 
@@ -205,6 +210,11 @@ impl SlidingWindow {
             }
             (WinOp::Covariance, Type::Float(_)) => create_discrete_window_instance!(CovIv, size, wait, ts, active),
             (WinOp::Product, _) => unimplemented!("product not implemented"),
+            (WindowOperation::Last, _) => unimplemented!(),
+            (WindowOperation::Variance, _) => unimplemented!(),
+            (WindowOperation::Covariance, _) => unimplemented!(),
+            (WindowOperation::StandardDeviation, _) => unimplemented!(),
+            (WindowOperation::NthPercentile(_), _) => unimplemented!(),
         }
     }
 
