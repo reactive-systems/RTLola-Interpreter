@@ -1,16 +1,18 @@
-use super::window::WindowIV;
+use super::window::WindowIv;
 use super::Value;
 use crate::basics::Time;
+use crate::storage::window::WindowGeneric;
+use crate::storage::window_aggregations::PercentileIv;
 use std::collections::VecDeque;
 
 #[derive(Debug)]
-pub(crate) struct DiscreteWindowInstance<IV: WindowIV> {
+pub(crate) struct DiscreteWindowInstance<IV: WindowIv> {
     buckets: VecDeque<IV>,
     next_bucket: usize,
     wait: bool,
 }
 
-impl<IV: WindowIV> DiscreteWindowInstance<IV> {
+impl<IV: WindowIv> DiscreteWindowInstance<IV> {
     pub(crate) fn new(size: usize, wait: bool, ts: Time) -> DiscreteWindowInstance<IV> {
         let buckets = VecDeque::from(vec![IV::default(ts); size]);
         DiscreteWindowInstance { buckets, next_bucket: 0, wait }
@@ -35,4 +37,17 @@ impl<IV: WindowIV> DiscreteWindowInstance<IV> {
     }
 
     pub(crate) fn update_buckets(&mut self, _ts: Time) {}
+}
+
+impl<G: WindowGeneric> DiscreteWindowInstance<PercentileIv<G>> {
+    pub(crate) fn get_value_percentile(&self, ts: Time, percentile: usize) -> Value {
+        let size = self.buckets.len();
+        self.buckets
+            .iter()
+            .cycle()
+            .skip(self.next_bucket)
+            .take(size)
+            .fold(PercentileIv::default(ts), |acc, e| acc + e.clone())
+            .percentile_get_value(percentile)
+    }
 }

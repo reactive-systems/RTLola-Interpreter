@@ -1,4 +1,4 @@
-use super::{CSVInputSource, EventSourceConfig, OutputChannel};
+use super::{CsvInputSource, EventSourceConfig, OutputChannel};
 
 #[derive(Clone, Debug)]
 pub struct EvalConfig {
@@ -38,7 +38,7 @@ pub enum Verbosity {
 pub enum ExecutionMode {
     Offline,
     Online,
-    API,
+    Api,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -68,10 +68,7 @@ impl EvalConfig {
     }
 
     pub fn debug() -> Self {
-        let mut cfg = EvalConfig::default();
-        cfg.statistics = Statistics::Debug;
-        cfg.verbosity = Verbosity::Debug;
-        cfg
+        EvalConfig { statistics: Statistics::Debug, verbosity: Verbosity::Debug, ..Default::default() }
     }
 
     pub fn release(
@@ -81,7 +78,7 @@ impl EvalConfig {
         time_presentation: TimeRepresentation,
     ) -> Self {
         EvalConfig::new(
-            EventSourceConfig::CSV { src: CSVInputSource::file(path, None, None) },
+            EventSourceConfig::Csv { src: CsvInputSource::file(path, None, None) },
             Statistics::None,
             Verbosity::Triggers,
             output,
@@ -92,11 +89,11 @@ impl EvalConfig {
 
     pub fn api(time_representation: TimeRepresentation) -> Self {
         EvalConfig::new(
-            EventSourceConfig::API,
+            EventSourceConfig::Api,
             Statistics::None,
             Verbosity::Triggers,
             OutputChannel::None,
-            ExecutionMode::API,
+            ExecutionMode::Api,
             time_representation,
         )
     }
@@ -105,7 +102,7 @@ impl EvalConfig {
 impl Default for EvalConfig {
     fn default() -> EvalConfig {
         EvalConfig {
-            source: EventSourceConfig::CSV { src: CSVInputSource::StdIn },
+            source: EventSourceConfig::Csv { src: CsvInputSource::StdIn },
             statistics: Statistics::None,
             verbosity: Verbosity::Triggers,
             output_channel: OutputChannel::StdOut,

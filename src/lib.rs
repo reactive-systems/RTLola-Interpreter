@@ -23,7 +23,7 @@ use crate::basics::OutputHandler;
 use crate::coordination::Controller;
 #[cfg(feature = "pcap_interface")]
 use basics::PCAPInputSource;
-use basics::{CSVInputSource, EventSourceConfig, ExecutionMode, OutputChannel, Statistics, Verbosity};
+use basics::{CsvInputSource, EventSourceConfig, ExecutionMode, OutputChannel, Statistics, Verbosity};
 use clap::{App, AppSettings, Arg, ArgGroup, SubCommand};
 use rtlola_frontend::mir::RtLolaMir;
 use std::path::PathBuf;
@@ -338,9 +338,9 @@ impl Config {
                 }
             }
         } else if let Some(file) = parse_matches.value_of("CSV_INPUT_FILE") {
-            EventSourceConfig::CSV { src: CSVInputSource::file(String::from(file), delay, csv_time_column) }
+            EventSourceConfig::Csv { src: CsvInputSource::file(String::from(file), delay, csv_time_column) }
         } else {
-            EventSourceConfig::CSV { src: CSVInputSource::stdin() }
+            EventSourceConfig::Csv { src: CsvInputSource::stdin() }
         };
 
         let out = if parse_matches.is_present("STDOUT") {
@@ -394,7 +394,7 @@ impl Config {
     Turns a `Config` that was created through a call to `new_api` into a `Monitor`.
     */
     pub fn as_api<V: VerdictRepresentation>(self) -> Monitor<V> {
-        assert_eq!(self.cfg.mode, ExecutionMode::API);
+        assert_eq!(self.cfg.mode, ExecutionMode::Api);
         let output_handler = Arc::new(OutputHandler::new(&self.cfg, self.ir.triggers.len()));
         Monitor::setup(self.ir, output_handler, self.cfg)
     }

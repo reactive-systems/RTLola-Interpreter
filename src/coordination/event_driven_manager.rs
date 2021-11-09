@@ -15,7 +15,7 @@ pub(crate) type EventEvaluation = Vec<Value>;
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 struct EventDrivenCycleCount(u128);
 
-type EDM = EventDrivenManager;
+type Edm = EventDrivenManager;
 
 impl From<u128> for EventDrivenCycleCount {
     fn from(i: u128) -> EventDrivenCycleCount {
@@ -51,7 +51,7 @@ impl EventDrivenManager {
             }
         };
 
-        EDM { current_cycle: 0.into(), out_handler, event_source }
+        Edm { current_cycle: 0.into(), out_handler, event_source }
     }
 
     pub(crate) fn start_online(mut self, work_queue: Sender<WorkItem>) -> ! {

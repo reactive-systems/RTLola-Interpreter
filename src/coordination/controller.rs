@@ -31,7 +31,7 @@ impl Controller {
         match self.config.mode {
             Offline => self.evaluate_offline().map(|_| self.output_handler),
             Online => self.evaluate_online().map(|_| self.output_handler),
-            API => unreachable!(),
+            Api => unreachable!(),
         }
     }
 

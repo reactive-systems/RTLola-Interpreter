@@ -18,23 +18,23 @@ enum TimeHandling {
 }
 
 #[derive(Debug, Clone)]
-pub enum CSVInputSource {
+pub enum CsvInputSource {
     StdIn,
     File { path: String, delay: Option<Duration>, time_col: Option<usize> },
 }
 
-impl CSVInputSource {
-    pub fn file(path: String, delay: Option<Duration>, time_col: Option<usize>) -> CSVInputSource {
-        CSVInputSource::File { path, delay, time_col }
+impl CsvInputSource {
+    pub fn file(path: String, delay: Option<Duration>, time_col: Option<usize>) -> CsvInputSource {
+        CsvInputSource::File { path, delay, time_col }
     }
 
-    pub fn stdin() -> CSVInputSource {
-        CSVInputSource::StdIn
+    pub fn stdin() -> CsvInputSource {
+        CsvInputSource::StdIn
     }
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct CSVColumnMapping {
+pub(crate) struct CsvColumnMapping {
     /// Mapping from column index to input stream index/reference
     pub(crate) col2str: Vec<Option<usize>>,
 
@@ -42,8 +42,8 @@ pub(crate) struct CSVColumnMapping {
     time_ix: Option<usize>,
 }
 
-impl CSVColumnMapping {
-    fn from_header(names: &[&str], header: &StringRecord, time_col: Option<usize>) -> CSVColumnMapping {
+impl CsvColumnMapping {
+    fn from_header(names: &[&str], header: &StringRecord, time_col: Option<usize>) -> CsvColumnMapping {
         let str2col: Vec<usize> = names
             .iter()
             .map(|name| {
@@ -65,7 +65,7 @@ impl CSVColumnMapping {
                 name == "time" || name == "ts" || name == "timestamp"
             })
         });
-        CSVColumnMapping { col2str, time_ix }
+        CsvColumnMapping { col2str, time_ix }
     }
 
     fn input_to_stream(&self, input_ix: usize) -> Option<usize> {
@@ -100,28 +100,28 @@ impl ReaderWrapper {
 }
 
 #[derive(Debug)]
-pub struct CSVEventSource {
+pub struct CsvEventSource {
     reader: ReaderWrapper,
     record: ByteRecord,
-    mapping: CSVColumnMapping,
+    mapping: CsvColumnMapping,
     in_types: Vec<Type>,
     timer: TimeHandling,
 }
 
-impl CSVEventSource {
+impl CsvEventSource {
     pub(crate) fn setup(
-        src: &CSVInputSource,
+        src: &CsvInputSource,
         ir: &RtLolaMir,
         start_time: Instant,
     ) -> Result<Box<dyn EventSource>, Box<dyn Error>> {
-        use CSVInputSource::*;
+        use CsvInputSource::*;
         let (mut wrapper, time_col) = match src {
             StdIn => (ReaderWrapper::Std(CSVReader::from_reader(stdin())), None),
             File { path, time_col, .. } => (ReaderWrapper::File(CSVReader::from_path(path)?), *time_col),
         };
 
         let stream_names: Vec<&str> = ir.inputs.iter().map(|i| i.name.as_str()).collect();
-        let mapping = CSVColumnMapping::from_header(stream_names.as_slice(), wrapper.get_header()?, time_col);
+        let mapping = CsvColumnMapping::from_header(stream_names.as_slice(), wrapper.get_header()?, time_col);
         let in_types: Vec<Type> = ir.inputs.iter().map(|i| i.ty.clone()).collect();
 
         use TimeHandling::*;
@@ -133,7 +133,7 @@ impl CSVEventSource {
             },
         };
 
-        Ok(Box::new(CSVEventSource { reader: wrapper, record: ByteRecord::new(), mapping, in_types, timer }))
+        Ok(Box::new(CsvEventSource { reader: wrapper, record: ByteRecord::new(), mapping, in_types, timer }))
     }
 
     fn read_blocking(&mut self) -> Result<bool, Box<dyn Error>> {
@@ -222,7 +222,7 @@ impl CSVEventSource {
     }
 }
 
-impl EventSource for CSVEventSource {
+impl EventSource for CsvEventSource {
     fn has_event(&mut self) -> bool {
         self.read_blocking().unwrap_or_else(|e| {
             eprintln!("error: failed to read data. {}", e);

@@ -10,7 +10,7 @@ fn run(spec: &str, data: &str) -> Result<Arc<OutputHandler>, Box<dyn std::error:
     let mut file = NamedTempFile::new().expect("failed to create temporary file");
     write!(file, "{}", data).expect("writing tempfile failed");
     let cfg = EvalConfig::new(
-        EventSourceConfig::CSV { src: CSVInputSource::file(file.path().to_str().unwrap().to_string(), None, None) },
+        EventSourceConfig::Csv { src: CsvInputSource::file(file.path().to_str().unwrap().to_string(), None, None) },
         Statistics::Debug,
         Verbosity::Silent,
         OutputChannel::StdErr,
