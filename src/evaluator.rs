@@ -1316,7 +1316,7 @@ mod tests {
         }
         time += Duration::from_secs(1);
         // 71 secs have passed. All values should be within the window.
-        eval_stream_timed!(eval, 0, time);
+        eval_stream_timed!(eval, 0, vec![], time);
         let expected = Float(NotNan::new(25.0).unwrap());
         assert_eq!(eval.peek_value(in_ref, &Vec::new(), 0).unwrap(), Float(NotNan::new(25.0).unwrap()));
         assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
@@ -1337,7 +1337,7 @@ mod tests {
         }
         time += Duration::from_secs(1);
         // 71 secs have passed. All values should be within the window.
-        eval_stream_timed!(eval, 0, time);
+        eval_stream_timed!(eval, 0, vec![], time);
         let expected = Signed(25);
         assert_eq!(eval.peek_value(in_ref, &Vec::new(), 0).unwrap(), Signed(25));
         assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
@@ -1358,7 +1358,7 @@ mod tests {
         }
         time += Duration::from_secs(1);
         // 71 secs have passed. All values should be within the window.
-        eval_stream_timed!(eval, 0, time);
+        eval_stream_timed!(eval, 0, vec![], time);
         let expected = Unsigned(25);
         assert_eq!(eval.peek_value(in_ref, &Vec::new(), 0).unwrap(), Unsigned(25));
         assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
@@ -1389,7 +1389,7 @@ mod tests {
             }
             time += Duration::from_secs(1);
             // 66 secs have passed. All values should be within the window.
-            eval_stream_timed!(eval, 0, time);
+            eval_stream_timed!(eval, 0, vec![], time);
             assert_eq!(eval.peek_value(in_ref, &Vec::new(), 0).unwrap(), Float(NotNan::new(20.0).unwrap()));
             assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
         }
@@ -1421,7 +1421,7 @@ mod tests {
             }
             time += Duration::from_secs(1);
             // 66 secs have passed. All values should be within the window.
-            eval_stream_timed!(eval, 0, time);
+            eval_stream_timed!(eval, 0, vec![], time);
             assert_eq!(eval.peek_value(in_ref, &Vec::new(), 0).unwrap(), Float(NotNan::new(15.0).unwrap()));
             assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
         }
@@ -1452,7 +1452,7 @@ mod tests {
             }
             time += Duration::from_secs(1);
             // 66 secs have passed. All values should be within the window.
-            eval_stream_timed!(eval, 0, time);
+            eval_stream_timed!(eval, 0, vec![], time);
             assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
         }
     }
@@ -1482,7 +1482,7 @@ mod tests {
             }
             time += Duration::from_secs(1);
             // 66 secs have passed. All values should be within the window.
-            eval_stream_timed!(eval, 0, time);
+            eval_stream_timed!(eval, 0, vec![], time);
             assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
         }
     }
@@ -1513,7 +1513,7 @@ mod tests {
             }
             time += Duration::from_secs(1);
             // 66 secs have passed. All values should be within the window.
-            eval_stream_timed!(eval, 0, time);
+            eval_stream_timed!(eval, 0, vec![], time);
             assert_eq!(eval.peek_value(in_ref, &Vec::new(), 0).unwrap(), Float(NotNan::new(15.0).unwrap()));
             assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
         }
@@ -1534,7 +1534,7 @@ mod tests {
         }
         time += Duration::from_secs(1);
         // 71 secs have passed. All values should be within the window.
-        eval_stream_timed!(eval, 0, time);
+        eval_stream_timed!(eval, 0, vec![], time);
         let expected = Float(NotNan::new(0.0).unwrap());
         assert_eq!(eval.peek_value(in_ref, &Vec::new(), 0).unwrap(), Float(NotNan::new(10.0).unwrap()));
         assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
@@ -1569,7 +1569,7 @@ mod tests {
             }
             time += Duration::from_secs(1);
             // 66 secs have passed. All values should be within the window.
-            eval_stream_timed!(eval, 0, time);
+            eval_stream_timed!(eval, 0, vec![], time);
             assert_eq!(eval.peek_value(in_ref, &Vec::new(), 0).unwrap(), Float(NotNan::new(20.0).unwrap()));
             assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
         }
@@ -1604,7 +1604,7 @@ mod tests {
             }
             time += Duration::from_secs(1);
             // 66 secs have passed. All values should be within the window.
-            eval_stream_timed!(eval, 0, time);
+            eval_stream_timed!(eval, 0, vec![], time);
             assert_eq!(eval.peek_value(in_ref, &Vec::new(), 0).unwrap(), Float(NotNan::new(20.0).unwrap()));
             assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
         }
@@ -1623,12 +1623,12 @@ mod tests {
         for v in 1..=n {
             accept_input_timed!(eval, in_ref, Value::new_float(v as f64), time);
             accept_input_timed!(eval, in_ref_2, Value::new_float(v as f64), time);
-            eval_stream_timed!(eval, 0, time);
+            eval_stream_timed!(eval, 0, vec![], time);
             time += Duration::from_secs(1);
         }
         time += Duration::from_secs(1);
         // 66 secs have passed. All values should be within the window.
-        eval_stream_timed!(eval, 1, time);
+        eval_stream_timed!(eval, 1, vec![], time);
         let expected = Float(NotNan::new(17.5 / 6.0).unwrap());
         assert_eq!(eval.peek_value(in_ref, &Vec::new(), 0).unwrap(), Float(NotNan::new(20.0).unwrap()));
         assert_eq!(eval.peek_value(in_ref_2, &Vec::new(), 0).unwrap(), Float(NotNan::new(20.0).unwrap()));
@@ -1648,12 +1648,12 @@ mod tests {
         for v in 1..=n {
             accept_input_timed!(eval, in_ref, Value::new_float(v as f64), time);
             accept_input_timed!(eval, in_ref_2, Value::new_float(16.0), time);
-            eval_stream_timed!(eval, 0, time);
+            eval_stream_timed!(eval, 0, vec![], time);
             time += Duration::from_secs(1);
         }
         time += Duration::from_secs(1);
         // 66 secs have passed. All values should be within the window.
-        eval_stream_timed!(eval, 1, time);
+        eval_stream_timed!(eval, 1, vec![], time);
         let expected = Float(NotNan::new(0.0).unwrap());
         assert_eq!(eval.peek_value(in_ref, &Vec::new(), 0).unwrap(), Float(NotNan::new(20.0).unwrap()));
         assert_eq!(eval.peek_value(in_ref_2, &Vec::new(), 0).unwrap(), Float(NotNan::new(16.0).unwrap()));
@@ -1689,7 +1689,7 @@ mod tests {
             }
             time += Duration::from_secs(1);
             // 66 secs have passed. All values should be within the window.
-            eval_stream_timed!(eval, 0, time);
+            eval_stream_timed!(eval, 0, vec![], time);
             assert_eq!(eval.peek_value(in_ref, &Vec::new(), 0).unwrap(), Float(NotNan::new(20.0).unwrap()));
             assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
         }
@@ -1724,7 +1724,7 @@ mod tests {
             }
             time += Duration::from_secs(1);
             // 66 secs have passed. All values should be within the window.
-            eval_stream_timed!(eval, 0, time);
+            eval_stream_timed!(eval, 0, vec![], time);
             assert_eq!(eval.peek_value(in_ref, &Vec::new(), 0).unwrap(), Float(NotNan::new(20.0).unwrap()));
             assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
         }
@@ -1760,7 +1760,7 @@ mod tests {
             }
             time += Duration::from_secs(1);
             // 71 secs have passed. All values should be within the window.
-            eval_stream_timed!(eval, 0, time);
+            eval_stream_timed!(eval, 0, vec![], time);
             let expected = exp.clone();
             assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
         }
@@ -1834,7 +1834,7 @@ mod tests {
             }
             time += Duration::from_secs(1);
             // 71 secs have passed. All values should be within the window.
-            eval_stream_timed!(eval, 0, time);
+            eval_stream_timed!(eval, 0, vec![], time);
             let expected = exp.clone();
             assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
         }

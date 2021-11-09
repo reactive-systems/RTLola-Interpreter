@@ -93,6 +93,6 @@ impl<G: WindowGeneric> WindowInstanceTrait for PercentileWindow<DiscreteWindowIn
     }
 
     fn activate(&mut self, ts: Time) {
-        self.activate(ts)
+        self.inner.activate(ts)
     }
 }
