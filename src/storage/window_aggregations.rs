@@ -422,7 +422,7 @@ impl<G: WindowGeneric> WindowIv for PercentileIv<G> {
 }
 
 impl<G: WindowGeneric> PercentileIv<G> {
-    pub(crate) fn percentile_get_value(self, percentile: usize) -> Value {
+    pub(crate) fn percentile_get_value(self, percentile: u8) -> Value {
         let idx: f32 = self.count as f32 * (percentile as f32 / 100.0);
         let int_idx = (idx.ceil() as usize) - 1;
         let idx = idx;

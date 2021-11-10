@@ -2,6 +2,7 @@
   "spec_file": "../tests/specs/min_max.lola",
   "input_file": "../traces/tests/single_int-every0.1s.csv",
   "rationale": "Compute min and max of value and value*(-)2",
+  "modes": ["offline", "online"],
   "triggers": {
     "max is positive": {
       "expected_count": 9,

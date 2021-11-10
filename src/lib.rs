@@ -20,14 +20,14 @@ mod storage;
 mod tests;
 
 use crate::basics::OutputHandler;
-use crate::coordination::Controller;
+use crate::coordination::{Controller, DynamicSchedule};
 #[cfg(feature = "pcap_interface")]
 use basics::PCAPInputSource;
 use basics::{CsvInputSource, EventSourceConfig, ExecutionMode, OutputChannel, Statistics, Verbosity};
 use clap::{App, AppSettings, Arg, ArgGroup, SubCommand};
 use rtlola_frontend::mir::RtLolaMir;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 
 pub use crate::basics::{EvalConfig, Time, TimeFormat, TimeRepresentation};
 pub use crate::coordination::{
@@ -262,10 +262,11 @@ impl Config {
                 eprintln!("{}", e);
                 std::process::exit(1)
             });
+            let handler = rtlola_frontend::Handler::from(config.clone());
             match rtlola_frontend::parse(config) {
                 Ok(_) => std::process::exit(0),
                 Err(e) => {
-                    eprintln!("{}", e);
+                    handler.emit_error(&e);
                     std::process::exit(1)
                 }
             }
@@ -286,9 +287,10 @@ impl Config {
             eprintln!("{}", e);
             std::process::exit(1)
         });
+        let handler = rtlola_frontend::Handler::from(config.clone());
 
         let ir = rtlola_frontend::parse(config).unwrap_or_else(|e| {
-            eprintln!("{}", e);
+            handler.emit_error(&e);
             std::process::exit(1);
         });
 
@@ -396,7 +398,8 @@ impl Config {
     pub fn as_api<V: VerdictRepresentation>(self) -> Monitor<V> {
         assert_eq!(self.cfg.mode, ExecutionMode::Api);
         let output_handler = Arc::new(OutputHandler::new(&self.cfg, self.ir.triggers.len()));
-        Monitor::setup(self.ir, output_handler, self.cfg)
+        let dyn_schedule = Arc::new((Mutex::new(DynamicSchedule::new()), Condvar::new()));
+        Monitor::setup(self.ir, output_handler, self.cfg, dyn_schedule)
     }
 
     /**

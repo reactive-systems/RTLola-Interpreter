@@ -1,0 +1,82 @@
+{
+  "spec_file": "../tests/specs/parameterized_count.lola",
+  "input_file": "../traces/tests/count_1_2.csv",
+  "rationale": "Count the occurrences of each value in stream a",
+  "modes": ["offline"],
+  "triggers": {
+    "Saw 1 one time": {
+      "expected_count": 3,
+      "time_info": [
+        "0.000000000",
+        "4.000000000",
+        "4.500000000"
+      ]
+    },
+    "Saw 1 two times": {
+      "expected_count": 7,
+      "time_info": [
+        "0.500000000",
+        "1.000000000",
+        "1.500000000",
+        "2.000000000",
+        "5.000000000",
+        "5.500000000",
+        "6.000000000"
+      ]
+    },
+    "Saw 1 three times": {
+      "expected_count": 1,
+      "time_info": [
+        "2.500000000"
+      ]
+    },
+    "Saw 1 four times": {
+      "expected_count": 1,
+      "time_info": [
+        "3.000000000"
+      ]
+    },
+    "Saw 1 five times": {
+      "expected_count": 1,
+      "time_info": [
+        "3.500000000"
+      ]
+    },
+    "Saw 2 one time": {
+      "expected_count": 2,
+      "time_info": [
+        "1.000000000",
+        "6.000000000"
+      ]
+    },
+    "Saw 2 two times": {
+      "expected_count": 1,
+      "time_info": [
+        "1.500000000"
+      ]
+    },
+    "Saw 2 three times": {
+      "expected_count": 5,
+      "time_info": [
+        "2.000000000",
+        "2.500000000",
+        "3.000000000",
+        "3.500000000",
+        "4.000000000"
+      ]
+    },
+    "Saw 2 four times": {
+      "expected_count": 2,
+      "time_info": [
+        "4.500000000",
+        "5.000000000"
+      ]
+    },
+    "Saw 2 five times": {
+      "expected_count": 1,
+      "time_info": [
+        "5.500000000"
+      ]
+    }
+  }
+}

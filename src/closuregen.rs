@@ -9,22 +9,33 @@ use regex::bytes::Regex as BytesRegex;
 use regex::Regex;
 use rtlola_frontend::mir::{Constant, Expression, ExpressionKind, Offset, StreamAccessKind, Type};
 use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl, Shr, Sub};
+use std::rc::Rc;
 
 pub(crate) trait Expr {
     fn compile(self) -> CompiledExpr;
 }
-pub(crate) struct CompiledExpr(Box<dyn Fn(&EvaluationContext<'_>) -> Value>);
+
+#[derive(Clone)]
+pub(crate) struct CompiledExpr(Rc<dyn Fn(&mut EvaluationContext<'_>) -> Value>);
 // alternative: using Higher-Rank Trait Bounds (HRTBs)
 // pub(crate) struct CompiledExpr<'s>(Box<dyn 's + for<'a> Fn(&EvaluationContext<'a>) -> Value>);
 
 impl CompiledExpr {
     /// Creates a compiled expression IR from a generic closure.
-    pub(crate) fn new(closure: impl 'static + Fn(&EvaluationContext<'_>) -> Value) -> Self {
-        CompiledExpr(Box::new(closure))
+    pub(crate) fn new(closure: impl 'static + Fn(&mut EvaluationContext<'_>) -> Value) -> Self {
+        CompiledExpr(Rc::new(closure))
+    }
+
+    /// Creates a compiled expression returning the value of the `value_exp` if the `filter_exp` evaluates to true
+    /// and None otherwise.
+    pub(crate) fn create_filter(filter_exp: CompiledExpr, value_exp: CompiledExpr) -> Self {
+        CompiledExpr::new(
+            move |ctx| if filter_exp.execute(ctx).as_bool() { value_exp.execute(ctx) } else { Value::None },
+        )
     }
 
     /// Executes a filter against a provided context with values.
-    pub(crate) fn execute(&self, ctx: &EvaluationContext) -> Value {
+    pub(crate) fn execute(&self, ctx: &mut EvaluationContext) -> Value {
         self.0(ctx)
     }
 }
@@ -43,7 +54,7 @@ impl Expr for Expression {
                 };
                 CompiledExpr::new(move |_| v.clone())
             }
-            ParameterAccess(_, _) => unimplemented!("Parameterization is currently not implemented"),
+            ParameterAccess(_target, idx) => CompiledExpr::new(move |ctx| ctx.parameter[idx].clone()),
             ArithLog(op, operands) => {
                 let f_operands: Vec<CompiledExpr> = operands.into_iter().map(|e| e.compile()).collect();
 
@@ -76,7 +87,7 @@ impl Expr for Expression {
                 macro_rules! create_lazyop {
                     ($b:expr) => {
                         CompiledExpr::new(move |ctx| {
-                            let lhs = f_operands[0].execute(ctx).get_bool();
+                            let lhs = f_operands[0].execute(ctx).as_bool();
                             if lhs == $b {
                                 Value::Bool($b)
                             } else {
@@ -116,18 +127,27 @@ impl Expr for Expression {
             }
 
             StreamAccess { target, parameters, access_kind } => {
-                assert!(parameters.is_empty(), "Parametrization not yet implemented");
+                let paras: Vec<CompiledExpr> = parameters.into_iter().map(|e| e.compile()).collect();
+                macro_rules! create_access {
+                    ($fn:ident, $target:ident $( , $arg:ident )*) => {
+                        CompiledExpr::new(move |ctx| {
+                            let parameter: Vec<Value> = paras.iter().map(|p| p.execute(ctx)).collect();
+                            ctx.$fn($target, parameter.as_slice(), $($arg),*)
+                        })
+                    };
+                }
                 match access_kind {
-                    StreamAccessKind::Sync => CompiledExpr::new(move |ctx| ctx.lookup_latest_check(target)),
-                    StreamAccessKind::DiscreteWindow(wref) => CompiledExpr::new(move |ctx| ctx.lookup_window(wref)),
-                    StreamAccessKind::SlidingWindow(wref) => CompiledExpr::new(move |ctx| ctx.lookup_window(wref)),
-                    StreamAccessKind::Hold => CompiledExpr::new(move |ctx| ctx.lookup_latest(target)),
+                    StreamAccessKind::Sync => create_access!(lookup_latest_check, target),
+                    StreamAccessKind::DiscreteWindow(wref) | StreamAccessKind::SlidingWindow(wref) => {
+                        create_access!(lookup_window, wref)
+                    }
+                    StreamAccessKind::Hold => create_access!(lookup_latest, target),
                     StreamAccessKind::Offset(offset) => {
                         let offset = match offset {
                             Offset::Future(_) => unimplemented!(),
                             Offset::Past(u) => -(u as i16),
                         };
-                        CompiledExpr::new(move |ctx| ctx.lookup_with_offset(target, offset))
+                        create_access!(lookup_with_offset, target, offset)
                     }
                 }
             }
@@ -138,7 +158,7 @@ impl Expr for Expression {
                 let f_alternative = alternative.compile();
 
                 CompiledExpr::new(move |ctx| {
-                    let cond = f_condition.execute(ctx).get_bool();
+                    let cond = f_condition.execute(ctx).as_bool();
                     if cond {
                         f_consequence.execute(ctx)
                     } else {
@@ -213,7 +233,7 @@ impl Expr for Expression {
                             _ => unreachable!("regex should be a string literal"),
                         };
                         if !is_bytes {
-                            let re = Regex::new(&re_str).expect("Given regular expression was invalid");
+                            let re = Regex::new(re_str).expect("Given regular expression was invalid");
                             CompiledExpr::new(move |ctx| {
                                 let val = f_arg.execute(ctx);
                                 if let Value::Str(s) = &val {
@@ -223,7 +243,7 @@ impl Expr for Expression {
                                 }
                             })
                         } else {
-                            let re = BytesRegex::new(&re_str).expect("Given regular expression was invalid");
+                            let re = BytesRegex::new(re_str).expect("Given regular expression was invalid");
                             CompiledExpr::new(move |ctx| {
                                 let val = f_arg.execute(ctx);
                                 if let Value::Bytes(b) = &val {
@@ -304,15 +324,15 @@ impl Expr for Expression {
 
                 use Type::*;
                 match (from_ty, to_ty) {
-                    (UInt(_), UInt(_)) => CompiledExpr::new(move |ctx| f_expr.execute(ctx)),
+                    (UInt(_), UInt(_)) => f_expr,
                     (UInt(_), Int(_)) => create_convert!(Unsigned, Signed, i64),
                     (UInt(_), Float(_)) => create_convert!(Unsigned, Float, f64),
                     (Int(_), UInt(_)) => create_convert!(Signed, Unsigned, u64),
-                    (Int(_), Int(_)) => CompiledExpr::new(move |ctx| f_expr.execute(ctx)),
+                    (Int(_), Int(_)) => f_expr,
                     (Int(_), Float(_)) => create_convert!(Signed, Float, f64),
                     (Float(_), UInt(_)) => create_convert!(Float, Unsigned, u64),
                     (Float(_), Int(_)) => create_convert!(Float, Signed, i64),
-                    (Float(_), Float(_)) => CompiledExpr::new(move |ctx| f_expr.execute(ctx)),
+                    (Float(_), Float(_)) => f_expr,
                     (from, to) => unreachable!("from: {:?}, to: {:?}", from, to),
                 }
             }

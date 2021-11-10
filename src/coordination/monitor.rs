@@ -1,10 +1,10 @@
 use crate::basics::{EvalConfig, OutputHandler, Time};
-use crate::coordination::Event;
+use crate::coordination::{DynamicSchedule, EvaluationTask, Event};
 use crate::evaluator::{Evaluator, EvaluatorData};
 use crate::storage::Value;
-use rtlola_frontend::mir::{Deadline, InputReference, OutputReference, RtLolaMir, Task, Type};
+use rtlola_frontend::mir::{Deadline, InputReference, OutputReference, RtLolaMir, Type};
 use std::marker::PhantomData;
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 /**
@@ -109,9 +109,14 @@ pub struct Monitor<V: VerdictRepresentation = Incremental> {
 /// Crate-public interface
 impl<V: VerdictRepresentation> Monitor<V> {
     ///setup
-    pub(crate) fn setup(ir: RtLolaMir, output_handler: Arc<OutputHandler>, config: EvalConfig) -> Monitor<V> {
+    pub(crate) fn setup(
+        ir: RtLolaMir,
+        output_handler: Arc<OutputHandler>,
+        config: EvalConfig,
+        dyn_schedule: Arc<(Mutex<DynamicSchedule>, Condvar)>,
+    ) -> Monitor<V> {
         // Note: start_time only accessed in online mode.
-        let eval_data = EvaluatorData::new(ir.clone(), config, output_handler.clone(), None);
+        let eval_data = EvaluatorData::new(ir.clone(), config, output_handler.clone(), None, dyn_schedule);
 
         let deadlines: Vec<Deadline> = if ir.time_driven.is_empty() {
             vec![]
@@ -167,7 +172,7 @@ impl<V: VerdictRepresentation> Monitor<V> {
             self.next_dl = Some(ts + self.deadlines[0].pause);
         }
 
-        let mut next_deadline = self.next_dl.clone().expect("monitor lacks start time");
+        let mut next_deadline = self.next_dl.expect("monitor lacks start time");
         let mut timed_changes: Vec<(Time, V)> = vec![];
 
         while ts > next_deadline {
@@ -175,15 +180,8 @@ impl<V: VerdictRepresentation> Monitor<V> {
             let dl = &self.deadlines[self.dl_ix];
             self.output_handler.debug(|| format!("Schedule Timed-Event {:?}.", (&dl.due, next_deadline)));
             self.output_handler.new_event();
-            let eval_tasks: Vec<OutputReference> = dl
-                .due
-                .iter()
-                .map(|t| match t {
-                    Task::Evaluate(idx) => *idx,
-                    Task::Spawn(_idx) => unimplemented!("Periodic spawns are not yet implemented"),
-                })
-                .collect();
-            self.eval.eval_time_driven_outputs(&eval_tasks, next_deadline);
+            let eval_tasks: Vec<EvaluationTask> = dl.due.iter().map(|t| (*t).into()).collect();
+            self.eval.eval_time_driven_tasks(eval_tasks, next_deadline);
             self.dl_ix = (self.dl_ix + 1) % self.deadlines.len();
             timed_changes.push((next_deadline, V::create(self)));
             let dl = &self.deadlines[self.dl_ix];

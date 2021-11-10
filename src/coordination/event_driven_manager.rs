@@ -60,7 +60,7 @@ impl EventDrivenManager {
                 let _ = work_queue.send(WorkItem::End); // Whether it fails or not, we really don't care.
                                                         // Sleep until you slowly fade into nothingness...
                 loop {
-                    std::thread::sleep(std::time::Duration::new(u64::max_value(), 0))
+                    std::thread::sleep(std::time::Duration::new(u64::MAX, 0))
                 }
             }
             let (event, time) = self.event_source.get_event();

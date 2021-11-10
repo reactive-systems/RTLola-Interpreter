@@ -1,0 +1,54 @@
+{
+  "spec_file": "../tests/specs/parameterized_access.lola",
+  "input_file": "../traces/tests/count_1_2.csv",
+  "rationale": "b accesses a; Only dynamic periodic elements present.",
+  "modes": ["offline"],
+  "triggers": {
+    "b is 2": {
+      "expected_count": 4,
+      "time_info": [
+        "3.500000000",
+        "4.000000000",
+        "4.500000000",
+        "5.000000000"
+      ]
+    },
+    "c is 44": {
+      "expected_count": 4,
+      "time_info": [
+        "3.500000000",
+        "4.000000000",
+        "4.500000000",
+        "5.000000000"
+      ]
+    },
+    "b is 3": {
+      "expected_count": 2,
+      "time_info": [
+        "5.500000000",
+        "6.000000000"
+      ]
+    },
+    "c is 45": {
+      "expected_count": 2,
+      "time_info": [
+        "5.500000000",
+        "6.000000000"
+      ]
+    },
+    "b is 4": {
+      "expected_count": 2,
+      "time_info": [
+        "2.500000000",
+        "3.000000000"
+      ]
+    },
+    "c is 46": {
+      "expected_count": 2,
+      "time_info": [
+        "2.500000000",
+        "3.000000000"
+      ]
+    }
+  }
+}
