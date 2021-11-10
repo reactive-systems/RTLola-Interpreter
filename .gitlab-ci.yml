@@ -103,7 +103,7 @@ cargo:test-nightly:
       - target/
       - $CARGO_HOME
   variables:
-    RUSTFLAGS: "-Zinstrument-coverage"
+    RUSTFLAGS: "-Zinstrument-coverage -Zgcc-ld=lld"
     LLVM_PROFILE_FILE: "json5format-%m.profraw"
   before_script:
     - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
