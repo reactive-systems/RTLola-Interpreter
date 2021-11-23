@@ -94,7 +94,7 @@ impl TimeDrivenManager {
             static_due_streams: due_streams,
         })
     }
-
+    #[allow(dead_code)]
     pub(crate) fn get_next_due(&self) -> Option<Time> {
         self.get_next_due_locked(&self.dyn_schedule.0.lock().unwrap())
     }
@@ -119,6 +119,7 @@ impl TimeDrivenManager {
         res
     }
 
+    #[allow(dead_code)]
     pub(crate) fn get_next_deadline(&mut self, now: Time) -> Vec<EvaluationTask> {
         let schedule_copy = self.dyn_schedule.clone();
         let mut lock = schedule_copy.0.lock().unwrap();
