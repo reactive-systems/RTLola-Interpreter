@@ -134,7 +134,7 @@ crashed_tests = 0
 wrong_tests = 0
 tests_passed = 0
 
-test_dir = repo_base_dir/"tests"
+test_dir = repo_base_dir/"tests/definitions"
 tests = [test_file for test_file in test_dir.iterdir() if test_file.is_file() and test_file.suffix == ".rtlola_interpreter_test"]
 
 tests_passed = []
