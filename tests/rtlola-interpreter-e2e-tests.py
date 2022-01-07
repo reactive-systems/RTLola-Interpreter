@@ -152,11 +152,9 @@ with open("e2e-results.xml", 'w') as results_file:
                 spec_file = build_path(repo_base_dir, test_json["spec_file"].split('/')[1:])
                 input_file = build_path(repo_base_dir, test_json["input_file"].split('/')[1:])
 
-                input_mode = "CSV"
-                if "input_mode" in test_json:
-                    input_mode = test_json["input_mode"]
+                is_pcap = len(test_json["modes"]) > 0 and test_json["modes"][0] == "pcap"
 
-                if input_mode != "PCAP" and run_mode not in test_json["modes"]:
+                if not (is_pcap or run_mode in test_json["modes"]):
                     continue
 
                 total_number_of_tests += 1
@@ -169,7 +167,7 @@ with open("e2e-results.xml", 'w') as results_file:
                 something_wrong = False
                 returncode = None
                 try:
-                    if input_mode == "PCAP":
+                    if is_pcap:
                         run_result = subprocess.run([rtlola_interpreter_executable_path_string, "ids", "--stdout", "--verbosity", "outputs", str(spec_file), "192.168.178.0/24", "--pcap-in", str(input_file)] + config, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(repo_base_dir), universal_newlines=True, timeout=10)
                         returncode = run_result.returncode
                         lines = iter(run_result.stdout.split("\n"))

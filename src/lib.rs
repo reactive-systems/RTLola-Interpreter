@@ -52,7 +52,7 @@ pub struct Config {
 
 impl Config {
     /**
-    Creates a new `Config`
+    Creates a new `Config` which can then be run directly or turned into a `Monitor` by `as_api`.
     */
     pub fn new(cfg: EvalConfig, ir: RtLolaMir) -> Config {
         Config { cfg, ir }

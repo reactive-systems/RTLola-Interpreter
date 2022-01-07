@@ -47,4 +47,13 @@ pcap_interface = ["pcap"]
 
 [dev-dependencies]
 tempfile = "3.1.0"
+serde = "1.0.133"
+serde_json = "1.0.74"
+csv = "1.1.6"
+itertools = "0.10.3"
+junit-report = "0.7.0"
 
+[[test]]
+name = "api"
+path = "tests/api_e2e.rs"
+harness = false
