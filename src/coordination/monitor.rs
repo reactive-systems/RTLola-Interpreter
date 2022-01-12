@@ -1,8 +1,9 @@
 use crate::basics::{EvalConfig, OutputHandler, Time};
-use crate::coordination::{DynamicSchedule, EvaluationTask, Event};
+use crate::coordination::time_driven_manager::TimeDrivenManager;
+use crate::coordination::{DynamicSchedule, Event};
 use crate::evaluator::{Evaluator, EvaluatorData};
 use crate::storage::Value;
-use rtlola_frontend::mir::{Deadline, InputReference, OutputReference, RtLolaMir, Type};
+use rtlola_frontend::mir::{InputReference, OutputReference, RtLolaMir, Type};
 use std::marker::PhantomData;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
@@ -12,7 +13,7 @@ use std::time::Duration;
 */
 pub trait VerdictRepresentation {
     /// Creates a snapshot of the streams values.
-    fn create(mon: &Monitor<Self>) -> Self
+    fn create(data: VerdictCreationData) -> Self
     where
         Self: Sized;
 }
@@ -23,8 +24,8 @@ pub trait VerdictRepresentation {
 pub type Incremental = Vec<(OutputReference, Value)>;
 
 impl VerdictRepresentation for Incremental {
-    fn create(mon: &Monitor<Incremental>) -> Self {
-        mon.eval.peek_fresh()
+    fn create(data: VerdictCreationData) -> Self {
+        data.eval.peek_fresh()
     }
 }
 
@@ -40,8 +41,8 @@ pub struct Total {
 }
 
 impl VerdictRepresentation for Total {
-    fn create(mon: &Monitor<Total>) -> Self {
-        Total { inputs: mon.eval.peek_inputs(), outputs: mon.eval.peek_outputs() }
+    fn create(data: VerdictCreationData) -> Self {
+        Total { inputs: data.eval.peek_inputs(), outputs: data.eval.peek_outputs() }
     }
 }
 
@@ -51,12 +52,12 @@ impl VerdictRepresentation for Total {
 pub type TriggerMessages = Vec<(OutputReference, String)>;
 
 impl VerdictRepresentation for TriggerMessages {
-    fn create(mon: &Monitor<Self>) -> Self
+    fn create(data: VerdictCreationData) -> Self
     where
         Self: Sized,
     {
-        let violated_trigger = mon.eval.peek_violated_triggers();
-        violated_trigger.into_iter().map(|sr| (sr, mon.eval.format_trigger_message(sr))).collect()
+        let violated_trigger = data.eval.peek_violated_triggers();
+        violated_trigger.into_iter().map(|sr| (sr, data.eval.format_trigger_message(sr))).collect()
     }
 }
 
@@ -66,12 +67,12 @@ impl VerdictRepresentation for TriggerMessages {
 pub type TriggersWithInfoValues = Vec<(OutputReference, Vec<Option<Value>>)>;
 
 impl VerdictRepresentation for TriggersWithInfoValues {
-    fn create(mon: &Monitor<Self>) -> Self
+    fn create(data: VerdictCreationData) -> Self
     where
         Self: Sized,
     {
-        let violated_trigger = mon.eval.peek_violated_triggers();
-        violated_trigger.into_iter().map(|sr| (sr, mon.eval.peek_info_stream_values(sr))).collect()
+        let violated_trigger = data.eval.peek_violated_triggers();
+        violated_trigger.into_iter().map(|sr| (sr, data.eval.peek_info_stream_values(sr))).collect()
     }
 }
 
@@ -100,9 +101,7 @@ pub struct Monitor<V: VerdictRepresentation = Incremental> {
     pub ir: RtLolaMir,
     eval: Evaluator,
     pub(crate) output_handler: Arc<OutputHandler>,
-    deadlines: Vec<Deadline>,
-    next_dl: Option<Duration>,
-    dl_ix: usize,
+    time_manager: TimeDrivenManager,
     phantom: PhantomData<V>,
 }
 
@@ -113,24 +112,24 @@ impl<V: VerdictRepresentation> Monitor<V> {
         let output_handler = Arc::new(OutputHandler::new(&config, ir.triggers.len()));
         let dyn_schedule = Arc::new((Mutex::new(DynamicSchedule::new()), Condvar::new()));
 
-        // Note: start_time only accessed in online mode.
-        let eval_data = EvaluatorData::new(ir.clone(), output_handler.clone(), dyn_schedule);
+        let eval_data = EvaluatorData::new(ir.clone(), output_handler.clone(), dyn_schedule.clone());
 
-        let deadlines: Vec<Deadline> = if ir.time_driven.is_empty() {
-            vec![]
-        } else {
-            ir.compute_schedule().expect("Creation of schedule failed.").deadlines
-        };
+        let time_manager = TimeDrivenManager::setup(ir.clone(), output_handler.clone(), dyn_schedule)
+            .expect("Error computing schedule for time-driven streams");
 
-        Monitor {
-            ir,
-            eval: eval_data.into_evaluator(),
-            output_handler,
-            deadlines,
-            next_dl: None,
-            dl_ix: 0,
-            phantom: PhantomData,
-        }
+        Monitor { ir, eval: eval_data.into_evaluator(), output_handler, time_manager, phantom: PhantomData }
+    }
+}
+
+/// The data used to create a Verdict
+#[allow(missing_debug_implementations)]
+pub struct VerdictCreationData<'a> {
+    eval: &'a Evaluator,
+}
+
+impl<'a> From<&'a Evaluator> for VerdictCreationData<'a> {
+    fn from(eval: &'a Evaluator) -> Self {
+        VerdictCreationData { eval }
     }
 }
 
@@ -145,48 +144,41 @@ impl<V: VerdictRepresentation> Monitor<V> {
         let ev = ev.into();
         self.output_handler.debug(|| format!("Accepted {:?}.", ev));
 
-        let timed = self.accept_time(ts);
+        let timed = self.accept_time_of_event(ts);
 
         // Evaluate
         self.output_handler.new_event();
         self.eval.eval_event(ev.as_slice(), ts);
-        let event_change = V::create(self);
+        let event_change = V::create(VerdictCreationData::from(&self.eval));
 
         Verdicts::<V> { timed, event: event_change }
     }
 
-    /**
-    Computes all periodic streams up through the new timestamp.
-
-    */
-    pub fn accept_time(&mut self, ts: Time) -> Vec<(Time, V)> {
-        if self.deadlines.is_empty() {
-            return vec![];
-        }
-        assert!(!self.deadlines.is_empty());
-
-        if self.next_dl.is_none() {
-            assert_eq!(self.dl_ix, 0);
-            self.next_dl = Some(ts + self.deadlines[0].pause);
-        }
-
-        let mut next_deadline = self.next_dl.expect("monitor lacks start time");
+    fn accept_time_of_event(&mut self, ts: Time) -> Vec<(Time, V)> {
         let mut timed_changes: Vec<(Time, V)> = vec![];
 
-        while ts > next_deadline {
-            // Go back in time and evaluate,...
-            let dl = &self.deadlines[self.dl_ix];
-            self.output_handler.debug(|| format!("Schedule Timed-Event {:?}.", (&dl.due, next_deadline)));
-            self.output_handler.new_event();
-            let eval_tasks: Vec<EvaluationTask> = dl.due.iter().map(|t| (*t).into()).collect();
-            self.eval.eval_time_driven_tasks(eval_tasks, next_deadline);
-            self.dl_ix = (self.dl_ix + 1) % self.deadlines.len();
-            timed_changes.push((next_deadline, V::create(self)));
-            let dl = &self.deadlines[self.dl_ix];
-            assert!(dl.pause > Duration::from_secs(0));
-            next_deadline += dl.pause;
-        }
-        self.next_dl = Some(next_deadline);
+        self.time_manager.accept_time_offline_with_callback(&mut self.eval, ts, |due, eval| {
+            timed_changes.push((due, V::create(VerdictCreationData::from(eval))))
+        });
+
+        timed_changes
+    }
+
+    /**
+    Computes all periodic streams up through the new timestamp.
+    */
+    pub fn accept_time(&mut self, ts: Time) -> Vec<(Time, V)> {
+        let mut timed_changes: Vec<(Time, V)> = vec![];
+
+        // Eval all timed streams with due < ts
+        self.time_manager.accept_time_offline_with_callback(&mut self.eval, ts, |due, eval| {
+            timed_changes.push((due, V::create(VerdictCreationData::from(eval))))
+        });
+        // Eval all timed streams with due = ts
+        self.time_manager.end_offline_with_callback(&mut self.eval, ts, |due, eval| {
+            timed_changes.push((due, V::create(VerdictCreationData::from(eval))))
+        });
+
         timed_changes
     }
 
@@ -278,7 +270,7 @@ impl<V: VerdictRepresentation> Monitor<V> {
 
     /// Switch [VerdictRepresentation]s of the [Monitor].
     pub fn with_verdict_representation<T: VerdictRepresentation>(self) -> Monitor<T> {
-        let Monitor { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: _ } = self;
-        Monitor::<T> { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: PhantomData }
+        let Monitor { ir, eval, output_handler, time_manager, phantom: _ } = self;
+        Monitor::<T> { ir, eval, output_handler, time_manager, phantom: PhantomData }
     }
 }

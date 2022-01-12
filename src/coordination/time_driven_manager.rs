@@ -223,6 +223,14 @@ impl TimeDrivenManager {
 
     /// Evaluates all deadlines due before time `ts`
     pub(crate) fn accept_time_offline(&mut self, evaluator: &mut Evaluator, ts: Time) {
+        self.accept_time_offline_with_callback(evaluator, ts, |_, _| ());
+    }
+
+    /// Evaluates all deadlines due before time `ts` and calls the callback after the evaluation of each deadline
+    pub(crate) fn accept_time_offline_with_callback<T>(&mut self, evaluator: &mut Evaluator, ts: Time, mut callback: T)
+    where
+        T: FnMut(Time, &Evaluator),
+    {
         if !self.has_time_driven {
             return;
         }
@@ -236,12 +244,21 @@ impl TimeDrivenManager {
             let deadline = self.get_next_deadline_locked(ts, &mut schedule);
             drop(schedule);
             self.eval_deadline(evaluator, deadline, due);
+            callback(due, evaluator);
             schedule = schedule_copy.0.lock().unwrap();
         }
     }
 
     /// Evaluates all deadlines due at time `ts`
     pub(crate) fn end_offline(&mut self, evaluator: &mut Evaluator, ts: Time) {
+        self.end_offline_with_callback(evaluator, ts, |_, _| ());
+    }
+
+    /// Evaluates all deadlines due at time `ts` and calls the callback after the evaluation of each deadline
+    pub(crate) fn end_offline_with_callback<T>(&mut self, evaluator: &mut Evaluator, ts: Time, mut callback: T)
+    where
+        T: FnMut(Time, &Evaluator),
+    {
         if !self.has_time_driven {
             return;
         }
@@ -255,6 +272,7 @@ impl TimeDrivenManager {
             let deadline = self.get_next_deadline_locked(ts, &mut schedule);
             drop(schedule);
             self.eval_deadline(evaluator, deadline, due);
+            callback(due, evaluator);
             schedule = schedule_copy.0.lock().unwrap();
         }
     }
