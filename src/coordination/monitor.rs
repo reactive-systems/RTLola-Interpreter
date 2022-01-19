@@ -6,7 +6,7 @@ use crate::storage::Value;
 use rtlola_frontend::mir::{InputReference, OutputReference, RtLolaMir, Type};
 use std::marker::PhantomData;
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /**
     Provides the functionality to generate a snapshot of the streams values.
@@ -18,10 +18,16 @@ pub trait VerdictRepresentation {
         Self: Sized;
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StreamState {
+    NonParameterized(Value),
+    Parameterized(Vec<(Vec<Value>, Value)>)
+}
+
 /**
     Represents a snapshot of the monitor containing the value of all updated output stream.
 */
-pub type Incremental = Vec<(OutputReference, Value)>;
+pub type Incremental = Vec<(OutputReference, StreamState)>;
 
 impl VerdictRepresentation for Incremental {
     fn create(data: VerdictCreationData) -> Self {
@@ -37,7 +43,7 @@ impl VerdictRepresentation for Incremental {
 #[derive(Debug)]
 pub struct Total {
     pub inputs: Vec<Option<Value>>,
-    pub outputs: Vec<Option<Value>>,
+    pub outputs: Vec<Option<StreamState>>,
 }
 
 impl VerdictRepresentation for Total {
@@ -108,7 +114,10 @@ pub struct Monitor<V: VerdictRepresentation = Incremental> {
 /// Crate-public interface
 impl<V: VerdictRepresentation> Monitor<V> {
     ///setup
-    pub(crate) fn setup(ir: RtLolaMir, config: EvalConfig) -> Monitor<V> {
+    pub(crate) fn setup(
+        ir: RtLolaMir,
+        config: EvalConfig,
+    ) -> Monitor<V> {
         let output_handler = Arc::new(OutputHandler::new(&config, ir.triggers.len()));
         let dyn_schedule = Arc::new((Mutex::new(DynamicSchedule::new()), Condvar::new()));
 
@@ -273,4 +282,75 @@ impl<V: VerdictRepresentation> Monitor<V> {
         let Monitor { ir, eval, output_handler, time_manager, phantom: _ } = self;
         Monitor::<T> { ir, eval, output_handler, time_manager, phantom: PhantomData }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{Monitor, EvalConfig, TimeRepresentation, TimeFormat, Config, VerdictRepresentation, Total, Value, Incremental};
+    use rtlola_frontend::mir::StreamReference;
+    use std::time::{Instant, Duration};
+    use crate::coordination::monitor::StreamState;
+    use ordered_float::NotNan;
+
+    fn setup<V: VerdictRepresentation>(spec: &str) -> (Instant, Monitor<V>) {
+        // Init Monitor API
+        let config = rtlola_frontend::ParserConfig::for_string(spec.to_string());
+        let handler = rtlola_frontend::Handler::from(config.clone());
+        let ir = rtlola_frontend::parse(config).unwrap_or_else(|e| {
+            handler.emit_error(&e);
+            std::process::exit(1);
+        });
+        let eval_conf = EvalConfig::api(TimeRepresentation::Absolute(TimeFormat::FloatSecs));
+        (Instant::now(), Config::new_api(eval_conf, ir).as_api())
+    }
+
+    #[test]
+    fn test_const_output_literals() {
+        use Value::*;
+        let (start, mut monitor) = setup::<Total>(
+            r#"
+        input i_0: UInt8
+
+        output o_0: Bool @i_0 := true
+        output o_1: UInt8 @i_0 := 3
+        output o_2: Int8 @i_0 := -5
+        output o_3: Float32 @i_0 := -123.456
+        output o_4: String @i_0 := "foobar"
+        "#,
+        );
+        let v = Unsigned(3);
+        let res = monitor.accept_event(vec![v.clone()], start.elapsed());
+        assert!(res.timed.is_empty());
+        let res = res.event;
+        assert_eq!(res.inputs[0], Some(v));
+        assert_eq!(res.outputs[0], Some(StreamState::NonParameterized(Bool(true))));
+        assert_eq!(res.outputs[1], Some(StreamState::NonParameterized(Unsigned(3))));
+        assert_eq!(res.outputs[2], Some(StreamState::NonParameterized(Signed(-5))));
+        assert_eq!(res.outputs[3], Some(StreamState::NonParameterized(Value::new_float(-123.456))));
+        assert_eq!(res.outputs[4], Some(StreamState::NonParameterized(Str("foobar".into()))));
+    }
+
+
+    #[test]
+    fn test_count_window() {
+        let (_, mut monitor) =
+            setup::<Incremental>("input a: UInt16\noutput b: UInt16 @0.25Hz := a.aggregate(over: 40s, using: #)");
+
+        let n = 25;
+        let mut time = Duration::from_secs(45);
+        let res = monitor.accept_event(vec![Value::Unsigned(1)], time);
+        assert!(res.event.is_empty());
+        assert_eq!(res.timed.len(), 11);
+        assert!(res.timed.iter().all(|(time, change)| time.as_secs() % 4 == 0 && change[0].0 == 0 && change[0].1 == StreamState::NonParameterized(Value::Unsigned(0))));
+        // for v in 2..=n {
+        //     let res = monitor.accept_event(vec![Value::Unsigned(v)], time);
+        //     time += Duration::from_secs(1);
+        // }
+        // time += Duration::from_secs(1);
+        // // 71 secs have passed. All values should be within the window.
+        // eval_stream_timed!(eval, 0, vec![], time);
+        // let expected = Unsigned(n);
+        // assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
+    }
+
 }

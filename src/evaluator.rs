@@ -9,6 +9,7 @@ use rtlola_frontend::mir::{
 };
 use std::sync::{Arc, Condvar, Mutex};
 use string_template::Template;
+use crate::coordination::monitor::StreamState;
 
 /// Enum to describe the activation condition of a stream; If the activation condition is described by a conjunction, the evaluator uses a bitset representation.
 #[derive(Debug)]
@@ -249,11 +250,19 @@ impl Evaluator {
     }
 
     /// NOT for external use because the values are volatile
-    pub(crate) fn peek_fresh(&self) -> Vec<(OutputReference, Value)> {
+    pub(crate) fn peek_fresh(&self) -> Vec<(OutputReference, StreamState)> {
         self.fresh_outputs
             .iter()
-            .map(|elem| (elem, self.peek_value(StreamReference::Out(elem), &[], 0).expect("Marked as fresh.")))
-            .chain(self.fresh_triggers.iter().map(|ix| (ix, Value::Bool(true))))
+            .map(|elem| {
+                let stream = StreamReference::Out(elem);
+                if self.ir.output(stream).is_parameterized() {
+                    let values = self.global_store.get_out_instance_collection(elem).fresh().map(|para| (para.clone(), self.peek_value(stream, para, 0).expect("Marked as fresh"))).collect();
+                    (elem, StreamState::Parameterized(values))
+                } else {
+                    (elem, StreamState::NonParameterized(self.peek_value(stream, &[], 0).expect("Marked as fresh.")))
+                }
+            })
+            .chain(self.fresh_triggers.iter().map(|ix| (ix, StreamState::NonParameterized(Value::Bool(true)))))
             .collect()
     }
 
@@ -268,8 +277,18 @@ impl Evaluator {
     }
 
     /// NOT for external use because the values are volatile
-    pub(crate) fn peek_outputs(&self) -> Vec<Option<Value>> {
-        self.ir.outputs.iter().map(|elem| self.peek_value(elem.reference, &[], 0)).collect()
+    pub(crate) fn peek_outputs(&self) -> Vec<Option<StreamState>> {
+        self.ir.outputs.iter().map(|elem| {
+            if elem.is_parameterized() {
+                let ix = elem.reference.out_ix();
+                self.fresh_outputs.contains(ix).then(|| {
+                    let values = self.global_store.get_out_instance_collection(ix).fresh().map(|para| (para.clone(), self.peek_value(elem.reference, para.as_ref(), 0).expect("Marked as fresh"))).collect();
+                    StreamState::Parameterized(values)
+                })
+            } else {
+                self.peek_value(elem.reference, &[], 0).map(|v| StreamState::NonParameterized(v))
+            }
+        }).collect()
     }
 
     fn accept_inputs(&mut self, event: &[Value], ts: Time) {
@@ -571,6 +590,7 @@ impl Evaluator {
         self.fresh_inputs.clear();
         self.fresh_outputs.clear();
         self.fresh_triggers.clear();
+        self.global_store.clear_freshness();
     }
 
     fn is_trigger(&self, ix: OutputReference) -> Option<&Trigger> {

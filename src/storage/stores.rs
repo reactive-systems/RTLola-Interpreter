@@ -7,13 +7,15 @@ use rtlola_frontend::mir::{
     InputReference, MemorizationBound, OutputReference, OutputStream, RtLolaMir, Stream, StreamReference, Type,
     WindowOperation, WindowReference,
 };
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, VecDeque, HashSet};
 use std::time::Duration;
 
 /// The collection of all instances of a parameterized stream
 pub(crate) struct InstanceCollection {
     /// The instances accessed by parameter values
     instances: HashMap<Vec<Value>, InstanceStore>,
+    /// A set of instances that got a new value in the last evaluation cycle
+    fresh: HashSet<Vec<Value>>,
     /// The value type of data that should be stored
     value_type: Type,
     /// The memorization bound of the instance
@@ -23,7 +25,7 @@ pub(crate) struct InstanceCollection {
 impl InstanceCollection {
     /// Creates a new instance
     pub(crate) fn new(ty: &Type, bound: MemorizationBound) -> Self {
-        InstanceCollection { instances: HashMap::new(), value_type: ty.clone(), bound }
+        InstanceCollection { instances: HashMap::new(), fresh: HashSet::new(), value_type: ty.clone(), bound }
     }
 
     /// Returns a reference to the instance store of the instance corresponding to the parameters
@@ -33,6 +35,7 @@ impl InstanceCollection {
 
     /// Returns a mutable reference to the instance store of the instance corresponding to the parameters
     pub(crate) fn instance_mut(&mut self, parameter: &[Value]) -> Option<&mut InstanceStore> {
+        self.fresh.insert(parameter.to_vec());
         self.instances.get_mut(parameter)
     }
 
@@ -49,12 +52,23 @@ impl InstanceCollection {
     /// Deletes the instance corresponding to the parameters
     pub(crate) fn delete_instance(&mut self, parameter: &[Value]) {
         debug_assert!(self.instances.contains_key(parameter));
+        self.fresh.remove(parameter);
         self.instances.remove(parameter);
     }
 
     /// Returns a vector of all parameters for which an instance exists
     pub(crate) fn all_instances(&self) -> Vec<Vec<Value>> {
         self.instances.keys().cloned().collect()
+    }
+
+    /// Returns an iterator over all instances that got a new value
+    pub(crate) fn fresh(&self) -> impl Iterator<Item=&Vec<Value>> {
+        self.fresh.iter()
+    }
+
+    /// Marks all instances as not fresh
+    pub(crate) fn clear_fresh(&mut self) {
+        self.fresh.clear()
     }
 
     /// Returns true if the instance exists in the instance store
@@ -328,6 +342,11 @@ impl GlobalStore {
             WindowReference::Sliding(x) => &mut self.p_windows[self.window_index_map[x]],
             WindowReference::Discrete(x) => &mut self.p_discrete_windows[self.discrete_window_index_map[x]],
         }
+    }
+
+    /// Marks all instances in the store as not fresh
+    pub(crate) fn clear_freshness(&mut self) {
+        self.p_outputs.iter_mut().for_each(|is| is.clear_fresh())
     }
 }
 
