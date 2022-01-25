@@ -8,7 +8,7 @@ use crossbeam_channel::Sender;
 use rtlola_frontend::mir::{Deadline, OutputReference, PacingType, RtLolaMir, Stream, Task};
 use std::cmp::Ordering;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
-use std::time::{Duration, Instant};
+use std::time::{Duration, SystemTime};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum EvaluationTask {
@@ -48,7 +48,6 @@ pub(crate) struct TimeDrivenManager {
     deadlines: Vec<Deadline>,
     dyn_schedule: Arc<(Mutex<DynamicSchedule>, Condvar)>,
     handler: Arc<OutputHandler>,
-    // The following fields are only used for offline evaluation
     cur_static_deadline_idx: usize,
     next_static_deadline: Option<Time>,
     static_due_streams: Vec<Task>,
@@ -166,11 +165,12 @@ impl TimeDrivenManager {
         }
     }
 
-    pub(crate) fn start_online(mut self, start_time: Instant, work_chan: Sender<WorkItem>) -> ! {
+    pub(crate) fn start_online(mut self, start_time: SystemTime, work_chan: Sender<WorkItem>) -> ! {
         debug_assert!(self.has_time_driven);
-        let now = Instant::now();
-        assert!(now >= start_time, "Time does not behave monotonically!");
-        let time = now - start_time;
+        let now = SystemTime::now();
+
+        // Shift next static deadline relative to start time
+        let time = now.duration_since(start_time).expect("System Time did not behave monotonically");
         self.next_static_deadline = self.next_static_deadline.map(|d| d + time);
 
         let schedule_copy = self.dyn_schedule.clone();
@@ -186,9 +186,8 @@ impl TimeDrivenManager {
             }
             let mut due_time = opt_due_time.unwrap();
 
-            let now = Instant::now();
-            assert!(now >= start_time, "Time does not behave monotonically!");
-            let mut time = now - start_time;
+            let now = SystemTime::now();
+            let mut time = now.duration_since(start_time).expect("System Time did not behave monotonically");
 
             // Wait for next deadline or until schedule changes
             while time < due_time {
@@ -200,9 +199,8 @@ impl TimeDrivenManager {
                 schedule = new_schedule;
                 //Note: spurious wake-ups should not be a problem
 
-                let now = Instant::now();
-                assert!(now >= start_time, "Time does not behave monotonically!");
-                time = now - start_time;
+                let now = SystemTime::now();
+                time = now.duration_since(start_time).expect("System Time did not behave monotonically");
 
                 let mut opt_due_time = self.get_next_due_locked(&schedule);
 

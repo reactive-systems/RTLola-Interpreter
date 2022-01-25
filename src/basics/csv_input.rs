@@ -1,35 +1,52 @@
 #![allow(clippy::mutex_atomic)]
 
-use crate::basics::io_handler::EventSource;
-use crate::basics::Time;
+use crate::basics::io_handler::{EventSource, RawTime};
+use crate::basics::{ExecutionMode, Time};
 use crate::storage::Value;
+use crate::TimeRepresentation;
 use csv::{ByteRecord, Reader as CSVReader, Result as ReaderResult, StringRecord};
 use rtlola_frontend::mir::{RtLolaMir, Type};
 use std::error::Error;
 use std::fs::File;
 use std::io::stdin;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
 #[derive(Debug, Clone)]
 enum TimeHandling {
-    RealTime { start: Instant },
-    FromFile { start: Option<SystemTime> },
-    Delayed { delay: Duration, time: Time },
+    RealTime,
+    /// If start is None it should default to the time of the first event.
+    FromSrc(TimeRepresentation),
+    Delayed {
+        delay: Duration,
+        time: Time,
+    },
 }
 
 #[derive(Debug, Clone)]
-pub enum CsvInputSource {
+pub struct CsvInputSource {
+    exec_mode: ExecutionMode,
+    time_col: Option<usize>,
+    kind: CsvInputSourceKind,
+}
+
+#[derive(Debug, Clone)]
+pub enum CsvInputSourceKind {
     StdIn,
-    File { path: String, delay: Option<Duration>, time_col: Option<usize> },
+    File { path: String, delay: Option<Duration> },
 }
 
 impl CsvInputSource {
-    pub fn file(path: String, delay: Option<Duration>, time_col: Option<usize>) -> CsvInputSource {
-        CsvInputSource::File { path, delay, time_col }
+    pub fn file(
+        path: String,
+        delay: Option<Duration>,
+        time_col: Option<usize>,
+        exec_mode: ExecutionMode,
+    ) -> CsvInputSource {
+        CsvInputSource { time_col, exec_mode, kind: CsvInputSourceKind::File { path, delay } }
     }
 
-    pub fn stdin() -> CsvInputSource {
-        CsvInputSource::StdIn
+    pub fn stdin(time_col: Option<usize>, exec_mode: ExecutionMode) -> CsvInputSource {
+        CsvInputSource { time_col, exec_mode, kind: CsvInputSourceKind::StdIn }
     }
 }
 
@@ -109,28 +126,28 @@ pub struct CsvEventSource {
 }
 
 impl CsvEventSource {
-    pub(crate) fn setup(
-        src: &CsvInputSource,
-        ir: &RtLolaMir,
-        start_time: Instant,
-    ) -> Result<Box<dyn EventSource>, Box<dyn Error>> {
-        use CsvInputSource::*;
-        let (mut wrapper, time_col) = match src {
-            StdIn => (ReaderWrapper::Std(CSVReader::from_reader(stdin())), None),
-            File { path, time_col, .. } => (ReaderWrapper::File(CSVReader::from_path(path)?), *time_col),
+    pub(crate) fn setup(src: &CsvInputSource, ir: &RtLolaMir) -> Result<Box<dyn EventSource>, Box<dyn Error>> {
+        let CsvInputSource { exec_mode, time_col, kind } = src;
+        let (mut wrapper, time_col) = match kind {
+            CsvInputSourceKind::StdIn => (ReaderWrapper::Std(CSVReader::from_reader(stdin())), *time_col),
+            CsvInputSourceKind::File { path, .. } => (ReaderWrapper::File(CSVReader::from_path(path)?), *time_col),
         };
 
         let stream_names: Vec<&str> = ir.inputs.iter().map(|i| i.name.as_str()).collect();
         let mapping = CsvColumnMapping::from_header(stream_names.as_slice(), wrapper.get_header()?, time_col);
         let in_types: Vec<Type> = ir.inputs.iter().map(|i| i.ty.clone()).collect();
 
+        // Assert that there is a time source in offline mode
+
         use TimeHandling::*;
-        let timer = match src {
-            StdIn => RealTime { start: start_time },
-            File { delay, .. } => match delay {
+        let timer = match (exec_mode, kind) {
+            (ExecutionMode::Online, CsvInputSourceKind::StdIn) => RealTime,
+            (ExecutionMode::Offline(time_repr), CsvInputSourceKind::File { delay, .. }) => match delay {
                 Some(d) => Delayed { delay: *d, time: Duration::default() },
-                None => FromFile { start: None },
+                None => FromSrc(*time_repr),
             },
+            (ExecutionMode::Offline(time_repr), CsvInputSourceKind::StdIn) => FromSrc(*time_repr),
+            _ => panic!("CSV online mode only supported from StdIn"),
         };
 
         Ok(Box::new(CsvEventSource { reader: wrapper, record: ByteRecord::new(), mapping, in_types, timer }))
@@ -173,23 +190,17 @@ impl CsvEventSource {
         self.mapping.time_ix
     }
 
-    fn get_time(&mut self) -> Time {
+    fn get_time(&mut self) -> RawTime {
         use self::TimeHandling::*;
         match self.timer {
-            RealTime { start } => Instant::now() - start,
-            FromFile { start } => {
-                let now = self.read_time().unwrap();
-                match start {
-                    None => {
-                        self.timer = FromFile { start: Some(now) };
-                        Time::default()
-                    }
-                    Some(start) => now.duration_since(start).expect("Time did not behave monotonically!"),
-                }
+            RealTime => RawTime::Absolute(SystemTime::now()),
+            FromSrc(time_repr) => {
+                let str = self.str_for_time().unwrap();
+                time_repr.parse(str).unwrap()
             }
             Delayed { delay, ref mut time } => {
                 *time += delay;
-                *time
+                RawTime::Relative(*time)
             }
         }
     }
@@ -230,45 +241,9 @@ impl EventSource for CsvEventSource {
         })
     }
 
-    fn get_event(&mut self) -> (Vec<Value>, Time) {
+    fn get_event(&mut self) -> (Vec<Value>, RawTime) {
         let event = self.read_event();
         let time = self.get_time();
         (event, time)
-    }
-
-    fn read_time(&self) -> Option<SystemTime> {
-        let time_str = self.str_for_time()?;
-        let mut time_str_split = time_str.split('.');
-        let secs_str: &str = match time_str_split.next() {
-            Some(s) => s,
-            None => {
-                eprintln!("error: problem with data source; failed to parse time string {}.", time_str);
-                std::process::exit(1)
-            }
-        };
-        let secs = match secs_str.parse::<u64>() {
-            Ok(u) => u,
-            Err(e) => {
-                eprintln!("error: problem with data source; failed to parse time string {}: {}", time_str, e);
-                std::process::exit(1)
-            }
-        };
-        let d: Duration = if let Some(nanos_str) = time_str_split.next() {
-            let mut chars = nanos_str.chars();
-            let mut nanos: u32 = 0;
-            for _ in 1..=9 {
-                nanos *= 10;
-                if let Some(c) = chars.next() {
-                    if let Some(d) = c.to_digit(10) {
-                        nanos += d;
-                    }
-                }
-            }
-            assert!(time_str_split.next().is_none());
-            Duration::new(secs, nanos)
-        } else {
-            Duration::from_nanos(secs)
-        };
-        Some(UNIX_EPOCH + d)
     }
 }

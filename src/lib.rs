@@ -19,22 +19,23 @@ mod storage;
 #[cfg(test)]
 mod tests;
 
-use crate::basics::OutputHandler;
-use crate::coordination::{Controller, DynamicSchedule};
+use crate::basics::{AbsoluteTimeFormat, OutputHandler};
+use crate::coordination::Controller;
 #[cfg(feature = "pcap_interface")]
 use basics::PCAPInputSource;
 use basics::{CsvInputSource, EventSourceConfig, ExecutionMode, OutputChannel, Statistics, Verbosity};
 use clap::{App, AppSettings, Arg, ArgGroup, SubCommand};
 use rtlola_frontend::mir::RtLolaMir;
 use std::path::PathBuf;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::Arc;
 
-pub use crate::basics::{EvalConfig, Time, TimeFormat, TimeRepresentation};
+pub use crate::basics::{EvalConfig, Time, TimeRepresentation};
 pub use crate::coordination::{
     monitor::{Incremental, Total, TriggerMessages, TriggersWithInfoValues, VerdictRepresentation, Verdicts},
     Event, Monitor,
 };
 pub use crate::storage::Value;
+use std::convert::TryFrom;
 
 // TODO add example to doc
 
@@ -65,6 +66,25 @@ impl Config {
     */
     #[allow(unsafe_code)]
     pub fn new(args: &[String]) -> Self {
+        let time_info_reps = &[
+            "relative",
+            "relative_nanos",
+            "relative_uint_nanos",
+            "relative_secs",
+            "relative_float_secs",
+            "incremental",
+            "incremental_nanos",
+            "incremental_uint_nanos",
+            "incremental_secs",
+            "incremental_float_secs",
+            "absolute",
+            "absolute_unix",
+            "absolute_unix_uint",
+            "absolute_unix_float",
+            "absolute_rfc",
+            "absolute_rfc_3339",
+        ];
+
         let parse_matches = App::new("RTLola")
         .version(env!("CARGO_PKG_VERSION"))
         .author(clap::crate_authors!("\n"))
@@ -131,18 +151,8 @@ impl Config {
                 Arg::with_name("TIMEREPRESENTATION")
                     .help("Sets the trigger time info representation\n")
                     .long("time-info-rep")
-                    .possible_values(&[
-                        "hide",
-                        "relative",
-                        "relative_nanos", "relative_uint_nanos",
-                        "relative_secs", "relative_float_secs",
-                        "relative_human", "relative_human_time",
-                        "absolute",
-                        "absolute_nanos", "absolute_uint_nanos",
-                        "absolute_secs", "absolute_float_secs",
-                        "absolute_human", "absolute_human_time",
-                    ])
-                    .default_value("hide")
+                    .possible_values(time_info_reps)
+                    .default_value("absolute_rfc")
             )
             .arg(
                 Arg::with_name("ONLINE")
@@ -152,12 +162,9 @@ impl Config {
             .arg(
                 Arg::with_name("OFFLINE")
                     .long("offline")
-                    .help("Use the timestamps from the input\nThe column name must be one of [time,timestamp,ts](case insensitive).\nThe column must produce a monotonically increasing sequence of values.")
-            )
-            .group(
-                ArgGroup::with_name("MODE")
-                    .required(true)
-                    .args(&["ONLINE", "OFFLINE"])
+                    .help("Use the timestamps from the input\nThe column name must be one of [time,timestamp,ts](case insensitive).\nThe column must produce a monotonically increasing sequence of values in the given time format.")
+                    .possible_values(time_info_reps)
+                    .default_value("relative_secs")
             )
             .arg(
                 Arg::with_name("INTERPRETED")
@@ -240,18 +247,8 @@ impl Config {
                 Arg::with_name("TIMEREPRESENTATION")
                     .help("Sets the trigger time info representation\n")
                     .long("time-info-rep")
-                    .possible_values(&[
-                        "hide",
-                        "relative",
-                        "relative_nanos", "relative_uint_nanos",
-                        "relative_secs", "relative_float_secs",
-                        "relative_human", "relative_human_time",
-                        "absolute",
-                        "absolute_nanos", "absolute_uint_nanos",
-                        "absolute_secs", "absolute_float_secs",
-                        "absolute_human", "absolute_human_time",
-                    ])
-                    .default_value("hide")
+                    .possible_values(time_info_reps)
+                    .default_value("absolute_rfc")
             )
         )
         .get_matches_from(args);
@@ -321,6 +318,21 @@ impl Config {
             })
         };
 
+        use ExecutionMode::*;
+        let mode = if !ids_mode {
+            if parse_matches.is_present("ONLINE") {
+                Online
+            } else {
+                let time_rep =
+                    TimeRepresentation::try_from(parse_matches.value_of("OFFLINE").unwrap()).expect("Checked by clap");
+                Offline(time_rep)
+            }
+        } else if parse_matches.is_present("NETWORK_INTERFACE") {
+            Online
+        } else {
+            Offline(TimeRepresentation::Absolute(AbsoluteTimeFormat::UnixTimeNanos))
+        };
+
         let src = if ids_mode {
             #[cfg(not(feature = "pcap"))]
             panic!("Cannot use PCAP interface;  Activate \"pcap\" feature.");
@@ -340,9 +352,9 @@ impl Config {
                 }
             }
         } else if let Some(file) = parse_matches.value_of("CSV_INPUT_FILE") {
-            EventSourceConfig::Csv { src: CsvInputSource::file(String::from(file), delay, csv_time_column) }
+            EventSourceConfig::Csv { src: CsvInputSource::file(String::from(file), delay, csv_time_column, mode) }
         } else {
-            EventSourceConfig::Csv { src: CsvInputSource::stdin() }
+            EventSourceConfig::Csv { src: CsvInputSource::stdin(csv_time_column, mode) }
         };
 
         let out = if parse_matches.is_present("STDOUT") {
@@ -364,30 +376,11 @@ impl Config {
             _ => unreachable!(),
         };
 
-        use ExecutionMode::*;
-        let mut mode = Offline;
-        if !ids_mode {
-            if parse_matches.is_present("ONLINE") {
-                mode = Online;
-            }
-        } else if parse_matches.is_present("NETWORK_INTERFACE") {
-            mode = Online;
-        }
+        let time_representation = TimeRepresentation::try_from(parse_matches.value_of("TIMEREPRESENTATION").unwrap())
+            .expect("Checked by clap");
 
-        use TimeFormat::*;
-        use TimeRepresentation::*;
-        let time_representation = match parse_matches.value_of("TIMEREPRESENTATION").unwrap() {
-            "hide" => Hide,
-            "relative_nanos" | "relative_uint_nanos" => Relative(UIntNanos),
-            "relative" | "relative_secs" | "relative_float_secs" => Relative(FloatSecs),
-            "relative_human" | "relative_human_time" => Relative(HumanTime),
-            "absolute_nanos" | "absolute_uint_nanos" => Absolute(UIntNanos),
-            "absolute" | "absolute_secs" | "absolute_float_secs" => Absolute(FloatSecs),
-            "absolute_human" | "absolute_human_time" => Absolute(HumanTime),
-            _ => unreachable!(),
-        };
-
-        let cfg = EvalConfig::new(src, Statistics::None, verbosity, out, mode, time_representation);
+        // Todo: Add start time argument
+        let cfg = EvalConfig::new(src, Statistics::None, verbosity, out, mode, time_representation, None);
 
         Config { cfg, ir }
     }
@@ -396,10 +389,8 @@ impl Config {
     Turns a `Config` that was created through a call to `new_api` into a `Monitor`.
     */
     pub fn as_api<V: VerdictRepresentation>(self) -> Monitor<V> {
-        assert_eq!(self.cfg.mode, ExecutionMode::Api);
-        let output_handler = Arc::new(OutputHandler::new(&self.cfg, self.ir.triggers.len()));
-        let dyn_schedule = Arc::new((Mutex::new(DynamicSchedule::new()), Condvar::new()));
-        Monitor::setup(self.ir, output_handler, self.cfg, dyn_schedule)
+        assert!(matches!(self.cfg.mode, ExecutionMode::Offline(_)));
+        Monitor::setup(self.ir, self.cfg)
     }
 
     /**

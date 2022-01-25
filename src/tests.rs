@@ -1,6 +1,7 @@
 //! End-to-end tests of the RTLola evaluator
 
 use super::*;
+use crate::basics::{AbsoluteTimeFormat, RelativeTimeFormat};
 use std::io::Write;
 use tempfile::NamedTempFile;
 
@@ -9,13 +10,17 @@ fn run(spec: &str, data: &str) -> Result<Arc<OutputHandler>, Box<dyn std::error:
         .unwrap_or_else(|e| panic!("spec is invalid: {:?}", e));
     let mut file = NamedTempFile::new().expect("failed to create temporary file");
     write!(file, "{}", data).expect("writing tempfile failed");
+    let mode = ExecutionMode::Offline(TimeRepresentation::Relative(RelativeTimeFormat::FloatSecs));
     let cfg = EvalConfig::new(
-        EventSourceConfig::Csv { src: CsvInputSource::file(file.path().to_str().unwrap().to_string(), None, None) },
+        EventSourceConfig::Csv {
+            src: CsvInputSource::file(file.path().to_str().unwrap().to_string(), None, None, mode),
+        },
         Statistics::Debug,
         Verbosity::Silent,
         OutputChannel::StdErr,
-        ExecutionMode::Offline,
-        TimeRepresentation::Hide,
+        mode,
+        TimeRepresentation::Absolute(AbsoluteTimeFormat::Rfc3339),
+        None,
     );
     let config = Config { cfg, ir };
     config.run()

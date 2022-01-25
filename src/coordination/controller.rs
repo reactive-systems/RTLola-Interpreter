@@ -3,14 +3,15 @@ use super::time_driven_manager::TimeDrivenManager;
 use super::{WorkItem, CAP_WORK_QUEUE};
 use crate::basics::{EvalConfig, ExecutionMode::*, OutputHandler, Time};
 use crate::coordination::dynamic_schedule::DynamicSchedule;
-use crate::coordination::{EventEvaluation, TimeEvaluation};
+use crate::coordination::TimeEvaluation;
 use crate::evaluator::{Evaluator, EvaluatorData};
+use crate::Value;
 use crossbeam_channel::{bounded, unbounded};
 use rtlola_frontend::mir::RtLolaMir;
 use std::error::Error;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
-use std::time::Instant;
+use std::time::SystemTime;
 
 pub(crate) struct Controller {
     ir: RtLolaMir,
@@ -34,9 +35,8 @@ impl Controller {
     pub(crate) fn start(self) -> Result<Arc<OutputHandler>, Box<dyn Error>> {
         // TODO: Returning the Arc here makes no sense, fix asap.
         match self.config.mode {
-            Offline => self.evaluate_offline().map(|_| self.output_handler),
+            Offline(_) => self.evaluate_offline().map(|_| self.output_handler),
             Online => self.evaluate_online().map(|_| self.output_handler),
-            Api => unreachable!(),
         }
     }
 
@@ -44,8 +44,9 @@ impl Controller {
     /// and fetches/expects events from specified input source.
     fn evaluate_online(&self) -> Result<(), Box<dyn Error>> {
         let (work_tx, work_rx) = unbounded();
-        let now = Instant::now();
+        let now = SystemTime::now();
         let copy_output_handler = self.output_handler.clone();
+        copy_output_handler.set_start_time(now);
 
         if self.ir.has_time_driven_features() {
             let work_tx_clone = work_tx.clone();
@@ -69,13 +70,7 @@ impl Controller {
         });
 
         let copy_output_handler = self.output_handler.clone();
-        let evaluatordata = EvaluatorData::new(
-            self.ir.clone(),
-            self.config.clone(),
-            copy_output_handler,
-            Some(now),
-            self.dyn_schedule.clone(),
-        );
+        let evaluatordata = EvaluatorData::new(self.ir.clone(), copy_output_handler, self.dyn_schedule.clone());
 
         let mut evaluator = evaluatordata.into_evaluator();
 
@@ -101,7 +96,7 @@ impl Controller {
     fn evaluate_offline(&self) -> Result<(), Box<dyn Error>> {
         // Use a bounded channel for offline mode, as we "control" time.
         let (work_tx, work_rx) = bounded(CAP_WORK_QUEUE);
-        let (time_tx, time_rx) = bounded(1);
+        let now = SystemTime::now();
 
         // Setup EventDrivenManager
         let output_copy_handler = self.output_handler.clone();
@@ -110,21 +105,12 @@ impl Controller {
         let edm_thread = thread::Builder::new()
             .name("EventDrivenManager".into())
             .spawn(move || {
-                let event_manager = EventDrivenManager::setup(ir_clone, cfg_clone, output_copy_handler, Instant::now());
+                let event_manager = EventDrivenManager::setup(ir_clone, cfg_clone, output_copy_handler, now);
                 event_manager
-                    .start_offline(work_tx, time_tx)
+                    .start_offline(work_tx)
                     .unwrap_or_else(|e| unreachable!("EventDrivenManager failed: {}", e));
             })
             .unwrap_or_else(|e| unreachable!("Failed to start EventDrivenManager thread: {}", e));
-
-        // Get start time
-        let start_time = match time_rx.recv() {
-            Err(e) => unreachable!("Did not receive a start event in offline mode! {}", e),
-            Ok(ts) => ts,
-        };
-        let mut start_time_ref = self.output_handler.start_time.lock().unwrap();
-        *start_time_ref = start_time;
-        drop(start_time_ref);
 
         // Setup TimeDrivenManager
         let ir_clone = self.ir.clone();
@@ -133,13 +119,7 @@ impl Controller {
 
         // Setup Evaluator
         let output_copy_handler = self.output_handler.clone();
-        let evaluatordata = EvaluatorData::new(
-            self.ir.clone(),
-            self.config.clone(),
-            output_copy_handler,
-            Some(Instant::now()),
-            self.dyn_schedule.clone(),
-        );
+        let evaluatordata = EvaluatorData::new(self.ir.clone(), output_copy_handler, self.dyn_schedule.clone());
         let mut evaluator = evaluatordata.into_evaluator();
 
         let mut current_time = Time::default();
@@ -176,7 +156,7 @@ impl Controller {
     }
 
     #[inline]
-    pub(crate) fn evaluate_event_item(&self, evaluator: &mut Evaluator, e: &EventEvaluation, ts: Time) {
+    pub(crate) fn evaluate_event_item(&self, evaluator: &mut Evaluator, e: &[Value], ts: Time) {
         self.output_handler.new_event();
         evaluator.eval_event(e, ts)
     }
