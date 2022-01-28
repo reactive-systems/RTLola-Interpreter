@@ -34,7 +34,7 @@ impl AddAssign<u128> for EventDrivenCycleCount {
 
 pub(crate) struct EventDrivenManager {
     current_cycle: EventDrivenCycleCount,
-    out_handler: Arc<OutputHandler>,
+    output_handler: Arc<OutputHandler>,
     event_source: Box<dyn EventSource>,
     last_event_time: Duration,
     time_repr: TimeRepresentation,
@@ -49,25 +49,24 @@ impl EventDrivenManager {
         out_handler: Arc<OutputHandler>,
         monitor_start: SystemTime,
     ) -> EventDrivenManager {
-        let event_source = match create_event_source(config.source.clone(), &ir) {
+        let EvalConfig { source, start_time, mode, .. } = config;
+        let event_source = match create_event_source(source, &ir) {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("Cannot create input reader: {}", e);
                 std::process::exit(1);
             }
         };
-        let time_repr = match config.mode {
+        let time_repr = match mode {
             ExecutionMode::Offline(tr) => tr,
             //Exact time format does not matter here
             ExecutionMode::Online => TimeRepresentation::Absolute(AbsoluteTimeFormat::UnixTimeFloat),
         };
 
         let start_time = match time_repr {
-            TimeRepresentation::Relative(_) | TimeRepresentation::Incremental(_) => {
-                config.start_time.or(Some(monitor_start))
-            }
-            // Default time should be the one of first event
-            TimeRepresentation::Absolute(_) => None,
+            TimeRepresentation::Relative(_) | TimeRepresentation::Incremental(_) => start_time.or(Some(monitor_start)),
+            // If None, Default time should be the one of first event
+            TimeRepresentation::Absolute(_) => start_time,
         };
         if let Some(start_time) = start_time {
             out_handler.set_start_time(start_time);
@@ -75,7 +74,7 @@ impl EventDrivenManager {
 
         Edm {
             current_cycle: 0.into(),
-            out_handler,
+            output_handler: out_handler,
             event_source,
             last_event_time: Duration::default(),
             time_repr,
@@ -94,7 +93,7 @@ impl EventDrivenManager {
                 let t = time.absolute();
                 if self.start_time.is_none() {
                     self.start_time = Some(t);
-                    self.out_handler.set_start_time(t);
+                    self.output_handler.set_start_time(t);
                 }
                 t.duration_since(self.start_time.unwrap()).expect("Time did not behave monotonically!")
             }
@@ -112,10 +111,10 @@ impl EventDrivenManager {
             }
             let (event, raw_time) = self.event_source.get_event();
             let time = self.finalize_time(raw_time);
-            self.out_handler.new_input(time);
+            self.output_handler.new_input(time);
             match work_queue.send(WorkItem::Event(event, time)) {
                 Ok(_) => {}
-                Err(e) => self.out_handler.runtime_warning(|| format!("Error when sending work item. {}", e)),
+                Err(e) => self.output_handler.runtime_warning(|| format!("Error when sending work item. {}", e)),
             }
             self.current_cycle += 1;
         }
@@ -138,7 +137,7 @@ impl EventDrivenManager {
             }
             match work_queue.send(local_queue) {
                 Ok(_) => {}
-                Err(e) => self.out_handler.runtime_warning(|| format!("Error when sending local queue. {}", e)),
+                Err(e) => self.output_handler.runtime_warning(|| format!("Error when sending local queue. {}", e)),
             }
         }
     }

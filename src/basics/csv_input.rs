@@ -9,6 +9,7 @@ use rtlola_frontend::mir::{RtLolaMir, Type};
 use std::error::Error;
 use std::fs::File;
 use std::io::stdin;
+use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
 #[derive(Debug, Clone)]
@@ -32,12 +33,12 @@ pub struct CsvInputSource {
 #[derive(Debug, Clone)]
 pub enum CsvInputSourceKind {
     StdIn,
-    File { path: String, delay: Option<Duration> },
+    File { path: PathBuf, delay: Option<Duration> },
 }
 
 impl CsvInputSource {
     pub fn file(
-        path: String,
+        path: PathBuf,
         delay: Option<Duration>,
         time_col: Option<usize>,
         exec_mode: ExecutionMode,

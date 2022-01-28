@@ -12,6 +12,7 @@ use pcap::{Activated, Capture, Device, Error as PCAPError};
 use rtlola_frontend::mir::RtLolaMir;
 use std::error::Error;
 use std::net::IpAddr;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -419,7 +420,7 @@ fn get_packet_protocol(packet: &SlicedPacket) -> Value {
 #[derive(Debug, Clone)]
 pub enum PCAPInputSource {
     Device { name: String, local_network: String },
-    File { path: String, delay: Option<Duration>, local_network: String },
+    File { path: PathBuf, delay: Option<Duration>, local_network: String },
 }
 
 enum TimeHandling {

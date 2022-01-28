@@ -1,6 +1,9 @@
-use super::{EventSourceConfig, OutputChannel};
+use super::OutputChannel;
 use crate::basics::io_handler::RawTime;
 use crate::basics::CsvInputSource;
+use crate::EventSourceConfig;
+use clap::ArgEnum;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -28,7 +31,16 @@ pub enum Statistics {
     Debug,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+impl From<Verbosity> for Statistics {
+    fn from(v: Verbosity) -> Self {
+        match v {
+            Verbosity::Progress | Verbosity::Debug => Statistics::Debug,
+            Verbosity::Silent | Verbosity::WarningsOnly | Verbosity::Triggers | Verbosity::Outputs => Statistics::None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, ArgEnum)]
 pub enum Verbosity {
     /// Suppresses any kind of logging.
     Silent,
@@ -44,6 +56,12 @@ pub enum Verbosity {
     Outputs,
     /// Prints fine-grained debug information. Not suitable for production.
     Debug,
+}
+
+impl Default for Verbosity {
+    fn default() -> Self {
+        Verbosity::Triggers
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -89,7 +107,6 @@ impl std::convert::TryFrom<&str> for TimeRepresentation {
             "incremental" | "incremental_secs" | "incremental_float_secs" => Incremental(RelativeTimeFormat::FloatSecs),
             "incremental_nanos" | "incremental_uint_nanos" => Incremental(RelativeTimeFormat::UIntNanos),
             "absolute" | "absolute_rfc" | "absolute_rfc_3339" => Absolute(AbsoluteTimeFormat::Rfc3339),
-            "absolute_unix_nanos" | "absolute_unix_uint_nanos" => Absolute(AbsoluteTimeFormat::UnixTimeNanos),
             "absolute_unix_float" => Absolute(AbsoluteTimeFormat::UnixTimeFloat),
             _ => return Err(()),
         })
@@ -105,7 +122,7 @@ pub enum RelativeTimeFormat {
 }
 
 impl RelativeTimeFormat {
-    pub(crate) fn parse_str(&self, s: &str) -> Result<Duration, String> {
+    pub fn parse_str(&self, s: &str) -> Result<Duration, String> {
         match self {
             RelativeTimeFormat::UIntNanos => {
                 let nanos = u64::from_str(s).map_err(|e| e.to_string())?;
@@ -135,8 +152,6 @@ impl RelativeTimeFormat {
 pub enum AbsoluteTimeFormat {
     /// Time given as a string in the Rfc3339 format
     Rfc3339,
-    /// Time given as a unsigned integer representing the unix timestamp in nano seconds
-    UnixTimeNanos,
     /// Time given as a float representing the unix timestamp and a fraction of seconds
     UnixTimeFloat,
 }
@@ -145,7 +160,6 @@ impl AbsoluteTimeFormat {
     pub(crate) fn parse_str(&self, s: &str) -> Result<SystemTime, String> {
         match self {
             AbsoluteTimeFormat::Rfc3339 => humantime::parse_rfc3339(s).map_err(|e| e.to_string()),
-            AbsoluteTimeFormat::UnixTimeNanos => RelativeTimeFormat::UIntNanos.parse_str(s).map(|dur| UNIX_EPOCH + dur),
             AbsoluteTimeFormat::UnixTimeFloat => RelativeTimeFormat::FloatSecs.parse_str(s).map(|dur| UNIX_EPOCH + dur),
         }
     }
@@ -184,7 +198,7 @@ impl EvalConfig {
         start_time: Option<SystemTime>,
     ) -> Self {
         EvalConfig::new(
-            EventSourceConfig::Csv { src: CsvInputSource::file(path, None, None, mode) },
+            EventSourceConfig::Csv { src: CsvInputSource::file(PathBuf::from(path), None, None, mode) },
             Statistics::None,
             Verbosity::Triggers,
             output,

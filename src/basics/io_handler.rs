@@ -14,6 +14,7 @@ use rtlola_frontend::mir::RtLolaMir;
 use std::error::Error;
 use std::fs::File;
 use std::io::{stderr, stdout, Write};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
@@ -87,7 +88,7 @@ pub(crate) fn create_event_source(
 pub enum OutputChannel {
     StdOut,
     StdErr,
-    File(String),
+    File(PathBuf),
     None,
 }
 
@@ -163,7 +164,6 @@ impl OutputHandler {
                 // Convert to unix timestamp
                 let absolute = time.duration_since(UNIX_EPOCH).expect("Computation of duration failed!");
                 match format {
-                    UnixTimeNanos => format!("{}", absolute.as_nanos()),
                     UnixTimeFloat => format!("{}.{:09}", absolute.as_secs(), absolute.subsec_nanos()),
                     Rfc3339 => format!("{}", humantime::format_rfc3339(time)),
                 }

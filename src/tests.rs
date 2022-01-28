@@ -12,9 +12,7 @@ fn run(spec: &str, data: &str) -> Result<Arc<OutputHandler>, Box<dyn std::error:
     write!(file, "{}", data).expect("writing tempfile failed");
     let mode = ExecutionMode::Offline(TimeRepresentation::Relative(RelativeTimeFormat::FloatSecs));
     let cfg = EvalConfig::new(
-        EventSourceConfig::Csv {
-            src: CsvInputSource::file(file.path().to_str().unwrap().to_string(), None, None, mode),
-        },
+        EventSourceConfig::Csv { src: CsvInputSource::file(file.path().to_path_buf(), None, None, mode) },
         Statistics::Debug,
         Verbosity::Silent,
         OutputChannel::StdErr,

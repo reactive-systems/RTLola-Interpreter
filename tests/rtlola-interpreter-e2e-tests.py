@@ -60,7 +60,7 @@ def print_trigger_too_many(message, expected, actual):
 
 
 def run_offline():
-    res = subprocess.run([rtlola_interpreter_executable_path_string, "monitor", "--offline", "--stdout", "--verbosity", "outputs", str(spec_file), "--csv-in", str(input_file)] + config, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=str(repo_base_dir), universal_newlines=True, timeout=10)
+    res = subprocess.run([rtlola_interpreter_executable_path_string, "monitor", "--offline", "relative-secs", "--stdout", "--verbosity", "outputs", str(spec_file), "--csv-in", str(input_file)] + config, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=str(repo_base_dir), universal_newlines=True, timeout=10)
     return res.returncode, iter(res.stdout.split("\n"))
 
 def run_online():
@@ -144,7 +144,7 @@ return_code = 0
 
 with open("e2e-results.xml", 'w') as results_file:
     testcases = []
-    for (mode, config) in [('closure', []), ('time-info', ["--time-info-rep", "relative_secs"])]:
+    for (mode, config) in [('closure', []), ('time-info', ["--output-time-format", "relative-secs"])]:
         check_time_info = "--time-info-rep" in config
         for test_file in tests:
             with test_file.open() as fd:
