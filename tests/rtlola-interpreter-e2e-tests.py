@@ -69,7 +69,7 @@ def run_online():
     time_idx = input_lines[0].split(',').index("time")
 
     out_file = open("temp_test_output.txt", "w+")
-    monitor = subprocess.Popen([rtlola_interpreter_executable_path_string, "monitor", "--online", "--stdout", "--verbosity", "outputs", str(spec_file)] + config, stdout=out_file, stderr=subprocess.STDOUT, cwd=str(repo_base_dir), stdin=subprocess.PIPE, universal_newlines=True)
+    monitor = subprocess.Popen([rtlola_interpreter_executable_path_string, "monitor", "--online", "--stdout", "--verbosity", "outputs", "--stdin", str(spec_file)] + config, stdout=out_file, stderr=subprocess.STDOUT, cwd=str(repo_base_dir), stdin=subprocess.PIPE, universal_newlines=True)
 
     # write csv header
     monitor.stdin.write(input_lines[0]+os.linesep)
