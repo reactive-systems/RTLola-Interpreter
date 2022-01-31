@@ -7,7 +7,7 @@ use rtlola_frontend::mir::{
     InputReference, MemorizationBound, OutputReference, OutputStream, RtLolaMir, Stream, StreamReference, Type,
     WindowOperation, WindowReference,
 };
-use std::collections::{HashMap, VecDeque, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
 
 /// The collection of all instances of a parameterized stream
@@ -62,7 +62,7 @@ impl InstanceCollection {
     }
 
     /// Returns an iterator over all instances that got a new value
-    pub(crate) fn fresh(&self) -> impl Iterator<Item=&Vec<Value>> {
+    pub(crate) fn fresh(&self) -> impl Iterator<Item = &Vec<Value>> {
         self.fresh.iter()
     }
 

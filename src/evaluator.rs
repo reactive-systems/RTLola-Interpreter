@@ -1,5 +1,6 @@
 use crate::basics::{OutputHandler, Time};
 use crate::closuregen::{CompiledExpr, Expr};
+use crate::coordination::monitor::StreamState;
 use crate::coordination::{DynamicSchedule, EvaluationTask};
 use crate::storage::{GlobalStore, Value};
 use bit_set::BitSet;
@@ -7,9 +8,9 @@ use rtlola_frontend::mir::{
     ActivationCondition as Activation, InputReference, OutputReference, PacingType, RtLolaMir, Stream, StreamReference,
     Task, TimeDrivenStream, Trigger, WindowReference,
 };
+use std::ops::Not;
 use std::sync::{Arc, Condvar, Mutex};
 use string_template::Template;
-use crate::coordination::monitor::StreamState;
 
 /// Enum to describe the activation condition of a stream; If the activation condition is described by a conjunction, the evaluator uses a bitset representation.
 #[derive(Debug)]
@@ -256,7 +257,12 @@ impl Evaluator {
             .map(|elem| {
                 let stream = StreamReference::Out(elem);
                 if self.ir.output(stream).is_parameterized() {
-                    let values = self.global_store.get_out_instance_collection(elem).fresh().map(|para| (para.clone(), self.peek_value(stream, para, 0).expect("Marked as fresh"))).collect();
+                    let values = self
+                        .global_store
+                        .get_out_instance_collection(elem)
+                        .fresh()
+                        .map(|para| (para.clone(), self.peek_value(stream, para, 0).expect("Marked as fresh")))
+                        .collect();
                     (elem, StreamState::Parameterized(values))
                 } else {
                     (elem, StreamState::NonParameterized(self.peek_value(stream, &[], 0).expect("Marked as fresh.")))
@@ -278,17 +284,25 @@ impl Evaluator {
 
     /// NOT for external use because the values are volatile
     pub(crate) fn peek_outputs(&self) -> Vec<Option<StreamState>> {
-        self.ir.outputs.iter().map(|elem| {
-            if elem.is_parameterized() {
-                let ix = elem.reference.out_ix();
-                self.fresh_outputs.contains(ix).then(|| {
-                    let values = self.global_store.get_out_instance_collection(ix).fresh().map(|para| (para.clone(), self.peek_value(elem.reference, para.as_ref(), 0).expect("Marked as fresh"))).collect();
-                    StreamState::Parameterized(values)
-                })
-            } else {
-                self.peek_value(elem.reference, &[], 0).map(|v| StreamState::NonParameterized(v))
-            }
-        }).collect()
+        self.ir
+            .outputs
+            .iter()
+            .map(|elem| {
+                if elem.is_parameterized() {
+                    let ix = elem.reference.out_ix();
+                    let values: Vec<(Vec<Value>, Value)> = self
+                        .global_store
+                        .get_out_instance_collection(ix)
+                        .all_instances()
+                        .iter()
+                        .filter_map(|para| self.peek_value(elem.reference, para.as_ref(), 0).map(|v| (para.clone(), v)))
+                        .collect();
+                    values.is_empty().not().then(|| StreamState::Parameterized(values))
+                } else {
+                    self.peek_value(elem.reference, &[], 0).map(StreamState::NonParameterized)
+                }
+            })
+            .collect()
     }
 
     fn accept_inputs(&mut self, event: &[Value], ts: Time) {

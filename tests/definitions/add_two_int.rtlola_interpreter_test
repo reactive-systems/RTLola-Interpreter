@@ -7,7 +7,7 @@
     "c is too large": {
       "expected_count": 1,
       "time_info": [
-        "1547627523.600536000"
+        "0.600536000"
       ]
     }
   }

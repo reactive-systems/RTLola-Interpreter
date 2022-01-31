@@ -145,7 +145,7 @@ return_code = 0
 with open("e2e-results.xml", 'w') as results_file:
     testcases = []
     for (mode, config) in [('closure', []), ('time-info', ["--output-time-format", "relative-secs"])]:
-        check_time_info = "--time-info-rep" in config
+        check_time_info = "--output-time-format" in config
         for test_file in tests:
             with test_file.open() as fd:
                 test_json = json.load(fd)
