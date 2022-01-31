@@ -1,4 +1,4 @@
-use crate::basics::{EvalConfig, ExecutionMode, OutputHandler, Time};
+use crate::basics::{OutputHandler, Time};
 use crate::closuregen::{CompiledExpr, Expr};
 use crate::coordination::{DynamicSchedule, EvaluationTask};
 use crate::storage::{GlobalStore, Value};
@@ -8,7 +8,6 @@ use rtlola_frontend::mir::{
     Task, TimeDrivenStream, Trigger, WindowReference,
 };
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Instant;
 use string_template::Template;
 
 /// Enum to describe the activation condition of a stream; If the activation condition is described by a conjunction, the evaluator uses a bitset representation.
@@ -28,8 +27,6 @@ pub(crate) struct EvaluatorData {
     spawn_activation_conditions: Vec<ActivationConditionOp>,
     close_activation_conditions: Vec<ActivationConditionOp>,
     global_store: GlobalStore,
-    start_time: Instant,
-    first_event: Option<Time>,
     fresh_inputs: BitSet,
     fresh_outputs: BitSet,
     fresh_triggers: BitSet,
@@ -39,7 +36,6 @@ pub(crate) struct EvaluatorData {
     closing_streams: Vec<OutputReference>,
     ir: RtLolaMir,
     handler: Arc<OutputHandler>,
-    config: EvalConfig,
     dyn_schedule: Arc<(Mutex<DynamicSchedule>, Condvar)>,
 }
 
@@ -63,8 +59,6 @@ pub(crate) struct Evaluator {
     // Accessed by stream index
     compiled_close_exprs: Vec<CompiledExpr>,
     global_store: &'static mut GlobalStore,
-    start_time: &'static Instant,
-    first_event: &'static mut Option<Time>,
     fresh_inputs: &'static mut BitSet,
     fresh_outputs: &'static mut BitSet,
     fresh_triggers: &'static mut BitSet,
@@ -77,7 +71,6 @@ pub(crate) struct Evaluator {
     closing_streams: &'static [OutputReference],
     ir: &'static RtLolaMir,
     handler: &'static OutputHandler,
-    config: &'static EvalConfig,
     dyn_schedule: &'static (Mutex<DynamicSchedule>, Condvar),
     raw_data: *mut EvaluatorData,
 }
@@ -93,9 +86,7 @@ pub(crate) struct EvaluationContext<'e> {
 impl EvaluatorData {
     pub(crate) fn new(
         ir: RtLolaMir,
-        config: EvalConfig,
         handler: Arc<OutputHandler>,
-        start_time: Option<Instant>,
         dyn_schedule: Arc<(Mutex<DynamicSchedule>, Condvar)>,
     ) -> Self {
         // Layers of event based output streams
@@ -150,15 +141,12 @@ impl EvaluatorData {
             time_driven_streams[t.reference.out_ix()] = Some(*t);
         }
         let trigger_templates = triggers.iter().map(|t| t.as_ref().map(|t| Template::new(&t.message))).collect();
-        let start_time = start_time.unwrap_or_else(Instant::now);
         EvaluatorData {
             layers,
             stream_activation_conditions: stream_acs,
             spawn_activation_conditions: spawn_acs,
             close_activation_conditions: close_acs,
             global_store,
-            start_time,
-            first_event: None,
             fresh_inputs,
             fresh_outputs,
             fresh_triggers,
@@ -168,7 +156,6 @@ impl EvaluatorData {
             closing_streams,
             ir,
             handler,
-            config,
             dyn_schedule,
         }
     }
@@ -230,8 +217,6 @@ impl EvaluatorData {
             compiled_spawn_exprs,
             compiled_close_exprs,
             global_store: &mut leaked_data.global_store,
-            start_time: &leaked_data.start_time,
-            first_event: &mut leaked_data.first_event,
             fresh_inputs: &mut leaked_data.fresh_inputs,
             fresh_outputs: &mut leaked_data.fresh_outputs,
             fresh_triggers: &mut leaked_data.fresh_triggers,
@@ -241,7 +226,6 @@ impl EvaluatorData {
             closing_streams: &leaked_data.closing_streams,
             ir: &leaked_data.ir,
             handler: &leaked_data.handler,
-            config: &leaked_data.config,
             dyn_schedule: &leaked_data.dyn_schedule,
             raw_data: heap_ptr,
         }
@@ -256,14 +240,12 @@ impl Drop for Evaluator {
 }
 
 impl Evaluator {
+    /// Values of event are expected in the order of the input streams
+    /// Time should be relative to the starting time of the monitor
     pub(crate) fn eval_event(&mut self, event: &[Value], ts: Time) {
-        if self.first_event.is_none() {
-            *self.first_event = Some(ts);
-        }
-        let relative_ts = self.relative_time(ts);
         self.clear_freshness();
-        self.accept_inputs(event, relative_ts);
-        self.eval_event_driven(relative_ts);
+        self.accept_inputs(event, ts);
+        self.eval_event_driven(ts);
     }
 
     /// NOT for external use because the values are volatile
@@ -288,18 +270,6 @@ impl Evaluator {
     /// NOT for external use because the values are volatile
     pub(crate) fn peek_outputs(&self) -> Vec<Option<Value>> {
         self.ir.outputs.iter().map(|elem| self.peek_value(elem.reference, &[], 0)).collect()
-    }
-
-    fn relative_time(&self, ts: Time) -> Time {
-        if self.is_online() {
-            self.start_time.elapsed()
-        } else {
-            ts - self.first_event.expect("time can only be computed after receiving the first event")
-        }
-    }
-
-    fn is_online(&self) -> bool {
-        self.config.mode == ExecutionMode::Online
     }
 
     fn accept_inputs(&mut self, event: &[Value], ts: Time) {
@@ -484,18 +454,16 @@ impl Evaluator {
         }
     }
 
+    /// Time is expected to be relative to the start of the monitor
     pub(crate) fn eval_time_driven_tasks(&mut self, tasks: Vec<EvaluationTask>, ts: Time) {
         if tasks.is_empty() {
             return;
         }
-        let relative_ts = self.relative_time(ts);
         self.clear_freshness();
-        self.prepare_evaluation(relative_ts);
+        self.prepare_evaluation(ts);
         for task in tasks {
             match task {
-                EvaluationTask::Evaluate(idx, parameter) => {
-                    self.eval_stream_instance(idx, parameter.as_slice(), relative_ts)
-                }
+                EvaluationTask::Evaluate(idx, parameter) => self.eval_stream_instance(idx, parameter.as_slice(), ts),
                 EvaluationTask::Spawn(idx) => self.eval_spawn(idx, ts),
                 EvaluationTask::Close(idx, parameter) => self.eval_close(idx, parameter.as_slice(), ts),
             }
@@ -630,7 +598,7 @@ impl Evaluator {
     fn as_EvaluationContext(&mut self, parameter: Vec<Value>, ts: Time) -> EvaluationContext {
         EvaluationContext {
             ts,
-            global_store: &mut self.global_store,
+            global_store: self.global_store,
             fresh_inputs: self.fresh_inputs,
             fresh_outputs: self.fresh_outputs,
             parameter,
@@ -770,6 +738,7 @@ mod tests {
     use super::*;
     use crate::coordination::dynamic_schedule::*;
     use crate::storage::Value::*;
+    use crate::EvalConfig;
     use ordered_float::NotNan;
     use rtlola_frontend::mir::RtLolaMir;
     use rtlola_frontend::ParserConfig;
@@ -784,7 +753,7 @@ mod tests {
         let cond = Condvar::new();
         let dyn_schedule = Arc::new((Mutex::new(DynamicSchedule::new()), cond));
         let now = Instant::now();
-        let eval = EvaluatorData::new(ir.clone(), config, handler, Some(now), dyn_schedule);
+        let eval = EvaluatorData::new(ir.clone(), handler, dyn_schedule);
         (ir, eval, now)
     }
 

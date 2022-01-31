@@ -2,19 +2,44 @@
 
 extern crate test;
 
-use rtlola_interpreter::Config;
+use rtlola_interpreter::{
+    AbsoluteTimeFormat, Config, CsvInputSource, EvalConfig, EventSourceConfig, ExecutionMode, OutputChannel,
+    RelativeTimeFormat, Statistics, TimeRepresentation, Verbosity,
+};
+use std::path::PathBuf;
 use test::Bencher;
 
+fn setup(spec: &str, trace: &str) -> Config {
+    let eval_conf = EvalConfig::new(
+        EventSourceConfig::Csv {
+            src: CsvInputSource::file(
+                PathBuf::from(trace),
+                None,
+                None,
+                ExecutionMode::Offline(TimeRepresentation::Absolute(AbsoluteTimeFormat::UnixTimeFloat)),
+            ),
+        },
+        Statistics::None,
+        Verbosity::Silent,
+        OutputChannel::None,
+        ExecutionMode::Offline(TimeRepresentation::Absolute(AbsoluteTimeFormat::UnixTimeFloat)),
+        TimeRepresentation::Absolute(AbsoluteTimeFormat::Rfc3339),
+        None,
+    );
+    let config = rtlola_frontend::ParserConfig::from_path(PathBuf::from(spec)).unwrap_or_else(|e| {
+        eprintln!("{}", e);
+        std::process::exit(1)
+    });
+    let handler = rtlola_frontend::Handler::from(config.clone());
+    let ir = rtlola_frontend::parse(config).unwrap_or_else(|e| {
+        handler.emit_error(&e);
+        std::process::exit(1);
+    });
+    Config::new(eval_conf, ir)
+}
 #[bench]
 fn endtoend_semi_complex_spec(b: &mut Bencher) {
-    let config = Config::new(&[
-        "rtlola-interpreter".to_string(),
-        "monitor".to_string(),
-        "traces/spec_offline.lola".to_string(),
-        "--csv-in=traces/timed/trace_0.csv".to_string(),
-        "--verbosity=silent".to_string(),
-        "--offline".to_string(),
-    ]);
+    let config = setup("traces/spec_offline.lola", "traces/timed/trace_0.csv");
     b.iter(|| {
         config.clone().run().unwrap_or_else(|e| panic!("E2E test failed: {}", e));
     });

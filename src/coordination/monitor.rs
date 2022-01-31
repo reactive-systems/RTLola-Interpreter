@@ -109,14 +109,12 @@ pub struct Monitor<V: VerdictRepresentation = Incremental> {
 /// Crate-public interface
 impl<V: VerdictRepresentation> Monitor<V> {
     ///setup
-    pub(crate) fn setup(
-        ir: RtLolaMir,
-        output_handler: Arc<OutputHandler>,
-        config: EvalConfig,
-        dyn_schedule: Arc<(Mutex<DynamicSchedule>, Condvar)>,
-    ) -> Monitor<V> {
+    pub(crate) fn setup(ir: RtLolaMir, config: EvalConfig) -> Monitor<V> {
+        let output_handler = Arc::new(OutputHandler::new(&config, ir.triggers.len()));
+        let dyn_schedule = Arc::new((Mutex::new(DynamicSchedule::new()), Condvar::new()));
+
         // Note: start_time only accessed in online mode.
-        let eval_data = EvaluatorData::new(ir.clone(), config, output_handler.clone(), None, dyn_schedule);
+        let eval_data = EvaluatorData::new(ir.clone(), output_handler.clone(), dyn_schedule);
 
         let deadlines: Vec<Deadline> = if ir.time_driven.is_empty() {
             vec![]

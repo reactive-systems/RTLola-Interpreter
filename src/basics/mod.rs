@@ -6,9 +6,11 @@ mod pcap_input;
 
 pub type Time = Duration;
 
-pub use self::config::{EvalConfig, ExecutionMode, Statistics, TimeFormat, TimeRepresentation, Verbosity};
-pub use self::io_handler::OutputChannel;
-pub(crate) use self::io_handler::{create_event_source, EventSource, EventSourceConfig, OutputHandler};
+pub use self::config::{
+    AbsoluteTimeFormat, EvalConfig, ExecutionMode, RelativeTimeFormat, Statistics, TimeRepresentation, Verbosity,
+};
+pub(crate) use self::io_handler::{create_event_source, EventSource, OutputHandler, RawTime};
+pub use self::io_handler::{EventSourceConfig, OutputChannel};
 
 pub use self::csv_input::{CsvEventSource, CsvInputSource};
 

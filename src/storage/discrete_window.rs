@@ -11,13 +11,14 @@ pub(crate) struct DiscreteWindowInstance<IV: WindowIv> {
     next_bucket: usize,
     wait: bool,
     active: bool,
+    received_vals: usize,
 }
 
 impl<IV: WindowIv> DiscreteWindowInstance<IV> {
     /// Creates a new discrete window instance
     pub(crate) fn new(size: usize, wait: bool, ts: Time, active: bool) -> DiscreteWindowInstance<IV> {
         let buckets = VecDeque::from(vec![IV::default(ts); size]);
-        DiscreteWindowInstance { buckets, next_bucket: 0, wait, active }
+        DiscreteWindowInstance { buckets, next_bucket: 0, wait, active, received_vals: 0 }
     }
 }
 
@@ -28,6 +29,9 @@ impl<IV: WindowIv> WindowInstanceTrait for DiscreteWindowInstance<IV> {
             return IV::default(ts).into();
         }
         let size = self.buckets.len();
+        if self.wait && self.received_vals < size {
+            return Value::None;
+        }
         self.buckets
             .iter()
             .cycle()
@@ -41,6 +45,9 @@ impl<IV: WindowIv> WindowInstanceTrait for DiscreteWindowInstance<IV> {
         let b = self.buckets.get_mut(self.next_bucket).expect("Bug!");
         *b = (v, ts).into(); // TODO: Require add_assign rather than add.
         self.next_bucket = (self.next_bucket + 1) % self.buckets.len();
+        if self.received_vals < self.buckets.len() {
+            self.received_vals += 1;
+        }
     }
 
     fn update_buckets(&mut self, _ts: Time) {}

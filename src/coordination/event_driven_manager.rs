@@ -1,12 +1,15 @@
-use crate::basics::{create_event_source, EvalConfig, EventSource, OutputHandler};
+use crate::basics::{
+    create_event_source, AbsoluteTimeFormat, EvalConfig, EventSource, ExecutionMode, OutputHandler, RawTime,
+};
 use crate::coordination::{WorkItem, CAP_LOCAL_QUEUE};
 use crate::storage::Value;
+use crate::{Time, TimeRepresentation};
 use crossbeam_channel::Sender;
 use rtlola_frontend::mir::RtLolaMir;
 use std::error::Error;
 use std::ops::AddAssign;
 use std::sync::Arc;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
 pub(crate) type EventEvaluation = Vec<Value>;
 
@@ -31,8 +34,11 @@ impl AddAssign<u128> for EventDrivenCycleCount {
 
 pub(crate) struct EventDrivenManager {
     current_cycle: EventDrivenCycleCount,
-    out_handler: Arc<OutputHandler>,
+    output_handler: Arc<OutputHandler>,
     event_source: Box<dyn EventSource>,
+    last_event_time: Duration,
+    time_repr: TimeRepresentation,
+    start_time: Option<SystemTime>,
 }
 
 impl EventDrivenManager {
@@ -41,17 +47,57 @@ impl EventDrivenManager {
         ir: RtLolaMir,
         config: EvalConfig,
         out_handler: Arc<OutputHandler>,
-        start_time: Instant,
+        monitor_start: SystemTime,
     ) -> EventDrivenManager {
-        let event_source = match create_event_source(config.source, &ir, start_time) {
+        let EvalConfig { source, start_time, mode, .. } = config;
+        let event_source = match create_event_source(source, &ir) {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("Cannot create input reader: {}", e);
                 std::process::exit(1);
             }
         };
+        let time_repr = match mode {
+            ExecutionMode::Offline(tr) => tr,
+            //Exact time format does not matter here
+            ExecutionMode::Online => TimeRepresentation::Absolute(AbsoluteTimeFormat::UnixTimeFloat),
+        };
 
-        Edm { current_cycle: 0.into(), out_handler, event_source }
+        let start_time = match time_repr {
+            TimeRepresentation::Relative(_) | TimeRepresentation::Incremental(_) => start_time.or(Some(monitor_start)),
+            // If None, Default time should be the one of first event
+            TimeRepresentation::Absolute(_) => start_time,
+        };
+        if let Some(start_time) = start_time {
+            out_handler.set_start_time(start_time);
+        }
+
+        Edm {
+            current_cycle: 0.into(),
+            output_handler: out_handler,
+            event_source,
+            last_event_time: Duration::default(),
+            time_repr,
+            start_time,
+        }
+    }
+
+    pub(crate) fn finalize_time(&mut self, time: RawTime) -> Time {
+        match self.time_repr {
+            TimeRepresentation::Relative(_) => time.relative(),
+            TimeRepresentation::Incremental(_) => {
+                self.last_event_time += time.relative();
+                self.last_event_time
+            }
+            TimeRepresentation::Absolute(_) => {
+                let t = time.absolute();
+                if self.start_time.is_none() {
+                    self.start_time = Some(t);
+                    self.output_handler.set_start_time(t);
+                }
+                t.duration_since(self.start_time.unwrap()).expect("Time did not behave monotonically!")
+            }
+        }
     }
 
     pub(crate) fn start_online(mut self, work_queue: Sender<WorkItem>) -> ! {
@@ -63,21 +109,18 @@ impl EventDrivenManager {
                     std::thread::sleep(std::time::Duration::new(u64::MAX, 0))
                 }
             }
-            let (event, time) = self.event_source.get_event();
+            let (event, raw_time) = self.event_source.get_event();
+            let time = self.finalize_time(raw_time);
+            self.output_handler.new_input(time);
             match work_queue.send(WorkItem::Event(event, time)) {
                 Ok(_) => {}
-                Err(e) => self.out_handler.runtime_warning(|| format!("Error when sending work item. {}", e)),
+                Err(e) => self.output_handler.runtime_warning(|| format!("Error when sending work item. {}", e)),
             }
             self.current_cycle += 1;
         }
     }
 
-    pub(crate) fn start_offline(
-        mut self,
-        work_queue: Sender<Vec<WorkItem>>,
-        time_slot: Sender<SystemTime>,
-    ) -> Result<(), Box<dyn Error>> {
-        let mut start_time: Option<SystemTime> = None;
+    pub(crate) fn start_offline(mut self, work_queue: Sender<Vec<WorkItem>>) -> Result<(), Box<dyn Error>> {
         loop {
             let mut local_queue = Vec::with_capacity(CAP_LOCAL_QUEUE);
             for _i in 0..local_queue.capacity() {
@@ -86,19 +129,15 @@ impl EventDrivenManager {
                     let _ = work_queue.send(local_queue);
                     return Ok(());
                 }
-                let (event, time) = self.event_source.get_event();
-                if start_time.is_none() {
-                    let time = self.event_source.read_time().unwrap_or(UNIX_EPOCH);
-                    start_time = Some(time);
-                    let _ = time_slot.send(time);
-                }
+                let (event, raw_time) = self.event_source.get_event();
+                let time = self.finalize_time(raw_time);
 
                 local_queue.push(WorkItem::Event(event, time));
                 self.current_cycle += 1;
             }
             match work_queue.send(local_queue) {
                 Ok(_) => {}
-                Err(e) => self.out_handler.runtime_warning(|| format!("Error when sending local queue. {}", e)),
+                Err(e) => self.output_handler.runtime_warning(|| format!("Error when sending local queue. {}", e)),
             }
         }
     }

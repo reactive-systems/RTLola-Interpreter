@@ -1,7 +1,7 @@
 #![allow(clippy::mutex_atomic)]
 
 use crate::basics::io_handler::EventSource;
-use crate::basics::Time;
+use crate::basics::{RawTime, Time};
 use crate::storage::Value;
 use etherparse::{
     Ethernet2Header, InternetSlice, Ipv4Header, Ipv6Header, LinkSlice, SlicedPacket, TcpHeader, TransportSlice,
@@ -12,8 +12,9 @@ use pcap::{Activated, Capture, Device, Error as PCAPError};
 use rtlola_frontend::mir::RtLolaMir;
 use std::error::Error;
 use std::net::IpAddr;
+use std::path::PathBuf;
 use std::str::FromStr;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 // ################################
 // Packet parsing functions
@@ -419,12 +420,12 @@ fn get_packet_protocol(packet: &SlicedPacket) -> Value {
 #[derive(Debug, Clone)]
 pub enum PCAPInputSource {
     Device { name: String, local_network: String },
-    File { path: String, delay: Option<Duration>, local_network: String },
+    File { path: PathBuf, delay: Option<Duration>, local_network: String },
 }
 
 enum TimeHandling {
-    RealTime { start: Instant },
-    FromFile { start: Option<SystemTime> },
+    RealTime,
+    FromFile,
     Delayed { delay: Duration, time: Time },
 }
 
@@ -434,16 +435,12 @@ pub struct PCAPEventSource {
     timer: TimeHandling,
     mapping: Vec<Box<dyn Fn(&SlicedPacket) -> Value>>,
 
-    event: Option<(Vec<Value>, Time)>,
+    event: Option<(Vec<Value>, RawTime)>,
     last_timestamp: Option<SystemTime>,
 }
 
 impl PCAPEventSource {
-    pub(crate) fn setup(
-        src: &PCAPInputSource,
-        ir: &RtLolaMir,
-        start_time: Instant,
-    ) -> Result<Box<dyn EventSource>, Box<dyn Error>> {
+    pub(crate) fn setup(src: &PCAPInputSource, ir: &RtLolaMir) -> Result<Box<dyn EventSource>, Box<dyn Error>> {
         let capture_handle = match src {
             PCAPInputSource::Device { name, .. } => {
                 let all_devices = Device::list()?;
@@ -487,10 +484,10 @@ impl PCAPEventSource {
 
         use TimeHandling::*;
         let timer = match src {
-            PCAPInputSource::Device { .. } => RealTime { start: start_time },
+            PCAPInputSource::Device { .. } => RealTime,
             PCAPInputSource::File { delay, .. } => match delay {
                 Some(d) => Delayed { delay: *d, time: Duration::default() },
-                None => FromFile { start: None },
+                None => FromFile,
             },
         };
         let input_names: Vec<String> = ir.inputs.iter().map(|i| i.name.clone()).collect();
@@ -677,25 +674,16 @@ impl PCAPEventSource {
 
         //compute duration since start
         use TimeHandling::*;
-        let dur: Time = match self.timer {
-            RealTime { start } => Instant::now() - start,
-            FromFile { start } => {
-                let now = self.last_timestamp.unwrap();
-                match start {
-                    None => {
-                        self.timer = FromFile { start: Some(now) };
-                        Time::default()
-                    }
-                    Some(start) => now.duration_since(start).expect("Time did not behave monotonically!"),
-                }
-            }
+        let time: RawTime = match self.timer {
+            RealTime => RawTime::Absolute(SystemTime::now()),
+            FromFile => RawTime::Absolute(self.last_timestamp.unwrap()),
             Delayed { delay, ref mut time } => {
                 *time += delay;
-                *time
+                RawTime::Relative(*time)
             }
         };
 
-        self.event = Some((event, dur));
+        self.event = Some((event, time));
 
         Ok(true)
     }
@@ -709,16 +697,12 @@ impl EventSource for PCAPEventSource {
         })
     }
 
-    fn get_event(&mut self) -> (Vec<Value>, Time) {
+    fn get_event(&mut self) -> (Vec<Value>, RawTime) {
         if let Some((event, t)) = &self.event {
             (event.clone(), *t)
         } else {
             eprintln!("No event available!");
             std::process::exit(1);
         }
-    }
-
-    fn read_time(&self) -> Option<SystemTime> {
-        self.last_timestamp
     }
 }
