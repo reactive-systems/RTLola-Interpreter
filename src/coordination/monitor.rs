@@ -5,34 +5,43 @@ use crate::evaluator::{Evaluator, EvaluatorData};
 use crate::storage::Value;
 use crate::{ExecutionMode, TimeRepresentation};
 use rtlola_frontend::mir::{InputReference, OutputReference, RtLolaMir, Type};
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
 /**
     Provides the functionality to generate a snapshot of the streams values.
 */
 pub trait VerdictRepresentation {
     /// Creates a snapshot of the streams values.
-    fn create(data: VerdictCreationData) -> Self
+    fn create(data: RawVerdict) -> Self
     where
         Self: Sized;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum StreamState {
-    NonParameterized(Value),
-    Parameterized(Vec<(Vec<Value>, Value)>),
+/// A type representing the parameters of a stream.
+/// If a stream not dynamically created it defaults to `None`.
+/// If a stream is dynamically created but does not have parameters it defaults to `Some(vec![])`
+pub type Parameters = Option<Vec<Value>>;
+
+/// A stream instance. First element represents the parameter values of the instance, the second element the value of the instance.
+pub type Instance = (Parameters, Option<Value>);
+
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub enum Change {
+    Spawn(Vec<Value>),
+    Close(Vec<Value>),
+    Value(Parameters, Value),
 }
 
 /**
     Represents a snapshot of the monitor containing the value of all updated output stream.
 */
-pub type Incremental = Vec<(OutputReference, StreamState)>;
+pub type Incremental = Vec<(OutputReference, Vec<Change>)>;
 
 impl VerdictRepresentation for Incremental {
-    fn create(data: VerdictCreationData) -> Self {
+    fn create(data: RawVerdict) -> Self {
         data.eval.peek_fresh()
     }
 }
@@ -40,16 +49,19 @@ impl VerdictRepresentation for Incremental {
 /**
     Represents a snapshot of the monitor containing the current value of each output stream.
 
-    The ith value in the vector is the current value of the ith input or output stream.
+    The ith value in the inputs vector is the current value of the ith input stream.
+    The ith value in the outputs vector is the vector of instances of the ith output stream.
+    If the stream has no instance yet, this vector is empty. If a stream is not parameterized, the vector will always be of size 1.
+
 */
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Total {
     pub inputs: Vec<Option<Value>>,
-    pub outputs: Vec<Option<StreamState>>,
+    pub outputs: Vec<Vec<Instance>>,
 }
 
 impl VerdictRepresentation for Total {
-    fn create(data: VerdictCreationData) -> Self {
+    fn create(data: RawVerdict) -> Self {
         Total { inputs: data.eval.peek_inputs(), outputs: data.eval.peek_outputs() }
     }
 }
@@ -60,7 +72,7 @@ impl VerdictRepresentation for Total {
 pub type TriggerMessages = Vec<(OutputReference, String)>;
 
 impl VerdictRepresentation for TriggerMessages {
-    fn create(data: VerdictCreationData) -> Self
+    fn create(data: RawVerdict) -> Self
     where
         Self: Sized,
     {
@@ -75,7 +87,7 @@ impl VerdictRepresentation for TriggerMessages {
 pub type TriggersWithInfoValues = Vec<(OutputReference, Vec<Option<Value>>)>;
 
 impl VerdictRepresentation for TriggersWithInfoValues {
-    fn create(data: VerdictCreationData) -> Self
+    fn create(data: RawVerdict) -> Self
     where
         Self: Sized,
     {
@@ -157,15 +169,80 @@ impl<V: VerdictRepresentation> Monitor<V> {
     }
 }
 
-/// The data used to create a Verdict
+/// A raw verdict that is transformed into the respective representation
 #[allow(missing_debug_implementations)]
-pub struct VerdictCreationData<'a> {
+pub struct RawVerdict<'a> {
     eval: &'a Evaluator,
 }
 
-impl<'a> From<&'a Evaluator> for VerdictCreationData<'a> {
+impl<'a> From<&'a Evaluator> for RawVerdict<'a> {
     fn from(eval: &'a Evaluator) -> Self {
-        VerdictCreationData { eval }
+        RawVerdict { eval }
+    }
+}
+
+// External Value without None
+// Default Record = Into<Event>
+
+trait Input {
+    type Record;
+
+    fn new(map: HashMap<String, InputReference>) -> Self;
+
+    fn get_event(&self, rec: Self::Record) -> Event;
+}
+
+trait Record {
+    fn func_for_input(name: &str) -> fn(&Self) -> Value;
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct TestInputPayload {
+    mapping: Vec<usize>,
+    timestamp: Duration,
+    a: f64,
+    d: Messages,
+}
+
+#[derive(Debug, Clone)]
+enum Messages {
+    M0 { b: f64 },
+    M1 { c: u64 },
+}
+
+impl TestInputPayload {
+    fn a(p: &Self) -> Value {
+        Value::from(p.a)
+    }
+    fn b(p: &Self) -> Value {
+        match p.d {
+            Messages::M0 { b } => Value::from(b),
+            _ => Value::None,
+        }
+    }
+    fn c(p: &Self) -> Value {
+        match p.d {
+            Messages::M1 { c } => Value::from(c),
+            _ => Value::None,
+        }
+    }
+}
+
+struct RecordParser<P: Record> {
+    translator: Vec<fn(&P) -> Value>,
+}
+
+impl<P: Record> Input for RecordParser<P> {
+    type Record = P;
+
+    fn new(map: HashMap<String, InputReference>) -> Self {
+        let mut translator = Vec::with_capacity(map.len());
+        map.iter().for_each(|(input_name, index)| translator[*index] = P::func_for_input(input_name.as_str()));
+        Self { translator }
+    }
+
+    fn get_event(&self, rec: P) -> Event {
+        self.translator.iter().map(|f| f(&rec)).collect()
     }
 }
 
@@ -206,13 +283,13 @@ impl<V: VerdictRepresentation> Monitor<V> {
         // Evaluate timed streams with due < ts
         let mut timed: Vec<(Time, V)> = vec![];
         self.time_manager.accept_time_offline_with_callback(&mut self.eval, ts, |due, eval| {
-            timed.push((due, V::create(VerdictCreationData::from(eval))))
+            timed.push((due, V::create(RawVerdict::from(eval))))
         });
 
         // Evaluate
         self.output_handler.new_event();
         self.eval.eval_event(ev.as_slice(), ts);
-        let event_change = V::create(VerdictCreationData::from(&self.eval));
+        let event_change = V::create(RawVerdict::from(&self.eval));
 
         Verdicts::<V> { timed, event: event_change }
     }
@@ -227,11 +304,11 @@ impl<V: VerdictRepresentation> Monitor<V> {
 
         // Eval all timed streams with due < ts
         self.time_manager.accept_time_offline_with_callback(&mut self.eval, ts, |due, eval| {
-            timed_changes.push((due, V::create(VerdictCreationData::from(eval))))
+            timed_changes.push((due, V::create(RawVerdict::from(eval))))
         });
         // Eval all timed streams with due = ts
         self.time_manager.end_offline_with_callback(&mut self.eval, ts, |due, eval| {
-            timed_changes.push((due, V::create(VerdictCreationData::from(eval))))
+            timed_changes.push((due, V::create(RawVerdict::from(eval))))
         });
 
         timed_changes
@@ -342,7 +419,7 @@ impl<V: VerdictRepresentation> Monitor<V> {
 
 #[cfg(test)]
 mod tests {
-    use crate::coordination::monitor::StreamState::{NonParameterized, Parameterized};
+    use crate::coordination::monitor::Change;
     use crate::{
         Config, EvalConfig, Incremental, Monitor, RelativeTimeFormat, TimeRepresentation, Total, Value,
         VerdictRepresentation,
@@ -363,20 +440,17 @@ mod tests {
 
     fn sort_total(res: Total) -> Total {
         let Total { inputs, mut outputs } = res;
-        outputs
-            .iter_mut()
-            .filter_map(|s| s.as_mut())
-            .filter_map(|s| match s {
-                Parameterized(v) => Some(v),
-                NonParameterized(_) => None,
-            })
-            .for_each(|o| o.sort());
+        outputs.iter_mut().for_each(|s| s.sort());
         Total { inputs, outputs }
+    }
+
+    fn sort_incremental(mut res: Incremental) -> Incremental {
+        res.iter_mut().for_each(|(out_ref, changes)| changes.sort());
+        res
     }
 
     #[test]
     fn test_const_output_literals() {
-        use Value::*;
         let (start, mut monitor) = setup::<Total>(
             r#"
         input i_0: UInt8
@@ -388,16 +462,16 @@ mod tests {
         output o_4: String @i_0 := "foobar"
         "#,
         );
-        let v = Unsigned(3);
+        let v = Value::Unsigned(3);
         let res = monitor.accept_event(vec![v.clone()], start.elapsed());
         assert!(res.timed.is_empty());
         let res = res.event;
         assert_eq!(res.inputs[0], Some(v));
-        assert_eq!(res.outputs[0], Some(NonParameterized(Bool(true))));
-        assert_eq!(res.outputs[1], Some(NonParameterized(Unsigned(3))));
-        assert_eq!(res.outputs[2], Some(NonParameterized(Signed(-5))));
-        assert_eq!(res.outputs[3], Some(NonParameterized(Value::new_float(-123.456))));
-        assert_eq!(res.outputs[4], Some(NonParameterized(Str("foobar".into()))));
+        assert_eq!(res.outputs[0][0], (None, Some(Value::Bool(true))));
+        assert_eq!(res.outputs[1][0], (None, Some(Value::Unsigned(3))));
+        assert_eq!(res.outputs[2][0], (None, Some(Value::Signed(-5))));
+        assert_eq!(res.outputs[3][0], (None, Some(Value::new_float(-123.456))));
+        assert_eq!(res.outputs[4][0], (None, Some(Value::Str("foobar".into()))));
     }
 
     #[test]
@@ -408,11 +482,12 @@ mod tests {
         let n = 25;
         let mut time = Duration::from_secs(45);
         let res = monitor.accept_event(vec![Value::Unsigned(1)], time);
+        dbg!(&res.event);
         assert!(res.event.is_empty());
         assert_eq!(res.timed.len(), 11);
         assert!(res.timed.iter().all(|(time, change)| time.as_secs() % 4 == 0
             && change[0].0 == 0
-            && change[0].1 == NonParameterized(Value::Unsigned(0))));
+            && change[0].1[0] == Change::Value(None, Value::Unsigned(0))));
         for v in 2..=n {
             time += Duration::from_secs(1);
             let res = monitor.accept_event(vec![Value::Unsigned(v)], time);
@@ -420,8 +495,7 @@ mod tests {
             assert_eq!(res.event.len(), 0);
             if (v - 1) % 4 == 0 {
                 assert_eq!(res.timed.len(), 1);
-                assert_eq!(res.timed[0].1.len(), 1);
-                assert_eq!(res.timed[0].1[0].1, NonParameterized(Value::Unsigned(v - 1)));
+                assert_eq!(res.timed[0].1[0].1[0], Change::Value(None, Value::Unsigned(v - 1)));
             } else {
                 assert_eq!(res.timed.len(), 0);
             }
@@ -432,7 +506,7 @@ mod tests {
     fn test_spawn_eventbased() {
         let (_, mut monitor) = setup::<Total>(
             "input a: Int32\n\
-                    input b: Int32\n\
+                  input b: Int32\n\
                   output c(x: Int32) spawn with a := x + a\n\
                   output d := b",
         );
@@ -440,7 +514,7 @@ mod tests {
         let res = monitor.accept_event(vec![Value::Signed(15), Value::None], Duration::from_secs(1));
         let expected = Total {
             inputs: vec![Some(Value::Signed(15)), None],
-            outputs: vec![Some(Parameterized(vec![(vec![Value::Signed(15)], Value::Signed(30))])), None],
+            outputs: vec![vec![(Some(vec![Value::Signed(15)]), Some(Value::Signed(30)))], vec![(None, None)]],
         };
         assert_eq!(res.event, expected);
         assert_eq!(res.timed.len(), 0);
@@ -449,28 +523,28 @@ mod tests {
         let expected = Total {
             inputs: vec![Some(Value::Signed(20)), Some(Value::Signed(7))],
             outputs: vec![
-                Some(Parameterized(vec![
-                    (vec![Value::Signed(15)], Value::Signed(35)),
-                    (vec![Value::Signed(20)], Value::Signed(40)),
-                ])),
-                Some(NonParameterized(Value::Signed(7))),
+                vec![
+                    (Some(vec![Value::Signed(15)]), Some(Value::Signed(35))),
+                    (Some(vec![Value::Signed(20)]), Some(Value::Signed(40))),
+                ],
+                vec![(None, Some(Value::Signed(7)))],
             ],
         };
-        assert_eq!(sort_total(res.event), expected);
+        assert_eq!(sort_total(res.event), sort_total(expected));
         assert_eq!(res.timed.len(), 0);
 
         let res = monitor.accept_event(vec![Value::None, Value::Signed(42)], Duration::from_secs(3));
         let expected = Total {
             inputs: vec![Some(Value::Signed(20)), Some(Value::Signed(42))],
             outputs: vec![
-                Some(Parameterized(vec![
-                    (vec![Value::Signed(15)], Value::Signed(35)),
-                    (vec![Value::Signed(20)], Value::Signed(40)),
-                ])),
-                Some(NonParameterized(Value::Signed(42))),
+                vec![
+                    (Some(vec![Value::Signed(15)]), Some(Value::Signed(35))),
+                    (Some(vec![Value::Signed(20)]), Some(Value::Signed(40))),
+                ],
+                vec![(None, Some(Value::Signed(42)))],
             ],
         };
-        assert_eq!(sort_total(res.event), expected);
+        assert_eq!(sort_total(res.event), sort_total(expected));
         assert_eq!(res.timed.len(), 0);
     }
 }

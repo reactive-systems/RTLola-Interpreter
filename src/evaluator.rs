@@ -1,6 +1,6 @@
 use crate::basics::{OutputHandler, Time};
 use crate::closuregen::{CompiledExpr, Expr};
-use crate::coordination::monitor::StreamState;
+use crate::coordination::monitor::{Change, Instance};
 use crate::coordination::{DynamicSchedule, EvaluationTask};
 use crate::storage::{GlobalStore, Value};
 use bit_set::BitSet;
@@ -31,6 +31,8 @@ pub(crate) struct EvaluatorData {
     global_store: GlobalStore,
     fresh_inputs: BitSet,
     fresh_outputs: BitSet,
+    spawned_outputs: BitSet,
+    closed_outputs: BitSet,
     fresh_triggers: BitSet,
     triggers: Vec<Option<Trigger>>,
     time_driven_streams: Vec<Option<TimeDrivenStream>>,
@@ -63,6 +65,8 @@ pub(crate) struct Evaluator {
     global_store: &'static mut GlobalStore,
     fresh_inputs: &'static mut BitSet,
     fresh_outputs: &'static mut BitSet,
+    spawned_outputs: &'static mut BitSet,
+    closed_outputs: &'static mut BitSet,
     fresh_triggers: &'static mut BitSet,
     // Indexed by output reference
     triggers: &'static [Option<Trigger>],
@@ -133,6 +137,8 @@ impl EvaluatorData {
         let global_store = GlobalStore::new(&ir, Time::default());
         let fresh_inputs = BitSet::with_capacity(ir.inputs.len());
         let fresh_outputs = BitSet::with_capacity(ir.outputs.len());
+        let spawned_outputs = BitSet::with_capacity(ir.outputs.len());
+        let closed_outputs = BitSet::with_capacity(ir.outputs.len());
         let fresh_triggers = BitSet::with_capacity(ir.outputs.len()); //trigger use their outputreferences
         let mut triggers = vec![None; ir.outputs.len()];
         for t in &ir.triggers {
@@ -151,6 +157,8 @@ impl EvaluatorData {
             global_store,
             fresh_inputs,
             fresh_outputs,
+            spawned_outputs,
+            closed_outputs,
             fresh_triggers,
             triggers,
             time_driven_streams,
@@ -221,6 +229,8 @@ impl EvaluatorData {
             global_store: &mut leaked_data.global_store,
             fresh_inputs: &mut leaked_data.fresh_inputs,
             fresh_outputs: &mut leaked_data.fresh_outputs,
+            spawned_outputs: &mut leaked_data.spawned_outputs,
+            closed_outputs: &mut leaked_data.closed_outputs,
             fresh_triggers: &mut leaked_data.fresh_triggers,
             triggers: &leaked_data.triggers,
             time_driven_streams: &leaked_data.time_driven_streams,
@@ -251,24 +261,46 @@ impl Evaluator {
     }
 
     /// NOT for external use because the values are volatile
-    pub(crate) fn peek_fresh(&self) -> Vec<(OutputReference, StreamState)> {
-        self.fresh_outputs
+    pub(crate) fn peek_fresh(&self) -> Vec<(OutputReference, Vec<Change>)> {
+        self.ir
+            .outputs
             .iter()
-            .map(|elem| {
-                let stream = StreamReference::Out(elem);
-                if self.ir.output(stream).is_parameterized() {
-                    let values = self
-                        .global_store
-                        .get_out_instance_collection(elem)
+            .filter_map(|o| {
+                let stream = o.reference;
+                let out_ix = o.reference.out_ix();
+                let changes = if o.is_parameterized() {
+                    let instances = self.global_store.get_out_instance_collection(out_ix);
+                    instances
                         .fresh()
-                        .map(|para| (para.clone(), self.peek_value(stream, para, 0).expect("Marked as fresh")))
-                        .collect();
-                    (elem, StreamState::Parameterized(values))
+                        .map(|p| {
+                            Change::Value(Some(p.clone()), self.peek_value(stream, p, 0).expect("Marked as fresh"))
+                        })
+                        .chain(instances.spawned().map(|p| Change::Spawn(p.clone())))
+                        .chain(instances.closed().map(|p| Change::Close(p.clone())))
+                        .collect()
+                } else if o.is_spawned() {
+                    let mut res = Vec::new();
+                    if self.fresh_outputs.contains(out_ix) {
+                        res.push(Change::Value(
+                            Some(vec![]),
+                            self.peek_value(stream, &[], 0).expect("Marked as fresh"),
+                        ));
+                    }
+                    if self.spawned_outputs.contains(out_ix) {
+                        res.push(Change::Spawn(vec![]));
+                    }
+                    if self.closed_outputs.contains(out_ix) {
+                        res.push(Change::Close(vec![]));
+                    }
+                    res
+                } else if self.fresh_outputs.contains(out_ix) {
+                    vec![Change::Value(None, self.peek_value(stream, &[], 0).expect("Marked as fresh"))]
                 } else {
-                    (elem, StreamState::NonParameterized(self.peek_value(stream, &[], 0).expect("Marked as fresh.")))
-                }
+                    vec![]
+                };
+                changes.is_empty().not().then(|| (o.reference.out_ix(), changes))
             })
-            .chain(self.fresh_triggers.iter().map(|ix| (ix, StreamState::NonParameterized(Value::Bool(true)))))
+            .chain(self.fresh_triggers.iter().map(|ix| (ix, vec![Change::Value(None, Value::Bool(true))])))
             .collect()
     }
 
@@ -283,23 +315,25 @@ impl Evaluator {
     }
 
     /// NOT for external use because the values are volatile
-    pub(crate) fn peek_outputs(&self) -> Vec<Option<StreamState>> {
+    pub(crate) fn peek_outputs(&self) -> Vec<Vec<Instance>> {
         self.ir
             .outputs
             .iter()
             .map(|elem| {
                 if elem.is_parameterized() {
                     let ix = elem.reference.out_ix();
-                    let values: Vec<(Vec<Value>, Value)> = self
+                    let values: Vec<Instance> = self
                         .global_store
                         .get_out_instance_collection(ix)
                         .all_instances()
                         .iter()
-                        .filter_map(|para| self.peek_value(elem.reference, para.as_ref(), 0).map(|v| (para.clone(), v)))
+                        .map(|para| (Some(para.clone()), self.peek_value(elem.reference, para.as_ref(), 0)))
                         .collect();
-                    values.is_empty().not().then(|| StreamState::Parameterized(values))
+                    values
+                } else if elem.is_spawned() {
+                    vec![(Some(vec![]), self.peek_value(elem.reference, &[], 0))]
                 } else {
-                    self.peek_value(elem.reference, &[], 0).map(StreamState::NonParameterized)
+                    vec![(None, self.peek_value(elem.reference, &[], 0))]
                 }
             })
             .collect()
@@ -365,6 +399,7 @@ impl Evaluator {
             x => vec![x],
         };
 
+        self.spawned_outputs.insert(output);
         if stream.is_parameterized() {
             debug_assert!(!parameter_values.is_empty());
             let instances = self.global_store.get_out_instance_collection_mut(output);
@@ -456,6 +491,8 @@ impl Evaluator {
                 self.global_store.get_window_mut(*win).deactivate();
             }
         }
+        self.closed_outputs.insert(output);
+        self.fresh_inputs.remove(output);
 
         // Remove instance evaluation from schedule if stream is periodic
         if let Some(tds) = self.time_driven_streams[output] {
@@ -603,8 +640,10 @@ impl Evaluator {
     fn clear_freshness(&mut self) {
         self.fresh_inputs.clear();
         self.fresh_outputs.clear();
+        self.spawned_outputs.clear();
+        self.closed_outputs.clear();
         self.fresh_triggers.clear();
-        self.global_store.clear_freshness();
+        self.global_store.new_cycle();
     }
 
     fn is_trigger(&self, ix: OutputReference) -> Option<&Trigger> {
