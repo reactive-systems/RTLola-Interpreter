@@ -31,7 +31,7 @@ pub use crate::basics::{
     RelativeTimeFormat, Statistics, Time, TimeRepresentation, Verbosity,
 };
 pub use crate::coordination::{
-    monitor::{Incremental, Total, TriggerMessages, TriggersWithInfoValues, VerdictRepresentation, Verdicts},
+    monitor::{Change, Incremental, Total, TriggerMessages, TriggersWithInfoValues, VerdictRepresentation, Verdicts},
     Event, Monitor,
 };
 pub use crate::storage::Value;
