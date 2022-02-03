@@ -492,7 +492,6 @@ impl Evaluator {
             }
         }
         self.closed_outputs.insert(output);
-        self.fresh_inputs.remove(output);
 
         // Remove instance evaluation from schedule if stream is periodic
         if let Some(tds) = self.time_driven_streams[output] {

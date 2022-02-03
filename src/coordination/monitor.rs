@@ -28,6 +28,7 @@ pub type Parameters = Option<Vec<Value>>;
 /// A stream instance. First element represents the parameter values of the instance, the second element the value of the instance.
 pub type Instance = (Parameters, Option<Value>);
 
+// Todo: Implement Display
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Change {
     Spawn(Vec<Value>),

@@ -1,4 +1,4 @@
-use clap::{AppSettings, ArgEnum, ArgGroup, Args, Parser};
+use clap::{AppSettings, ArgEnum, ArgGroup, Args, IntoApp, Parser};
 use lazy_static::lazy_static;
 use rtlola_interpreter::{
     AbsoluteTimeFormat, Config, CsvInputSource, EvalConfig, EventSourceConfig, ExecutionMode, OutputChannel,
@@ -12,6 +12,8 @@ use std::error::Error;
 use std::fmt::Write;
 use std::path::PathBuf;
 
+use clap_complete::generate;
+use clap_complete::shells::*;
 #[cfg(feature = "public")]
 use human_panic::setup_panic;
 use std::convert::TryFrom;
@@ -117,6 +119,34 @@ enum Cli {
         )]
         output_time_format: CliTimeRepresentation,
     },
+
+    /// Generate a SHELL completion script and print it to stdout
+    Completions {
+        #[clap(arg_enum, value_name = "SHELL")]
+        shell: Shell,
+    },
+}
+
+#[derive(ArgEnum, Copy, Clone, Debug)]
+pub enum Shell {
+    Bash,
+    Zsh,
+    Fish,
+    PowerShell,
+    Elvish,
+}
+impl Shell {
+    fn generate(&self) {
+        let mut app = Cli::into_app();
+        let mut fd = std::io::stdout();
+        match self {
+            Shell::Bash => generate(Bash, &mut app, "rtlola-interpreter", &mut fd),
+            Shell::Zsh => generate(Zsh, &mut app, "rtlola-interpreter", &mut fd),
+            Shell::Fish => generate(Fish, &mut app, "rtlola-interpreter", &mut fd),
+            Shell::PowerShell => generate(PowerShell, &mut app, "rtlola-interpreter", &mut fd),
+            Shell::Elvish => generate(Elvish, &mut app, "rtlola-interpreter", &mut fd),
+        }
+    }
 }
 
 fn parse_start_time(time: &str) -> Result<Duration, String> {
@@ -350,6 +380,7 @@ impl TryFrom<Cli> for Config {
     fn try_from(cli: Cli) -> Result<Self, Self::Error> {
         match cli {
             Cli::Analyze { .. } => Err(()),
+            Cli::Completions { .. } => Err(()),
             #[cfg(feature = "pcap_interface")]
             Cli::Ids { spec, local_network, output, input, start_time, verbosity, output_time_format } => {
                 let config = rtlola_frontend::ParserConfig::from_path(spec).unwrap_or_else(|e| {
@@ -445,6 +476,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             let cfg = Config::try_from(cli).expect("Case handled above");
             cfg.run()?;
         }
+
+        Cli::Completions { shell } => shell.generate(),
     }
     Ok(())
 }
