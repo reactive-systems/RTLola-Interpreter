@@ -5,7 +5,9 @@ use itertools::Position;
 use junit_report::{Duration as JunitDuration, OffsetDateTime, ReportBuilder, TestCase, TestSuiteBuilder};
 use ordered_float::NotNan;
 use rtlola_frontend::mir::Type;
-use rtlola_interpreter::{Config, EvalConfig, Monitor, RelativeTimeFormat, TimeRepresentation, TriggerMessages, Value};
+use rtlola_interpreter::config::{Config, EvalConfig, RelativeTimeFormat, TimeRepresentation};
+use rtlola_interpreter::monitor::{EventInput, Monitor, TriggerMessages};
+use rtlola_interpreter::Value;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
@@ -226,7 +228,8 @@ impl Test {
             .collect();
 
         let eval_conf = EvalConfig::api(TimeRepresentation::Relative(RelativeTimeFormat::FloatSecs));
-        let mut monitor: Monitor<TriggerMessages> = Config::new(eval_conf, ir).as_api();
+        // Todo: Consider using the RecordParser input
+        let mut monitor: Monitor<EventInput<Vec<Value>>, TriggerMessages> = Config::new(eval_conf, ir).as_api();
 
         let mut actual = Vec::new();
         for line in csv.records().with_position() {

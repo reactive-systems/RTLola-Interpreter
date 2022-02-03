@@ -1,11 +1,25 @@
 use super::OutputChannel;
 use crate::basics::io_handler::RawTime;
 use crate::basics::CsvInputSource;
-use crate::EventSourceConfig;
+#[cfg(feature = "pcap_interface")]
+use crate::basics::PCAPInputSource;
 use clap::ArgEnum;
+use rtlola_frontend::RtLolaMir;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+/**
+`Config` combines an RTLola specification in `LolaIR` form with an `EvalConfig`.
+
+The evaluation configuration describes how the specification should be executed.
+The `Config` can then be turned into a monitor for use via the API or simply executed.
+ */
+#[derive(Debug, Clone)]
+pub struct Config {
+    pub(crate) cfg: EvalConfig,
+    pub(crate) ir: RtLolaMir,
+}
 
 #[derive(Clone, Debug)]
 pub struct EvalConfig {
@@ -70,6 +84,18 @@ pub enum ExecutionMode {
     Offline(TimeRepresentation),
     /// Time taken by evaluator
     Online,
+}
+
+#[derive(Debug, Clone)]
+pub enum EventSourceConfig {
+    Csv {
+        src: CsvInputSource,
+    },
+    #[cfg(feature = "pcap_interface")]
+    PCAP {
+        src: PCAPInputSource,
+    },
+    Api,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

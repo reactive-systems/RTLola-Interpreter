@@ -1,9 +1,8 @@
 #![allow(clippy::mutex_atomic)]
 
-use crate::basics::io_handler::{EventSource, RawTime};
-use crate::basics::{ExecutionMode, Time};
+use crate::basics::{EventSource, RawTime, Time};
+use crate::config::{ExecutionMode, TimeRepresentation};
 use crate::storage::Value;
-use crate::TimeRepresentation;
 use csv::{ByteRecord, Reader as CSVReader, Result as ReaderResult, StringRecord};
 use rtlola_frontend::mir::{RtLolaMir, Type};
 use std::error::Error;

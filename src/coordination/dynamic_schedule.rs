@@ -1,5 +1,6 @@
+use crate::basics::Time;
 use crate::coordination::EvaluationTask;
-use crate::{Time, Value};
+use crate::Value;
 use priority_queue::PriorityQueue;
 use rtlola_frontend::mir::OutputReference;
 use rtlola_frontend::RtLolaMir;

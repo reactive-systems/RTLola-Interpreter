@@ -838,7 +838,7 @@ mod tests {
         let ir = rtlola_frontend::parse(ParserConfig::for_string(spec.to_string()))
             .unwrap_or_else(|e| panic!("spec is invalid: {:?}", e));
         let mut config = EvalConfig::default();
-        config.verbosity = crate::basics::Verbosity::WarningsOnly;
+        config.verbosity = crate::config::Verbosity::WarningsOnly;
         let handler = Arc::new(OutputHandler::new(&config, ir.triggers.len()));
         let cond = Condvar::new();
         let dyn_schedule = Arc::new((Mutex::new(DynamicSchedule::new()), cond));

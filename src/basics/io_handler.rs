@@ -1,9 +1,12 @@
 #![allow(clippy::mutex_atomic)]
 
-use super::{EvalConfig, TimeRepresentation, Verbosity};
-use crate::basics::{AbsoluteTimeFormat, CsvEventSource, CsvInputSource, RelativeTimeFormat, Time};
+use super::Time;
+use crate::basics::CsvEventSource;
 #[cfg(feature = "pcap_interface")]
-use crate::basics::{PCAPEventSource, PCAPInputSource};
+use crate::basics::PCAPEventSource;
+use crate::config::{
+    AbsoluteTimeFormat, EvalConfig, EventSourceConfig, RelativeTimeFormat, TimeRepresentation, Verbosity,
+};
 use crate::storage::Value;
 use crossterm::{
     cursor::MoveUp,
@@ -44,18 +47,6 @@ impl RawTime {
             _ => panic!("Expected absolute time"),
         }
     }
-}
-
-#[derive(Debug, Clone)]
-pub enum EventSourceConfig {
-    Csv {
-        src: CsvInputSource,
-    },
-    #[cfg(feature = "pcap_interface")]
-    PCAP {
-        src: PCAPInputSource,
-    },
-    Api,
 }
 
 /// A trait that represents the functionality needed for an event source.
@@ -112,7 +103,7 @@ impl OutputHandler {
             let stats = Statistics::new(num_trigger);
             stats.start_print_progress();
             Some(stats)
-        } else if config.statistics == crate::basics::Statistics::Debug {
+        } else if config.statistics == crate::config::Statistics::Debug {
             Some(Statistics::new(num_trigger))
         } else {
             None

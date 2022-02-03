@@ -1,9 +1,9 @@
-use crate::basics::{EvalConfig, OutputHandler, Time};
+use crate::basics::{OutputHandler, Time};
+use crate::config::{EvalConfig, ExecutionMode, TimeRepresentation};
 use crate::coordination::time_driven_manager::TimeDrivenManager;
-use crate::coordination::{DynamicSchedule, Event};
+use crate::coordination::DynamicSchedule;
 use crate::evaluator::{Evaluator, EvaluatorData};
 use crate::storage::Value;
-use crate::{ExecutionMode, TimeRepresentation};
 use itertools::Itertools;
 use rtlola_frontend::mir::{InputReference, OutputReference, RtLolaMir, Type};
 use std::collections::HashMap;
@@ -11,6 +11,8 @@ use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomData;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+pub type Event = Vec<Value>;
 
 /**
     Provides the functionality to generate a snapshot of the streams values.
@@ -132,7 +134,7 @@ It can also simply advance periodic streams up to a given timestamp through `acc
 The generic argument `V` implements the [VerdictRepresentation] trait describing the outputformat of the API that is by default [Incremental].
 */
 #[allow(missing_debug_implementations)]
-pub struct Monitor<V: VerdictRepresentation = Incremental> {
+pub struct Monitor<S: Input, V: VerdictRepresentation = Incremental> {
     pub ir: RtLolaMir,
     eval: Evaluator,
     pub(crate) output_handler: Arc<OutputHandler>,
@@ -142,13 +144,15 @@ pub struct Monitor<V: VerdictRepresentation = Incremental> {
     time_repr: TimeRepresentation,
     start_time: Option<SystemTime>,
 
+    source: S,
+
     phantom: PhantomData<V>,
 }
 
 /// Crate-public interface
-impl<V: VerdictRepresentation> Monitor<V> {
+impl<S: Input, V: VerdictRepresentation> Monitor<S, V> {
     ///setup
-    pub(crate) fn setup(ir: RtLolaMir, config: EvalConfig) -> Monitor<V> {
+    pub(crate) fn setup(ir: RtLolaMir, config: EvalConfig) -> Monitor<S, V> {
         let output_handler = Arc::new(OutputHandler::new(&config, ir.triggers.len()));
         let dyn_schedule = Arc::new((Mutex::new(DynamicSchedule::new()), Condvar::new()));
         let monitor_start = SystemTime::now();
@@ -166,6 +170,8 @@ impl<V: VerdictRepresentation> Monitor<V> {
             output_handler.set_start_time(start_time);
         }
 
+        let input_map = ir.inputs.iter().map(|i| (i.name.clone(), i.reference.in_ix())).collect();
+
         let eval_data = EvaluatorData::new(ir.clone(), output_handler.clone(), dyn_schedule.clone());
 
         let time_manager = TimeDrivenManager::setup(ir.clone(), output_handler.clone(), dyn_schedule)
@@ -179,90 +185,11 @@ impl<V: VerdictRepresentation> Monitor<V> {
             last_event_time: Duration::default(),
             time_repr,
             start_time,
+            source: S::new(input_map),
             phantom: PhantomData,
         }
     }
-}
 
-/// A raw verdict that is transformed into the respective representation
-#[allow(missing_debug_implementations)]
-pub struct RawVerdict<'a> {
-    eval: &'a Evaluator,
-}
-
-impl<'a> From<&'a Evaluator> for RawVerdict<'a> {
-    fn from(eval: &'a Evaluator) -> Self {
-        RawVerdict { eval }
-    }
-}
-
-// External Value without None
-// Default Record = Into<Event>
-
-trait Input {
-    type Record;
-
-    fn new(map: HashMap<String, InputReference>) -> Self;
-
-    fn get_event(&self, rec: Self::Record) -> Event;
-}
-
-trait Record {
-    fn func_for_input(name: &str) -> fn(&Self) -> Value;
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct TestInputPayload {
-    mapping: Vec<usize>,
-    timestamp: Duration,
-    a: f64,
-    d: Messages,
-}
-
-#[derive(Debug, Clone)]
-enum Messages {
-    M0 { b: f64 },
-    M1 { c: u64 },
-}
-
-impl TestInputPayload {
-    fn a(p: &Self) -> Value {
-        Value::from(p.a)
-    }
-    fn b(p: &Self) -> Value {
-        match p.d {
-            Messages::M0 { b } => Value::from(b),
-            _ => Value::None,
-        }
-    }
-    fn c(p: &Self) -> Value {
-        match p.d {
-            Messages::M1 { c } => Value::from(c),
-            _ => Value::None,
-        }
-    }
-}
-
-struct RecordParser<P: Record> {
-    translator: Vec<fn(&P) -> Value>,
-}
-
-impl<P: Record> Input for RecordParser<P> {
-    type Record = P;
-
-    fn new(map: HashMap<String, InputReference>) -> Self {
-        let mut translator = Vec::with_capacity(map.len());
-        map.iter().for_each(|(input_name, index)| translator[*index] = P::func_for_input(input_name.as_str()));
-        Self { translator }
-    }
-
-    fn get_event(&self, rec: P) -> Event {
-        self.translator.iter().map(|f| f(&rec)).collect()
-    }
-}
-
-/// Public interface
-impl<V: VerdictRepresentation> Monitor<V> {
     /// Computes transforms the given time into the internal time representation.
     /// Following the given input time format
     /// Note: `TimeRepresentation::Absolute(AbsoluteTimeFormat::Rfc3339)` is currently not supported
@@ -283,14 +210,88 @@ impl<V: VerdictRepresentation> Monitor<V> {
             }
         }
     }
+}
 
+/// A raw verdict that is transformed into the respective representation
+#[allow(missing_debug_implementations)]
+pub struct RawVerdict<'a> {
+    eval: &'a Evaluator,
+}
+
+impl<'a> From<&'a Evaluator> for RawVerdict<'a> {
+    fn from(eval: &'a Evaluator) -> Self {
+        RawVerdict { eval }
+    }
+}
+
+/// This trait provides the functionality to pass inputs to the monitor.
+/// You can either implement this trait for your own Datatype or use one of the predefined Input Methods.
+/// See [RecordParser] and [EventInput]
+pub trait Input {
+    /// The type from which an event is generated by the input source.
+    type Record;
+
+    /// Creates a new input source from a HashMap mapping the names of the inputs in the specification to their position in the event.
+    fn new(map: HashMap<String, InputReference>) -> Self;
+
+    /// This function converts a record to an event.
+    fn get_event(&self, rec: Self::Record) -> Event;
+}
+
+/// This trait provides functionality to parse a record into an event.
+/// It is only used in combination with the [RecordParser].
+// Todo: Add example
+pub trait Record {
+    /// Given the name of an input this function returns a function that given a record returns the value for that input.
+    fn func_for_input(name: &str) -> fn(&Self) -> Value;
+}
+
+#[derive(Clone)]
+#[allow(missing_debug_implementations)]
+pub struct RecordParser<P: Record> {
+    translator: Vec<fn(&P) -> Value>,
+}
+
+impl<P: Record> Input for RecordParser<P> {
+    type Record = P;
+
+    fn new(map: HashMap<String, InputReference>) -> Self {
+        let mut translator = Vec::with_capacity(map.len());
+        map.iter().for_each(|(input_name, index)| translator[*index] = P::func_for_input(input_name.as_str()));
+        Self { translator }
+    }
+
+    fn get_event(&self, rec: P) -> Event {
+        self.translator.iter().map(|f| f(&rec)).collect()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct EventInput<E: Into<Event>> {
+    phantom: PhantomData<E>,
+}
+
+impl<E: Into<Event>> Input for EventInput<E> {
+    type Record = E;
+
+    fn new(_map: HashMap<String, InputReference>) -> Self {
+        EventInput { phantom: PhantomData }
+    }
+
+    fn get_event(&self, rec: Self::Record) -> Event {
+        rec.into()
+    }
+}
+
+/// Public interface
+impl<S: Input, V: VerdictRepresentation> Monitor<S, V> {
     /**
     Computes all periodic streams up through the new timestamp and then handles the input event.
 
     The new event is therefore not seen by periodic streams up through the new timestamp.
     */
-    pub fn accept_event<E: Into<Event>>(&mut self, ev: E, ts: Time) -> Verdicts<V> {
-        let ev = ev.into();
+    pub fn accept_event(&mut self, ev: S::Record, ts: Time) -> Verdicts<V> {
+        let ev = self.source.get_event(ev);
         self.output_handler.debug(|| format!("Accepted {:?}.", ev));
 
         let ts = self.finalize_time(ts);
@@ -416,10 +417,8 @@ impl<V: VerdictRepresentation> Monitor<V> {
     }
 
     /// Switch [VerdictRepresentation]s of the [Monitor].
-    pub fn with_verdict_representation<T: VerdictRepresentation>(self) -> Monitor<T> {
-        let Monitor { ir, eval, output_handler, time_manager, last_event_time, time_repr, start_time, phantom: _ } =
-            self;
-        Monitor::<T> {
+    pub fn with_verdict_representation<T: VerdictRepresentation>(self) -> Monitor<S, T> {
+        let Monitor {
             ir,
             eval,
             output_handler,
@@ -427,6 +426,18 @@ impl<V: VerdictRepresentation> Monitor<V> {
             last_event_time,
             time_repr,
             start_time,
+            source,
+            phantom: _,
+        } = self;
+        Monitor::<S, T> {
+            ir,
+            eval,
+            output_handler,
+            time_manager,
+            last_event_time,
+            time_repr,
+            start_time,
+            source,
             phantom: PhantomData,
         }
     }
@@ -434,14 +445,12 @@ impl<V: VerdictRepresentation> Monitor<V> {
 
 #[cfg(test)]
 mod tests {
+    use crate::config::{Config, EvalConfig, RelativeTimeFormat, TimeRepresentation};
     use crate::coordination::monitor::Change;
-    use crate::{
-        Config, EvalConfig, Incremental, Monitor, RelativeTimeFormat, TimeRepresentation, Total, Value,
-        VerdictRepresentation,
-    };
+    use crate::monitor::{Event, EventInput, Incremental, Monitor, Total, Value, VerdictRepresentation};
     use std::time::{Duration, Instant};
 
-    fn setup<V: VerdictRepresentation>(spec: &str) -> (Instant, Monitor<V>) {
+    fn setup<V: VerdictRepresentation>(spec: &str) -> (Instant, Monitor<EventInput<Event>, V>) {
         // Init Monitor API
         let config = rtlola_frontend::ParserConfig::for_string(spec.to_string());
         let handler = rtlola_frontend::Handler::from(config.clone());
@@ -460,9 +469,40 @@ mod tests {
     }
 
     fn sort_incremental(mut res: Incremental) -> Incremental {
-        res.iter_mut().for_each(|(out_ref, changes)| changes.sort());
+        res.iter_mut().for_each(|(_, changes)| changes.sort());
         res
     }
+
+    // #[derive(Debug, Clone)]
+    // pub(crate) struct TestInputPayload {
+    //     mapping: Vec<usize>,
+    //     timestamp: Duration,
+    //     a: f64,
+    //     d: Messages,
+    // }
+    //
+    // #[derive(Debug, Clone)]
+    // enum Messages {
+    //     M0 { b: f64 },
+    //     M1 { c: u64 },
+    // }
+    // impl TestInputPayload {
+    //     fn a(p: &Self) -> Value {
+    //         Value::from(p.a)
+    //     }
+    //     fn b(p: &Self) -> Value {
+    //         match p.d {
+    //             Messages::M0 { b } => Value::from(b),
+    //             _ => Value::None,
+    //         }
+    //     }
+    //     fn c(p: &Self) -> Value {
+    //         match p.d {
+    //             Messages::M1 { c } => Value::from(c),
+    //             _ => Value::None,
+    //         }
+    //     }
+    // }
 
     #[test]
     fn test_const_output_literals() {

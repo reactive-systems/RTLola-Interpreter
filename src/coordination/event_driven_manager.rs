@@ -1,9 +1,7 @@
-use crate::basics::{
-    create_event_source, AbsoluteTimeFormat, EvalConfig, EventSource, ExecutionMode, OutputHandler, RawTime,
-};
+use crate::basics::{create_event_source, EventSource, OutputHandler, RawTime, Time};
+use crate::config::{AbsoluteTimeFormat, EvalConfig, ExecutionMode, TimeRepresentation};
 use crate::coordination::{WorkItem, CAP_LOCAL_QUEUE};
 use crate::storage::Value;
-use crate::{Time, TimeRepresentation};
 use crossbeam_channel::Sender;
 use rtlola_frontend::mir::RtLolaMir;
 use std::error::Error;

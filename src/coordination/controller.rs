@@ -1,7 +1,8 @@
 use super::event_driven_manager::EventDrivenManager;
 use super::time_driven_manager::TimeDrivenManager;
 use super::{WorkItem, CAP_WORK_QUEUE};
-use crate::basics::{EvalConfig, ExecutionMode::*, OutputHandler, Time};
+use crate::basics::{OutputHandler, Time};
+use crate::config::{EvalConfig, ExecutionMode::*};
 use crate::coordination::dynamic_schedule::DynamicSchedule;
 use crate::coordination::TimeEvaluation;
 use crate::evaluator::{Evaluator, EvaluatorData};

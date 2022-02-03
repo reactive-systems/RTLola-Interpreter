@@ -11,7 +11,7 @@
     unused_qualifications
 )]
 
-mod basics;
+pub mod basics;
 mod closuregen;
 mod coordination;
 mod evaluator;
@@ -19,37 +19,21 @@ mod storage;
 #[cfg(test)]
 mod tests;
 
+use crate::basics::config::{EvalConfig, ExecutionMode};
 use crate::basics::OutputHandler;
+use crate::config::Config;
 use crate::coordination::Controller;
-#[cfg(feature = "pcap_interface")]
-pub use basics::PCAPInputSource;
+use crate::monitor::{Input, VerdictRepresentation};
 use rtlola_frontend::mir::RtLolaMir;
 use std::sync::Arc;
 
-pub use crate::basics::{
-    AbsoluteTimeFormat, CsvInputSource, EvalConfig, EventSourceConfig, ExecutionMode, OutputChannel,
-    RelativeTimeFormat, Statistics, Time, TimeRepresentation, Verbosity,
-};
-pub use crate::coordination::{
-    monitor::{Change, Incremental, Total, TriggerMessages, TriggersWithInfoValues, VerdictRepresentation, Verdicts},
-    Event, Monitor,
-};
+// Public exports
+pub use crate::basics::config;
+pub use crate::coordination::monitor;
+pub use crate::coordination::monitor::Monitor;
 pub use crate::storage::Value;
 
 // TODO add example to doc
-
-/**
-`Config` combines an RTLola specification in `LolaIR` form with an `EvalConfig`.
-
-The evaluation configuration describes how the specification should be executed.
-The `Config` can then be turned into a monitor for use via the API or simply executed.
-*/
-#[derive(Debug, Clone)]
-pub struct Config {
-    cfg: EvalConfig,
-    ir: RtLolaMir,
-}
-
 impl Config {
     /**
     Creates a new `Config` which can then be run directly or turned into a `Monitor` by `as_api`.
@@ -61,7 +45,7 @@ impl Config {
     /**
     Turns a `Config` that was created through a call to `new_api` into a `Monitor`.
     */
-    pub fn as_api<V: VerdictRepresentation>(self) -> Monitor<V> {
+    pub fn as_api<S: Input, V: VerdictRepresentation>(self) -> Monitor<S, V> {
         assert!(matches!(self.cfg.mode, ExecutionMode::Offline(_)));
         Monitor::setup(self.ir, self.cfg)
     }

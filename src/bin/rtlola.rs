@@ -1,12 +1,13 @@
 use clap::{AppSettings, ArgEnum, ArgGroup, Args, IntoApp, Parser};
 use lazy_static::lazy_static;
-use rtlola_interpreter::{
-    AbsoluteTimeFormat, Config, CsvInputSource, EvalConfig, EventSourceConfig, ExecutionMode, OutputChannel,
-    RelativeTimeFormat, TimeRepresentation, Verbosity,
+use rtlola_interpreter::basics::{CsvInputSource, OutputChannel};
+use rtlola_interpreter::config::{
+    AbsoluteTimeFormat, Config, EvalConfig, EventSourceConfig, ExecutionMode, RelativeTimeFormat, TimeRepresentation,
+    Verbosity,
 };
 
 #[cfg(feature = "pcap_interface")]
-use rtlola_interpreter::PCAPInputSource;
+use rtlola_interpreter::basics::PCAPInputSource;
 
 use std::error::Error;
 use std::fmt::Write;
