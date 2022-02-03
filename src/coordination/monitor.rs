@@ -4,12 +4,14 @@ use crate::coordination::{DynamicSchedule, Event};
 use crate::evaluator::{Evaluator, EvaluatorData};
 use crate::storage::Value;
 use crate::{ExecutionMode, TimeRepresentation};
+use itertools::Itertools;
 use rtlola_frontend::mir::{InputReference, OutputReference, RtLolaMir, Type};
 use std::collections::HashMap;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomData;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 /**
     Provides the functionality to generate a snapshot of the streams values.
 */
@@ -28,12 +30,24 @@ pub type Parameters = Option<Vec<Value>>;
 /// A stream instance. First element represents the parameter values of the instance, the second element the value of the instance.
 pub type Instance = (Parameters, Option<Value>);
 
-// Todo: Implement Display
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Change {
     Spawn(Vec<Value>),
-    Close(Vec<Value>),
     Value(Parameters, Value),
+    Close(Vec<Value>),
+}
+
+impl Display for Change {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Change::Spawn(para) => write!(f, "Spawn<{}>", para.iter().join(", ")),
+            Change::Close(para) => write!(f, "Close<{}>", para.iter().join(", ")),
+            Change::Value(para, value) => match para {
+                Some(para) => write!(f, "Instance<{}> = {}", para.iter().join(", "), value),
+                None => write!(f, "Value = {}", value),
+            },
+        }
+    }
 }
 
 /**
