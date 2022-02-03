@@ -366,10 +366,14 @@ impl Evaluator {
         for close in self.closing_streams {
             let ac = &self.close_activation_conditions[*close];
             if ac.is_eventdriven() && ac.eval(self.fresh_inputs) {
-                let stream_instances: Vec<Vec<Value>> =
-                    self.global_store.get_out_instance_collection(*close).all_instances();
-                for instance in stream_instances {
-                    self.eval_close(*close, instance.as_slice(), ts);
+                if self.ir.output(StreamReference::Out(*close)).is_parameterized() {
+                    let stream_instances: Vec<Vec<Value>> =
+                        self.global_store.get_out_instance_collection(*close).all_instances();
+                    for instance in stream_instances {
+                        self.eval_close(*close, instance.as_slice(), ts);
+                    }
+                } else {
+                    self.eval_close(*close, &[], ts);
                 }
             }
         }
