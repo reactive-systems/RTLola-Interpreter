@@ -548,4 +548,27 @@ mod tests {
         assert_eq!(sort_total(res.event), sort_total(expected));
         assert_eq!(res.timed.len(), 0);
     }
+
+    #[test]
+    fn test_eval_close() {
+        let (_, mut monitor) = setup::<Incremental>(
+            "input a: Int32\n\
+                  output c(x: Int32)\n\
+                    spawn with a \n\
+                    close @a true\n\
+                  := x + a",
+        );
+
+        let res = monitor.accept_event(vec![Value::Signed(15)], Duration::from_secs(1));
+        let mut expected = vec![
+            Change::Spawn(vec![Value::Signed(15)]),
+            Change::Value(Some(vec![Value::Signed(15)]), Value::Signed(30)),
+            Change::Close(vec![Value::Signed(15)]),
+        ];
+        expected.sort();
+        assert!(res.timed.is_empty());
+        assert_eq!(res.event[0].0, 0);
+
+        assert_eq!(sort_incremental(res.event)[0].1, expected);
+    }
 }

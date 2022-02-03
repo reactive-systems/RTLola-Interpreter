@@ -62,11 +62,15 @@ impl InstanceCollection {
     }
 
     /// Deletes the instance corresponding to the parameters
-    pub(crate) fn delete_instance(&mut self, parameter: &[Value]) {
+    pub(crate) fn mark_for_deletion(&mut self, parameter: &[Value]) {
         debug_assert!(self.instances.contains_key(parameter));
         self.closed.insert(parameter.to_vec());
-        self.fresh.remove(parameter);
-        self.instances.remove(parameter);
+    }
+
+    pub(crate) fn delete_instances(&mut self) {
+        for inst in self.closed.iter() {
+            self.instances.remove(inst);
+        }
     }
 
     /// Returns a vector of all parameters for which an instance exists

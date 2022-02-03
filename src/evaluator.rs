@@ -255,7 +255,7 @@ impl Evaluator {
     /// Values of event are expected in the order of the input streams
     /// Time should be relative to the starting time of the monitor
     pub(crate) fn eval_event(&mut self, event: &[Value], ts: Time) {
-        self.clear_freshness();
+        self.new_cycle();
         self.accept_inputs(event, ts);
         self.eval_event_driven(ts);
     }
@@ -476,8 +476,8 @@ impl Evaluator {
             .debug(|| format!("Closing stream instance of {}: {} with parameter{:?}", output, stream.name, &parameter));
 
         if stream.is_parameterized() {
-            // close instance in store
-            self.global_store.get_out_instance_collection_mut(output).delete_instance(parameter);
+            // mark instance for closing
+            self.global_store.get_out_instance_collection_mut(output).mark_for_deletion(parameter);
 
             // close all windows referencing this instance
             for (_, win) in &stream.aggregated_by {
@@ -485,8 +485,8 @@ impl Evaluator {
                 self.global_store.get_window_collection_mut(*win).delete_window(parameter);
             }
         } else {
-            self.global_store.get_out_instance_mut(output).deactivate();
-            //close windows
+            // instance is marked for close below
+            // just close windows
             for (_, win) in &stream.aggregated_by {
                 self.global_store.get_window_mut(*win).deactivate();
             }
@@ -501,6 +501,17 @@ impl Evaluator {
             // Remove close from schedule if it depends on current instance
             if stream.instance_template.close.has_self_reference {
                 schedule.remove_close(&self.dyn_schedule.1, output, parameter, tds.period_in_duration());
+            }
+        }
+    }
+
+    /// Closes all streams marked for deletion
+    fn close_streams(&mut self) {
+        for o in self.closed_outputs.iter() {
+            if self.ir.output(StreamReference::Out(o)).is_parameterized() {
+                self.global_store.get_out_instance_collection_mut(o).delete_instances();
+            } else {
+                self.global_store.get_out_instance_mut(o).deactivate();
             }
         }
     }
@@ -528,7 +539,7 @@ impl Evaluator {
         if tasks.is_empty() {
             return;
         }
-        self.clear_freshness();
+        self.new_cycle();
         self.prepare_evaluation(ts);
         for task in tasks {
             match task {
@@ -636,12 +647,15 @@ impl Evaluator {
         }
     }
 
-    fn clear_freshness(&mut self) {
+    /// Marks a new evaluation cycle
+    fn new_cycle(&mut self) {
+        self.close_streams();
         self.fresh_inputs.clear();
         self.fresh_outputs.clear();
+        self.fresh_triggers.clear();
+
         self.spawned_outputs.clear();
         self.closed_outputs.clear();
-        self.fresh_triggers.clear();
         self.global_store.new_cycle();
     }
 
@@ -867,12 +881,14 @@ mod tests {
     macro_rules! eval_close {
         ($eval:expr, $start:expr, $ix:expr, $parameter:expr) => {
             $eval.eval_close($ix.out_ix(), $parameter.as_slice(), $start.elapsed());
+            $eval.close_streams();
         };
     }
 
     macro_rules! eval_close_timed {
         ($eval:expr, $time:expr, $ix:expr, $parameter:expr) => {
             $eval.eval_close($ix.out_ix(), $parameter.as_slice(), $time);
+            $eval.close_streams();
         };
     }
 
