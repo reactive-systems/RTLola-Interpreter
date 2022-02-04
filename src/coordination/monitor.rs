@@ -1,3 +1,20 @@
+//! The API of the RTLola interpreter. It is used to evaluate input events on a given specification and output the results.
+//! The main structure is the [Monitor] which is parameterized over its input and output method.
+//! An instance of a [Monitor] is created through a [Config](crate::Config) and the [as_api](crate::Config::as_api) method.
+//!
+//! # Input Method
+//! An input method has to implement the [Input] trait. Out of the box two different methods are provided:
+//! * [EventInput]: Provides a basic input method for anything that already is an [Event] or that can be transformed into one using `Into<Event>`.
+//! * [RecordInput]: Is a more elaborate input method. It allows to provide a custom data structure to the monitor as an input, as long as it implements the [Record] trait.
+//!     If implemented this traits provides functionality to generate a new value for any input stream from the data structure.
+//!
+//! # Output Method
+//! The [Monitor] can provide output with a varying level of detail captured by the [VerdictRepresentation] trait. The different output formats are:
+//! * [Incremental]: For each processed event a condensed list of monitor state changes is provided.
+//! * [Total]: For each event a complete snapshot of the current monitor state is returned
+//! * [TriggerMessages]: For each event a list of violated triggers with their description is produced.
+//! * [TriggersWithInfoValues]: For each event a list of violated triggers with their specified corresponding values is returned.
+
 use crate::basics::{OutputHandler, Time};
 use crate::config::{EvalConfig, ExecutionMode, TimeRepresentation};
 use crate::coordination::time_driven_manager::TimeDrivenManager;
@@ -25,17 +42,21 @@ pub trait VerdictRepresentation {
 }
 
 /// A type representing the parameters of a stream.
-/// If a stream not dynamically created it defaults to `None`.
+/// If a stream is not dynamically created it defaults to `None`.
 /// If a stream is dynamically created but does not have parameters it defaults to `Some(vec![])`
 pub type Parameters = Option<Vec<Value>>;
 
 /// A stream instance. First element represents the parameter values of the instance, the second element the value of the instance.
 pub type Instance = (Parameters, Option<Value>);
 
+/// An enum representing a change in the monitor.
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Change {
+    /// Indicates that a new instance of a stream was created with the given values as parameters.
     Spawn(Vec<Value>),
+    /// Indicates that an instance got a new value. The instance is identified through the given [Parameters].
     Value(Parameters, Value),
+    /// Indicates that an instance was closed. The given values are the parameters of the closed instance.
     Close(Vec<Value>),
 }
 
@@ -53,7 +74,7 @@ impl Display for Change {
 }
 
 /**
-    Represents a snapshot of the monitor containing the value of all updated output stream.
+    Represents the changes of the monitor state. Each element represents a set of [Change]s of a specific output stream.
 */
 pub type Incremental = Vec<(OutputReference, Vec<Change>)>;
 
@@ -64,16 +85,15 @@ impl VerdictRepresentation for Incremental {
 }
 
 /**
-    Represents a snapshot of the monitor containing the current value of each output stream.
-
-    The ith value in the inputs vector is the current value of the ith input stream.
-    The ith value in the outputs vector is the vector of instances of the ith output stream.
-    If the stream has no instance yet, this vector is empty. If a stream is not parameterized, the vector will always be of size 1.
-
+    Represents a snapshot of the monitor state containing the current value of each output and input stream.
 */
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Total {
+    /// The ith value in this vector is the current value of the ith input stream.
     pub inputs: Vec<Option<Value>>,
+
+    /// The ith value in this vector is the vector of instances of the ith output stream.
+    /// If the stream has no instance yet, this vector is empty. If a stream is not parameterized, the vector will always be of size 1.
     pub outputs: Vec<Vec<Instance>>,
 }
 
@@ -84,7 +104,7 @@ impl VerdictRepresentation for Total {
 }
 
 /**
-    Represents the index and the formated message of all violated triggers.
+    Represents the index and the formatted message of all violated triggers.
 */
 pub type TriggerMessages = Vec<(OutputReference, String)>;
 
@@ -126,15 +146,17 @@ pub struct Verdicts<V: VerdictRepresentation> {
 }
 
 /**
-The [Monitor] accepts new events and computes streams.
+The Monitor is the central object exposed by the API.
 
-The [Monitor] is the central object exposed by the API.
+The [Monitor] accepts new events and computes streams.
 It can compute event-based streams based on new events through `accept_event`.
 It can also simply advance periodic streams up to a given timestamp through `accept_time`.
-The generic argument `V` implements the [VerdictRepresentation] trait describing the outputformat of the API that is by default [Incremental].
+The generic argument `V` implements the [VerdictRepresentation] trait describing the output format of the API that is by default [Incremental].
+The generic argument `S` implements the [Input] trait describing the input source of the API.
 */
 #[allow(missing_debug_implementations)]
 pub struct Monitor<S: Input, V: VerdictRepresentation = Incremental> {
+    /// The representation of the specification. See [RTLolaMir](rtlola_frontend::mir::RtLolaMir).
     pub ir: RtLolaMir,
     eval: Evaluator,
     pub(crate) output_handler: Arc<OutputHandler>,
@@ -225,8 +247,8 @@ impl<'a> From<&'a Evaluator> for RawVerdict<'a> {
 }
 
 /// This trait provides the functionality to pass inputs to the monitor.
-/// You can either implement this trait for your own Datatype or use one of the predefined Input Methods.
-/// See [RecordParser] and [EventInput]
+/// You can either implement this trait for your own Datatype or use one of the predefined input methods.
+/// See [RecordInput] and [EventInput]
 pub trait Input {
     /// The type from which an event is generated by the input source.
     type Record;
@@ -239,33 +261,36 @@ pub trait Input {
 }
 
 /// This trait provides functionality to parse a record into an event.
-/// It is only used in combination with the [RecordParser].
-// Todo: Add example
+/// It is only used in combination with the [RecordInput].
 pub trait Record {
     /// Given the name of an input this function returns a function that given a record returns the value for that input.
     fn func_for_input(name: &str) -> fn(&Self) -> Value;
 }
 
+/// An input method for types that implement the [Record] trait. Useful if you do not want to bother with the order of the input streams in an event.
+// Todo: Add example
 #[derive(Clone)]
 #[allow(missing_debug_implementations)]
-pub struct RecordParser<P: Record> {
-    translator: Vec<fn(&P) -> Value>,
+pub struct RecordInput<P: Record> {
+    translators: Vec<fn(&P) -> Value>,
 }
 
-impl<P: Record> Input for RecordParser<P> {
+impl<P: Record> Input for RecordInput<P> {
     type Record = P;
 
     fn new(map: HashMap<String, InputReference>) -> Self {
-        let mut translator = Vec::with_capacity(map.len());
-        map.iter().for_each(|(input_name, index)| translator[*index] = P::func_for_input(input_name.as_str()));
-        Self { translator }
+        let mut translators = Vec::with_capacity(map.len());
+        map.iter().for_each(|(input_name, index)| translators[*index] = P::func_for_input(input_name.as_str()));
+        Self { translators }
     }
 
     fn get_event(&self, rec: P) -> Event {
-        self.translator.iter().map(|f| f(&rec)).collect()
+        self.translators.iter().map(|f| f(&rec)).collect()
     }
 }
 
+/// The simplest input method to the monitor. It accepts any type that implements `Into<Event>`.
+/// The conversion to values and the order of inputs must be handled externally.
 #[derive(Debug, Clone)]
 pub struct EventInput<E: Into<Event>> {
     phantom: PhantomData<E>,
@@ -288,7 +313,7 @@ impl<S: Input, V: VerdictRepresentation> Monitor<S, V> {
     /**
     Computes all periodic streams up through the new timestamp and then handles the input event.
 
-    The new event is therefore not seen by periodic streams up through the new timestamp.
+    The new event is therefore not seen by periodic streams up through a new timestamp.
     */
     pub fn accept_event(&mut self, ev: S::Record, ts: Time) -> Verdicts<V> {
         let ev = self.source.get_event(ev);
@@ -311,7 +336,7 @@ impl<S: Input, V: VerdictRepresentation> Monitor<S, V> {
     }
 
     /**
-    Computes all periodic streams up through the new timestamp.
+    Computes all periodic streams up through and including the timestamp.
     */
     pub fn accept_time(&mut self, ts: Time) -> Vec<(Time, V)> {
         let mut timed_changes: Vec<(Time, V)> = vec![];

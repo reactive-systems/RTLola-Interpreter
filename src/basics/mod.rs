@@ -1,3 +1,5 @@
+//! This module exposes basic functionality that is useful when dealing with the interpreter or the Api.
+
 pub mod config;
 mod csv_input;
 mod io_handler;
