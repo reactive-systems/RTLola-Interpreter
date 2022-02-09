@@ -2,8 +2,7 @@ use clap::{AppSettings, ArgEnum, ArgGroup, Args, IntoApp, Parser};
 use lazy_static::lazy_static;
 use rtlola_interpreter::basics::{CsvInputSource, OutputChannel};
 use rtlola_interpreter::config::{
-    AbsoluteTimeFormat, Config, EvalConfig, EventSourceConfig, ExecutionMode, RelativeTimeFormat, TimeRepresentation,
-    Verbosity,
+    AbsoluteTimeFormat, Config, EventSourceConfig, ExecutionMode, RelativeTimeFormat, TimeRepresentation, Verbosity,
 };
 
 #[cfg(feature = "pcap_interface")]
@@ -19,6 +18,7 @@ use clap_complete::shells::*;
 use human_panic::setup_panic;
 use std::convert::TryFrom;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use rtlola_interpreter::ConfigBuilder;
 
 macro_rules! enum_doc {
     ($enum: ty, $heading: expr) => {{
@@ -396,18 +396,16 @@ impl TryFrom<Cli> for Config {
 
                 let source = input.clone().into_event_source(local_network);
 
-                Ok(Config::new(
-                    EvalConfig {
-                        source,
-                        statistics: verbosity.into(),
-                        verbosity,
-                        output_channel: output.into(),
-                        mode: input.into(),
-                        output_time_representation: output_time_format.into(),
-                        start_time: start_time.into(),
-                    },
+                Ok(Config {
                     ir,
-                ))
+                    source,
+                    statistics: verbosity.into(),
+                    verbosity,
+                    output_channel: output.into(),
+                    mode: input.into(),
+                    output_time_representation: output_time_format.into(),
+                    start_time: start_time.into(),
+                })
             }
             Cli::Monitor { spec, input, output, mode, start_time, verbosity, output_time_format } => {
                 let config = rtlola_frontend::ParserConfig::from_path(spec).unwrap_or_else(|e| {
@@ -422,18 +420,16 @@ impl TryFrom<Cli> for Config {
 
                 let source = input.into_event_source(mode.into());
 
-                Ok(Config::new(
-                    EvalConfig {
-                        source,
-                        statistics: verbosity.into(),
-                        verbosity,
-                        output_channel: output.into(),
-                        mode: mode.into(),
-                        output_time_representation: output_time_format.into(),
-                        start_time: start_time.into(),
-                    },
+                Ok(Config {
                     ir,
-                ))
+                    source,
+                    statistics: verbosity.into(),
+                    verbosity,
+                    output_channel: output.into(),
+                    mode: mode.into(),
+                    output_time_representation: output_time_format.into(),
+                    start_time: start_time.into(),
+                })
             }
         }
     }

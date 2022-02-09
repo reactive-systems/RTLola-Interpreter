@@ -1,28 +1,30 @@
-use super::OutputChannel;
-use crate::basics::io_handler::RawTime;
-use crate::basics::CsvInputSource;
-#[cfg(feature = "pcap_interface")]
-use crate::basics::PCAPInputSource;
-use clap::ArgEnum;
-use rtlola_frontend::RtLolaMir;
+//! This module contains all configuration related structures.
+
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-/**
-`Config` combines an RTLola specification in `LolaIR` form with an `EvalConfig`.
+use clap::ArgEnum;
+use rtlola_frontend::RtLolaMir;
 
-The evaluation configuration describes how the specification should be executed.
+use crate::basics::{CsvInputSource, OutputChannel, OutputHandler, RawTime};
+#[cfg(feature = "pcap_interface")]
+use crate::basics::PCAPInputSource;
+use crate::coordination::Controller;
+use crate::monitor::{Input, VerdictRepresentation};
+use crate::Monitor;
+
+/**
+`Config` combines an RTLola specification in [RtLolaMir] form with various configuration parameters for the interpreter.
+
+The configuration describes how the specification should be executed.
 The `Config` can then be turned into a monitor for use via the API or simply executed.
  */
-#[derive(Debug, Clone)]
-pub struct Config {
-    pub(crate) cfg: EvalConfig,
-    pub(crate) ir: RtLolaMir,
-}
-
 #[derive(Clone, Debug)]
-pub struct EvalConfig {
+pub struct Config {
+    /// The representation of the specification
+    pub ir: RtLolaMir,
     /// The source of events
     pub source: EventSourceConfig,
     /// A statistics module
@@ -43,6 +45,12 @@ pub struct EvalConfig {
 pub enum Statistics {
     None,
     Debug,
+}
+
+impl Default for Statistics {
+    fn default() -> Self {
+        Statistics::None
+    }
 }
 
 impl From<Verbosity> for Statistics {
@@ -191,20 +199,34 @@ impl AbsoluteTimeFormat {
     }
 }
 
-impl EvalConfig {
-    pub fn new(
-        source: EventSourceConfig,
-        statistics: Statistics,
-        verbosity: Verbosity,
+impl Config {
+    pub fn debug(ir: RtLolaMir) -> Self {
+        let mode = ExecutionMode::Offline(TimeRepresentation::Relative(RelativeTimeFormat::FloatSecs));
+        Config {
+            ir,
+            source: EventSourceConfig::Csv { src: CsvInputSource::stdin(None, mode) },
+            statistics: Statistics::Debug,
+            verbosity: Verbosity::Debug,
+            output_channel: OutputChannel::StdOut,
+            mode,
+            output_time_representation: TimeRepresentation::Absolute(AbsoluteTimeFormat::Rfc3339),
+            start_time: None,
+        }
+    }
+
+    pub fn release(
+        ir: RtLolaMir,
+        csv_path: String,
         output: OutputChannel,
         mode: ExecutionMode,
         output_time_representation: TimeRepresentation,
         start_time: Option<SystemTime>,
     ) -> Self {
-        EvalConfig {
-            source,
-            statistics,
-            verbosity,
+        Config {
+            ir,
+            source: EventSourceConfig::Csv { src: CsvInputSource::file(PathBuf::from(csv_path), None, None, mode) },
+            statistics: Statistics::None,
+            verbosity: Verbosity::Triggers,
             output_channel: output,
             mode,
             output_time_representation,
@@ -212,52 +234,24 @@ impl EvalConfig {
         }
     }
 
-    pub fn debug() -> Self {
-        EvalConfig { statistics: Statistics::Debug, verbosity: Verbosity::Debug, ..Default::default() }
-    }
-
-    pub fn release(
-        path: String,
-        output: OutputChannel,
-        mode: ExecutionMode,
-        output_time_representation: TimeRepresentation,
-        start_time: Option<SystemTime>,
-    ) -> Self {
-        EvalConfig::new(
-            EventSourceConfig::Csv { src: CsvInputSource::file(PathBuf::from(path), None, None, mode) },
-            Statistics::None,
-            Verbosity::Triggers,
-            output,
-            mode,
-            output_time_representation,
-            start_time,
-        )
-    }
-
-    pub fn api(time_representation: TimeRepresentation) -> Self {
-        EvalConfig::new(
-            EventSourceConfig::Api,
-            Statistics::None,
-            Verbosity::Triggers,
-            OutputChannel::None,
-            ExecutionMode::Offline(time_representation),
-            time_representation,
-            None,
-        )
-    }
-}
-
-impl Default for EvalConfig {
-    fn default() -> EvalConfig {
-        let mode = ExecutionMode::Offline(TimeRepresentation::Relative(RelativeTimeFormat::FloatSecs));
-        EvalConfig {
-            source: EventSourceConfig::Csv { src: CsvInputSource::stdin(None, mode) },
+    pub fn api(ir: RtLolaMir, time_representation: TimeRepresentation) -> Self {
+        Config {
+            ir,
+            source: EventSourceConfig::Api,
             statistics: Statistics::None,
             verbosity: Verbosity::Triggers,
-            output_channel: OutputChannel::StdOut,
-            mode,
-            output_time_representation: TimeRepresentation::Absolute(AbsoluteTimeFormat::Rfc3339),
+            output_channel: OutputChannel::None,
+            mode: ExecutionMode::Offline(time_representation),
+            output_time_representation: time_representation,
             start_time: None,
         }
+    }
+
+    pub fn run(self) -> Result<Arc<OutputHandler>, Box<dyn std::error::Error>> {
+        Controller::new(self).start()
+    }
+
+    pub fn monitor<S: Input, V: VerdictRepresentation>(self) -> Monitor<S, V> {
+        Monitor::setup(self)
     }
 }

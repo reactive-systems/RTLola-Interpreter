@@ -5,9 +5,9 @@ use itertools::Position;
 use junit_report::{Duration as JunitDuration, OffsetDateTime, ReportBuilder, TestCase, TestSuiteBuilder};
 use ordered_float::NotNan;
 use rtlola_frontend::mir::Type;
-use rtlola_interpreter::config::{Config, EvalConfig, RelativeTimeFormat, TimeRepresentation};
+use rtlola_interpreter::config::RelativeTimeFormat;
 use rtlola_interpreter::monitor::{EventInput, Monitor, TriggerMessages};
-use rtlola_interpreter::Value;
+use rtlola_interpreter::{ConfigBuilder, Value};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
@@ -206,18 +206,14 @@ impl Test {
             csv.headers().unwrap().iter().position(|header| header == "time").expect("No time column in csv file");
 
         // Init Monitor API
-        let config = rtlola_frontend::ParserConfig::from_path(self.spec_file.clone()).unwrap_or_else(|e| {
-            eprintln!("{}", e);
-            std::process::exit(1)
-        });
-        let handler = rtlola_frontend::Handler::from(config.clone());
-        let ir = rtlola_frontend::parse(config).unwrap_or_else(|e| {
-            handler.emit_error(&e);
-            std::process::exit(1);
-        });
+        let config = ConfigBuilder::api()
+            .relative_input_time(RelativeTimeFormat::FloatSecs)
+            .spec_file(self.spec_file.clone())
+            .build();
 
         //Get Input names, Types and column
-        let inputs: Vec<_> = ir
+        let inputs: Vec<_> = config
+            .ir
             .inputs
             .iter()
             .map(|i| {
@@ -227,9 +223,8 @@ impl Test {
             })
             .collect();
 
-        let eval_conf = EvalConfig::api(TimeRepresentation::Relative(RelativeTimeFormat::FloatSecs));
         // Todo: Consider using the RecordParser input
-        let mut monitor: Monitor<EventInput<Vec<Value>>, TriggerMessages> = Config::new(eval_conf, ir).as_api();
+        let mut monitor: Monitor<EventInput<Vec<Value>>, TriggerMessages> = config.monitor();
 
         let mut actual = Vec::new();
         for line in csv.records().with_position() {

@@ -1,6 +1,6 @@
 //! The API of the RTLola interpreter. It is used to evaluate input events on a given specification and output the results.
 //! The main structure is the [Monitor] which is parameterized over its input and output method.
-//! An instance of a [Monitor] is created through a [Config](crate::Config) and the [as_api](crate::Config::as_api) method.
+//! The preferred method to create a [Monitor] is using the [ConfigBuilder](crate::ConfigBuilder) and the [monitor](crate::ConfigBuilder::monitor) method.
 //!
 //! # Input Method
 //! An input method has to implement the [Input] trait. Out of the box two different methods are provided:
@@ -15,12 +15,13 @@
 //! * [TriggerMessages]: For each event a list of violated triggers with their description is produced.
 //! * [TriggersWithInfoValues]: For each event a list of violated triggers with their specified corresponding values is returned.
 
-use crate::basics::{OutputHandler, Time};
-use crate::config::{EvalConfig, ExecutionMode, TimeRepresentation};
+use crate::basics::OutputHandler;
+use crate::config::{Config, ExecutionMode, TimeRepresentation};
 use crate::coordination::time_driven_manager::TimeDrivenManager;
 use crate::coordination::DynamicSchedule;
 use crate::evaluator::{Evaluator, EvaluatorData};
 use crate::storage::Value;
+use crate::Time;
 use itertools::Itertools;
 use rtlola_frontend::mir::{InputReference, OutputReference, RtLolaMir, Type};
 use std::collections::HashMap;
@@ -174,8 +175,8 @@ pub struct Monitor<S: Input, V: VerdictRepresentation = Incremental> {
 /// Crate-public interface
 impl<S: Input, V: VerdictRepresentation> Monitor<S, V> {
     ///setup
-    pub(crate) fn setup(ir: RtLolaMir, config: EvalConfig) -> Monitor<S, V> {
-        let output_handler = Arc::new(OutputHandler::new(&config, ir.triggers.len()));
+    pub(crate) fn setup(config: Config) -> Monitor<S, V> {
+        let output_handler = Arc::new(OutputHandler::new(&config, config.ir.triggers.len()));
         let dyn_schedule = Arc::new((Mutex::new(DynamicSchedule::new()), Condvar::new()));
         let monitor_start = SystemTime::now();
 
@@ -192,15 +193,15 @@ impl<S: Input, V: VerdictRepresentation> Monitor<S, V> {
             output_handler.set_start_time(start_time);
         }
 
-        let input_map = ir.inputs.iter().map(|i| (i.name.clone(), i.reference.in_ix())).collect();
+        let input_map = config.ir.inputs.iter().map(|i| (i.name.clone(), i.reference.in_ix())).collect();
 
-        let eval_data = EvaluatorData::new(ir.clone(), output_handler.clone(), dyn_schedule.clone());
+        let eval_data = EvaluatorData::new(config.ir.clone(), output_handler.clone(), dyn_schedule.clone());
 
-        let time_manager = TimeDrivenManager::setup(ir.clone(), output_handler.clone(), dyn_schedule)
+        let time_manager = TimeDrivenManager::setup(config.ir.clone(), output_handler.clone(), dyn_schedule)
             .expect("Error computing schedule for time-driven streams");
 
         Monitor {
-            ir,
+            ir: config.ir,
             eval: eval_data.into_evaluator(),
             output_handler,
             time_manager,
@@ -268,7 +269,45 @@ pub trait Record {
 }
 
 /// An input method for types that implement the [Record] trait. Useful if you do not want to bother with the order of the input streams in an event.
-// Todo: Add example
+/// Assuming the specification has 3 inputs: 'a', 'b' and 'c'. You could implement this trait for your custom 'MyType' as follows:
+/// ```
+/// use rtlola_interpreter::Value;
+/// use rtlola_interpreter::monitor::Record;
+///
+/// struct MyType {
+///     a: u64,
+///     b: Option<bool>,
+///     c: String,
+/// }
+///
+/// impl MyType {
+///     // Generate a new value for input stream 'a'
+///     fn a(rec: &Self) -> Value {
+///         Value::from(rec.a)
+///     }
+///
+///     // Generate a new value for input stream 'b'
+///     fn b(rec: &Self) -> Value {
+///         rec.b.map(|b| Value::from(b)).unwrap_or(Value::None)
+///     }
+///
+///     // Generate a new value for input stream 'c'
+///     fn c(rec: &Self) -> Value {
+///         Value::Str(rec.c.clone().into_boxed_str())
+///     }
+/// }
+///
+/// impl Record for MyType {
+///     fn func_for_input(name: &str) -> fn(&Self) -> Value {
+///         match name {
+///             "a" => Self::a,
+///             "b" => Self::b,
+///             "c" => Self::c,
+///             x => panic!("Unexpected input stream {} in specification.", x),
+///         }
+///     }
+/// }
+/// ```
 #[derive(Clone)]
 #[allow(missing_debug_implementations)]
 pub struct RecordInput<P: Record> {
@@ -470,21 +509,16 @@ impl<S: Input, V: VerdictRepresentation> Monitor<S, V> {
 
 #[cfg(test)]
 mod tests {
-    use crate::config::{Config, EvalConfig, RelativeTimeFormat, TimeRepresentation};
+    use crate::config::RelativeTimeFormat;
+    use crate::ConfigBuilder;
     use crate::coordination::monitor::Change;
     use crate::monitor::{Event, EventInput, Incremental, Monitor, Total, Value, VerdictRepresentation};
     use std::time::{Duration, Instant};
 
     fn setup<V: VerdictRepresentation>(spec: &str) -> (Instant, Monitor<EventInput<Event>, V>) {
         // Init Monitor API
-        let config = rtlola_frontend::ParserConfig::for_string(spec.to_string());
-        let handler = rtlola_frontend::Handler::from(config.clone());
-        let ir = rtlola_frontend::parse(config).unwrap_or_else(|e| {
-            handler.emit_error(&e);
-            std::process::exit(1);
-        });
-        let eval_conf = EvalConfig::api(TimeRepresentation::Relative(RelativeTimeFormat::FloatSecs));
-        (Instant::now(), Config::new(eval_conf, ir).as_api())
+        let monitor = ConfigBuilder::api().relative_input_time(RelativeTimeFormat::FloatSecs).spec_str(spec).monitor();
+        (Instant::now(), monitor)
     }
 
     fn sort_total(res: Total) -> Total {

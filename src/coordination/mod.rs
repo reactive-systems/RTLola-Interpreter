@@ -10,7 +10,7 @@ pub(crate) use self::dynamic_schedule::DynamicSchedule;
 pub(crate) use self::event_driven_manager::EventEvaluation;
 pub(crate) use self::time_driven_manager::EvaluationTask;
 pub(crate) use self::time_driven_manager::TimeEvaluation;
-use crate::basics::Time;
+use crate::Time;
 
 #[derive(Debug, Clone)]
 pub(crate) enum WorkItem {

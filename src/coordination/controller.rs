@@ -1,23 +1,21 @@
 use super::event_driven_manager::EventDrivenManager;
 use super::time_driven_manager::TimeDrivenManager;
 use super::{WorkItem, CAP_WORK_QUEUE};
-use crate::basics::{OutputHandler, Time};
-use crate::config::{EvalConfig, ExecutionMode::*};
+use crate::basics::OutputHandler;
+use crate::config::{Config, ExecutionMode::*};
 use crate::coordination::dynamic_schedule::DynamicSchedule;
 use crate::coordination::TimeEvaluation;
 use crate::evaluator::{Evaluator, EvaluatorData};
+use crate::Time;
 use crate::Value;
 use crossbeam_channel::{bounded, unbounded};
-use rtlola_frontend::mir::RtLolaMir;
 use std::error::Error;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::SystemTime;
 
 pub(crate) struct Controller {
-    ir: RtLolaMir,
-
-    config: EvalConfig,
+    config: Config,
 
     /// Handles all kind of output behavior according to config.
     pub(crate) output_handler: Arc<OutputHandler>,
@@ -27,10 +25,10 @@ pub(crate) struct Controller {
 }
 
 impl Controller {
-    pub(crate) fn new(ir: RtLolaMir, config: EvalConfig) -> Self {
-        let output_handler = Arc::new(OutputHandler::new(&config, ir.triggers.len()));
+    pub(crate) fn new(config: Config) -> Self {
+        let output_handler = Arc::new(OutputHandler::new(&config, config.ir.triggers.len()));
         let dyn_schedule = Arc::new((Mutex::new(DynamicSchedule::new()), Condvar::new()));
-        Self { ir, config, output_handler, dyn_schedule }
+        Self { config, output_handler, dyn_schedule }
     }
 
     pub(crate) fn start(self) -> Result<Arc<OutputHandler>, Box<dyn Error>> {
@@ -49,9 +47,9 @@ impl Controller {
         let copy_output_handler = self.output_handler.clone();
         copy_output_handler.set_start_time(now);
 
-        if self.ir.has_time_driven_features() {
+        if self.config.ir.has_time_driven_features() {
             let work_tx_clone = work_tx.clone();
-            let ir_clone = self.ir.clone();
+            let ir_clone = self.config.ir.clone();
             let ds_clone = self.dyn_schedule.clone();
             let _ = thread::Builder::new().name("TimeDrivenManager".into()).spawn(move || {
                 let time_manager = TimeDrivenManager::setup(ir_clone, copy_output_handler, ds_clone)
@@ -62,7 +60,7 @@ impl Controller {
 
         let copy_output_handler = self.output_handler.clone();
 
-        let ir_clone = self.ir.clone();
+        let ir_clone = self.config.ir.clone();
         let cfg_clone = self.config.clone();
         // TODO: Wait until all events have been read.
         let _event = thread::Builder::new().name("EventDrivenManager".into()).spawn(move || {
@@ -71,7 +69,7 @@ impl Controller {
         });
 
         let copy_output_handler = self.output_handler.clone();
-        let evaluatordata = EvaluatorData::new(self.ir.clone(), copy_output_handler, self.dyn_schedule.clone());
+        let evaluatordata = EvaluatorData::new(self.config.ir.clone(), copy_output_handler, self.dyn_schedule.clone());
 
         let mut evaluator = evaluatordata.into_evaluator();
 
@@ -101,7 +99,7 @@ impl Controller {
 
         // Setup EventDrivenManager
         let output_copy_handler = self.output_handler.clone();
-        let ir_clone = self.ir.clone();
+        let ir_clone = self.config.ir.clone();
         let cfg_clone = self.config.clone();
         let edm_thread = thread::Builder::new()
             .name("EventDrivenManager".into())
@@ -114,13 +112,13 @@ impl Controller {
             .unwrap_or_else(|e| unreachable!("Failed to start EventDrivenManager thread: {}", e));
 
         // Setup TimeDrivenManager
-        let ir_clone = self.ir.clone();
+        let ir_clone = self.config.ir.clone();
         let output_copy_handler = self.output_handler.clone();
         let mut time_manager = TimeDrivenManager::setup(ir_clone, output_copy_handler, self.dyn_schedule.clone())?;
 
         // Setup Evaluator
         let output_copy_handler = self.output_handler.clone();
-        let evaluatordata = EvaluatorData::new(self.ir.clone(), output_copy_handler, self.dyn_schedule.clone());
+        let evaluatordata = EvaluatorData::new(self.config.ir.clone(), output_copy_handler, self.dyn_schedule.clone());
         let mut evaluator = evaluatordata.into_evaluator();
 
         let mut current_time = Time::default();

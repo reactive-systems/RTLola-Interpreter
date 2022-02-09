@@ -1,13 +1,9 @@
 //! This module exposes basic functionality that is useful when dealing with the interpreter or the Api.
 
-pub mod config;
 mod csv_input;
 mod io_handler;
 #[cfg(feature = "pcap_interface")]
 mod pcap_input;
-
-use std::time::Duration;
-pub type Time = Duration;
 
 pub use self::io_handler::OutputChannel;
 pub(crate) use self::io_handler::{create_event_source, EventSource, OutputHandler, RawTime};

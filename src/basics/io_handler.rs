@@ -1,13 +1,11 @@
 #![allow(clippy::mutex_atomic)]
 
-use super::Time;
 use crate::basics::CsvEventSource;
 #[cfg(feature = "pcap_interface")]
 use crate::basics::PCAPEventSource;
-use crate::config::{
-    AbsoluteTimeFormat, EvalConfig, EventSourceConfig, RelativeTimeFormat, TimeRepresentation, Verbosity,
-};
+use crate::config::{AbsoluteTimeFormat, Config, EventSourceConfig, RelativeTimeFormat, TimeRepresentation, Verbosity};
 use crate::storage::Value;
+use crate::Time;
 use crossterm::{
     cursor::MoveUp,
     execute,
@@ -83,6 +81,12 @@ pub enum OutputChannel {
     None,
 }
 
+impl Default for OutputChannel {
+    fn default() -> Self {
+        OutputChannel::StdOut
+    }
+}
+
 #[derive(Debug)]
 pub struct OutputHandler {
     pub(crate) verbosity: Verbosity,
@@ -98,7 +102,7 @@ pub struct OutputHandler {
 
 impl OutputHandler {
     /// Creates a new Output Handler. If None is given as 'start_time', then the first event determines it.
-    pub(crate) fn new(config: &EvalConfig, num_trigger: usize) -> OutputHandler {
+    pub(crate) fn new(config: &Config, num_trigger: usize) -> OutputHandler {
         let statistics = if config.verbosity == Verbosity::Progress {
             let stats = Statistics::new(num_trigger);
             stats.start_print_progress();

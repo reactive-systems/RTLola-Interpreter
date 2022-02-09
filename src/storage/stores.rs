@@ -1,7 +1,7 @@
 use super::Value;
 
-use crate::basics::Time;
 use crate::storage::SlidingWindow;
+use crate::Time;
 use either::Either;
 use rtlola_frontend::mir::{
     InputReference, MemorizationBound, OutputReference, OutputStream, RtLolaMir, Stream, StreamReference, Type,

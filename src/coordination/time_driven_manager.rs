@@ -1,8 +1,8 @@
 use super::WorkItem;
-use crate::basics::{OutputHandler, Time};
-
+use crate::basics::OutputHandler;
 use crate::coordination::dynamic_schedule::DynamicSchedule;
 use crate::evaluator::Evaluator;
+use crate::Time;
 use crate::Value;
 use crossbeam_channel::Sender;
 use rtlola_frontend::mir::{Deadline, OutputReference, PacingType, RtLolaMir, Stream, Task};

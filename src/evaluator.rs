@@ -1,8 +1,9 @@
-use crate::basics::{OutputHandler, Time};
+use crate::basics::OutputHandler;
 use crate::closuregen::{CompiledExpr, Expr};
 use crate::coordination::monitor::{Change, Instance};
 use crate::coordination::{DynamicSchedule, EvaluationTask};
 use crate::storage::{GlobalStore, Value};
+use crate::Time;
 use bit_set::BitSet;
 use rtlola_frontend::mir::{
     ActivationCondition as Activation, InputReference, OutputReference, PacingType, RtLolaMir, Stream, StreamReference,
@@ -826,9 +827,9 @@ impl ActivationConditionOp {
 mod tests {
 
     use super::*;
+    use crate::config::Config;
     use crate::coordination::dynamic_schedule::*;
     use crate::storage::Value::*;
-    use crate::EvalConfig;
     use ordered_float::NotNan;
     use rtlola_frontend::mir::RtLolaMir;
     use rtlola_frontend::ParserConfig;
@@ -837,7 +838,8 @@ mod tests {
     fn setup(spec: &str) -> (RtLolaMir, EvaluatorData, Instant) {
         let ir = rtlola_frontend::parse(ParserConfig::for_string(spec.to_string()))
             .unwrap_or_else(|e| panic!("spec is invalid: {:?}", e));
-        let mut config = EvalConfig::default();
+        let mut config = Config::debug(ir.clone());
+
         config.verbosity = crate::config::Verbosity::WarningsOnly;
         let handler = Arc::new(OutputHandler::new(&config, ir.triggers.len()));
         let cond = Condvar::new();

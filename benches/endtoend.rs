@@ -3,14 +3,14 @@
 extern crate test;
 
 use rtlola_interpreter::{
-    AbsoluteTimeFormat, Config, CsvInputSource, EvalConfig, EventSourceConfig, ExecutionMode, OutputChannel,
+    AbsoluteTimeFormat, Config, Config, CsvInputSource, EventSourceConfig, ExecutionMode, OutputChannel,
     RelativeTimeFormat, Statistics, TimeRepresentation, Verbosity,
 };
 use std::path::PathBuf;
 use test::Bencher;
 
 fn setup(spec: &str, trace: &str) -> Config {
-    let eval_conf = EvalConfig::new(
+    let eval_conf = Config::new(
         EventSourceConfig::Csv {
             src: CsvInputSource::file(
                 PathBuf::from(trace),

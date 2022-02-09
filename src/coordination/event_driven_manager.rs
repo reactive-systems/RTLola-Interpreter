@@ -1,7 +1,8 @@
-use crate::basics::{create_event_source, EventSource, OutputHandler, RawTime, Time};
-use crate::config::{AbsoluteTimeFormat, EvalConfig, ExecutionMode, TimeRepresentation};
+use crate::basics::{create_event_source, EventSource, OutputHandler, RawTime};
+use crate::config::{AbsoluteTimeFormat, Config, ExecutionMode, TimeRepresentation};
 use crate::coordination::{WorkItem, CAP_LOCAL_QUEUE};
-use crate::storage::Value;
+use crate::Time;
+use crate::Value;
 use crossbeam_channel::Sender;
 use rtlola_frontend::mir::RtLolaMir;
 use std::error::Error;
@@ -43,11 +44,11 @@ impl EventDrivenManager {
     /// Creates a new EventDrivenManager managing event-driven output streams.
     pub(crate) fn setup(
         ir: RtLolaMir,
-        config: EvalConfig,
+        config: Config,
         out_handler: Arc<OutputHandler>,
         monitor_start: SystemTime,
     ) -> EventDrivenManager {
-        let EvalConfig { source, start_time, mode, .. } = config;
+        let Config { source, start_time, mode, .. } = config;
         let event_source = match create_event_source(source, &ir) {
             Ok(r) => r,
             Err(e) => {
