@@ -510,9 +510,9 @@ impl<S: Input, V: VerdictRepresentation> Monitor<S, V> {
 #[cfg(test)]
 mod tests {
     use crate::config::RelativeTimeFormat;
-    use crate::ConfigBuilder;
     use crate::coordination::monitor::Change;
     use crate::monitor::{Event, EventInput, Incremental, Monitor, Total, Value, VerdictRepresentation};
+    use crate::ConfigBuilder;
     use std::time::{Duration, Instant};
 
     fn setup<V: VerdictRepresentation>(spec: &str) -> (Instant, Monitor<EventInput<Event>, V>) {
@@ -596,7 +596,6 @@ mod tests {
         let n = 25;
         let mut time = Duration::from_secs(45);
         let res = monitor.accept_event(vec![Value::Unsigned(1)], time);
-        dbg!(&res.event);
         assert!(res.event.is_empty());
         assert_eq!(res.timed.len(), 11);
         assert!(res.timed.iter().all(|(time, change)| time.as_secs() % 4 == 0

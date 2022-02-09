@@ -1,7 +1,7 @@
 //! End-to-end tests of the RTLola evaluator
 
 use crate::basics::OutputHandler;
-use crate::config::RelativeTimeFormat;
+use crate::config::{RelativeTimeFormat, Verbosity};
 use crate::ConfigBuilder;
 use std::io::Write;
 use std::sync::Arc;
@@ -14,6 +14,7 @@ fn run(spec: &str, data: &str) -> Result<Arc<OutputHandler>, Box<dyn std::error:
         .spec_str(spec)
         .offline_relative(RelativeTimeFormat::FloatSecs)
         .csv_file_input(file.path().to_path_buf(), None, None)
+        .verbosity(Verbosity::Silent)
         .enable_statistics()
         .output_to_stderr()
         .run()

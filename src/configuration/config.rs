@@ -8,9 +8,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use clap::ArgEnum;
 use rtlola_frontend::RtLolaMir;
 
-use crate::basics::{CsvInputSource, OutputChannel, OutputHandler, RawTime};
 #[cfg(feature = "pcap_interface")]
 use crate::basics::PCAPInputSource;
+use crate::basics::{CsvInputSource, OutputChannel, OutputHandler, RawTime};
 use crate::coordination::Controller;
 use crate::monitor::{Input, VerdictRepresentation};
 use crate::Monitor;

@@ -18,7 +18,6 @@ use clap_complete::shells::*;
 use human_panic::setup_panic;
 use std::convert::TryFrom;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use rtlola_interpreter::ConfigBuilder;
 
 macro_rules! enum_doc {
     ($enum: ty, $heading: expr) => {{

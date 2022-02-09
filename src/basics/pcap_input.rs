@@ -2,8 +2,8 @@
 
 use crate::basics::io_handler::EventSource;
 use crate::basics::RawTime;
-use crate::Time;
 use crate::storage::Value;
+use crate::Time;
 use etherparse::{
     Ethernet2Header, InternetSlice, Ipv4Header, Ipv6Header, LinkSlice, SlicedPacket, TcpHeader, TransportSlice,
     UdpHeader,

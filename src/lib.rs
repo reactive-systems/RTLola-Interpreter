@@ -13,18 +13,18 @@
 
 pub mod basics;
 mod closuregen;
+mod configuration;
 mod coordination;
 mod evaluator;
 mod storage;
-mod configuration;
 #[cfg(test)]
 mod tests;
 
 // Public exports
+pub use crate::configuration::config;
 pub use crate::configuration::config_builder::ConfigBuilder;
 pub use crate::coordination::monitor;
 pub use crate::coordination::monitor::Monitor;
-pub use crate::configuration::config;
 
 pub use crate::storage::Value;
 
