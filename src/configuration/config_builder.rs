@@ -108,7 +108,7 @@ impl<S: ExecConfigState> SubConfig for ExecConfig<S> {}
 /// use rtlola_interpreter::{Monitor, Value};
 ///
 /// let monitor: Monitor<EventInput<Vec<Value>>, Incremental> =
-///     ConfigBuilder::api().relative_input_time(RelativeTimeFormat::FloatSecs).spec_str("input i: Int64").monitor();
+///     ConfigBuilder::api().relative_input_time(RelativeTimeFormat::FloatSecs).spec_str("input i: Int64").monitor(());
 /// ````
 ///
 /// An example configuration to run the interpreter:
@@ -463,8 +463,8 @@ impl ConfigBuilder<ApiConfig<TimeConfigured>, IrConfigured> {
     }
 
     /// Create a [Monitor] from the configuration. The entrypoint of the API.
-    pub fn monitor<S: Input, V: VerdictRepresentation>(self) -> Monitor<S, V> {
-        Monitor::setup(self.build())
+    pub fn monitor<S: Input, V: VerdictRepresentation>(self, data: S::CreationData) -> Monitor<S, V> {
+        Monitor::setup(self.build(), data)
     }
 }
 

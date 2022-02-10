@@ -1,12 +1,13 @@
 use clap::{ArgEnum, Parser};
 use crossterm::style::Stylize;
+use csv::StringRecord;
 use itertools::Itertools;
 use itertools::Position;
 use junit_report::{Duration as JunitDuration, OffsetDateTime, ReportBuilder, TestCase, TestSuiteBuilder};
 use ordered_float::NotNan;
-use rtlola_frontend::mir::Type;
+use rtlola_frontend::mir::{InputReference, Type};
 use rtlola_interpreter::config::RelativeTimeFormat;
-use rtlola_interpreter::monitor::{EventInput, Monitor, TriggerMessages};
+use rtlola_interpreter::monitor::{EventInput, Input, Monitor, Record, RecordInput, TriggerMessages};
 use rtlola_interpreter::{ConfigBuilder, Value};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -171,6 +172,25 @@ fn timestamp_to_duration(ts: &str) -> Result<Duration, String> {
     }
 }
 
+struct CsvRecord(StringRecord);
+
+impl From<StringRecord> for CsvRecord {
+    fn from(rec: StringRecord) -> Self {
+        CsvRecord(rec)
+    }
+}
+
+impl Record for CsvRecord {
+    type CreationData = HashMap<String, (Type, usize)>;
+
+    fn func_for_input(name: &str, data: Self::CreationData) -> Box<dyn (Fn(&Self) -> Value)> {
+        let (ty, idx) =
+            data.get(name).map(|(t, i)| (t.clone(), *i)).expect(&format!("Input {} not found in CSV", name));
+        let res = move |rec: &CsvRecord| value_from_string(&rec.0[idx], &ty).unwrap();
+        Box::new(res)
+    }
+}
+
 impl Test {
     fn from_json_test(test: JsonTest, repo_base: &Path) -> Result<Self, Box<dyn Error>> {
         let JsonTest { name, spec_file, input_file, rationale, modes, triggers } = test;
@@ -228,29 +248,26 @@ impl Test {
             .build();
 
         //Get Input names, Types and column
-        let inputs: Vec<_> = config
+        let inputs: HashMap<String, (Type, usize)> = config
             .ir
             .inputs
             .iter()
             .map(|i| {
                 let name = i.name.clone();
                 let idx = csv.headers().unwrap().iter().position(|h| h == &name).expect("missing input in csv");
-                (i.ty.clone(), idx)
+                (name, (i.ty.clone(), idx))
             })
             .collect();
 
-        // Todo: Consider using the RecordParser input
-        let mut monitor: Monitor<EventInput<Vec<Value>>, TriggerMessages> = config.monitor();
+        let mut monitor: Monitor<RecordInput<CsvRecord>, TriggerMessages> = config.monitor(inputs);
 
         let mut actual = Vec::new();
         for line in csv.records().with_position() {
             let is_last = matches!(line, Position::Last(_));
             let line = line.into_inner()?;
             let time = timestamp_to_duration(&line[time_idx])?;
-            let event =
-                inputs.iter().map(|(ty, idx)| value_from_string(&line[*idx], ty)).collect::<Result<Vec<Value>, _>>()?;
 
-            let verdict = monitor.accept_event(event, time);
+            let verdict = monitor.accept_event(line.into(), time);
             let triggers = verdict.event.into_iter().map(move |(_, name)| (name, time)).chain(
                 verdict.timed.into_iter().flat_map(|(time, trig)| trig.into_iter().map(move |(_, name)| (name, time))),
             );

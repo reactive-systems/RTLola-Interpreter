@@ -251,7 +251,7 @@ impl Config {
         Controller::new(self).start()
     }
 
-    pub fn monitor<S: Input, V: VerdictRepresentation>(self) -> Monitor<S, V> {
-        Monitor::setup(self)
+    pub fn monitor<S: Input, V: VerdictRepresentation>(self, data: S::CreationData) -> Monitor<S, V> {
+        Monitor::setup(self, data)
     }
 }
