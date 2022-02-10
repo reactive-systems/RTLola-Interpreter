@@ -2,40 +2,19 @@
 
 extern crate test;
 
-use rtlola_interpreter::{
-    AbsoluteTimeFormat, Config, Config, CsvInputSource, EventSourceConfig, ExecutionMode, OutputChannel,
-    RelativeTimeFormat, Statistics, TimeRepresentation, Verbosity,
-};
+use rtlola_interpreter::config::{AbsoluteTimeFormat, Config, Verbosity};
+use rtlola_interpreter::ConfigBuilder;
 use std::path::PathBuf;
 use test::Bencher;
 
 fn setup(spec: &str, trace: &str) -> Config {
-    let eval_conf = Config::new(
-        EventSourceConfig::Csv {
-            src: CsvInputSource::file(
-                PathBuf::from(trace),
-                None,
-                None,
-                ExecutionMode::Offline(TimeRepresentation::Absolute(AbsoluteTimeFormat::UnixTimeFloat)),
-            ),
-        },
-        Statistics::None,
-        Verbosity::Silent,
-        OutputChannel::None,
-        ExecutionMode::Offline(TimeRepresentation::Absolute(AbsoluteTimeFormat::UnixTimeFloat)),
-        TimeRepresentation::Absolute(AbsoluteTimeFormat::Rfc3339),
-        None,
-    );
-    let config = rtlola_frontend::ParserConfig::from_path(PathBuf::from(spec)).unwrap_or_else(|e| {
-        eprintln!("{}", e);
-        std::process::exit(1)
-    });
-    let handler = rtlola_frontend::Handler::from(config.clone());
-    let ir = rtlola_frontend::parse(config).unwrap_or_else(|e| {
-        handler.emit_error(&e);
-        std::process::exit(1);
-    });
-    Config::new(eval_conf, ir)
+    ConfigBuilder::runnable()
+        .spec_file(PathBuf::from(spec))
+        .offline_absolute(AbsoluteTimeFormat::UnixTimeFloat)
+        .csv_file_input(PathBuf::from(trace), None, None)
+        .verbosity(Verbosity::Silent)
+        .absolute_output_time(AbsoluteTimeFormat::Rfc3339)
+        .build()
 }
 #[bench]
 fn endtoend_semi_complex_spec(b: &mut Bencher) {

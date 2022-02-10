@@ -152,6 +152,25 @@ struct Test {
     triggers: HashSet<(String, Duration)>,
 }
 
+fn timestamp_to_duration(ts: &str) -> Result<Duration, String> {
+    match ts.split_once('.') {
+        Some((secs, nanos)) => {
+            let secs = u64::from_str(secs).map_err(|e| e.to_string())?;
+            let nanos = nanos
+                .char_indices()
+                .fold(Some(0u32), |val, (pos, c)| {
+                    val.and_then(|val| c.to_digit(10).map(|c| val + c * (10u32.pow(8 - pos as u32))))
+                })
+                .ok_or("invalid character in number literal")?;
+            Ok(Duration::new(secs, nanos))
+        }
+        None => {
+            let secs = u64::from_str(ts).map_err(|e| e.to_string())?;
+            Ok(Duration::from_secs(secs))
+        }
+    }
+}
+
 impl Test {
     fn from_json_test(test: JsonTest, repo_base: &Path) -> Result<Self, Box<dyn Error>> {
         let JsonTest { name, spec_file, input_file, rationale, modes, triggers } = test;
@@ -167,12 +186,9 @@ impl Test {
                     t_name,
                     name
                 );
-                trigger
-                    .time_info
-                    .into_iter()
-                    .map(move |ts| f64::from_str(&ts).map(|f| (t_name.clone(), Duration::from_secs_f64(f))))
+                trigger.time_info.into_iter().map(move |ts| timestamp_to_duration(&ts).map(|d| (t_name.clone(), d)))
             })
-            .collect::<Result<HashSet<(String, Duration)>, ParseFloatError>>()?;
+            .collect::<Result<HashSet<(String, Duration)>, String>>()?;
 
         let spec_file = PathBuf::from(spec_file);
         let spec_file_relative: PathBuf = spec_file.iter().skip(1).collect();
@@ -230,7 +246,7 @@ impl Test {
         for line in csv.records().with_position() {
             let is_last = matches!(line, Position::Last(_));
             let line = line.into_inner()?;
-            let time = Duration::from_secs_f64(f64::from_str(&line[time_idx])?);
+            let time = timestamp_to_duration(&line[time_idx])?;
             let event =
                 inputs.iter().map(|(ty, idx)| value_from_string(&line[*idx], ty)).collect::<Result<Vec<Value>, _>>()?;
 
