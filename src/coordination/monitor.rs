@@ -186,11 +186,11 @@ impl<S: Input, V: VerdictRepresentation> Monitor<S, V> {
             ExecutionMode::Offline(repr) => *repr,
             ExecutionMode::Online => unreachable!(),
         };
-        let start_time = match time_repr {
+        let start_time = config.start_time.or(match time_repr {
             TimeRepresentation::Relative(_) | TimeRepresentation::Incremental(_) => Some(monitor_start),
             // If None, Default time should be the one of first event
             TimeRepresentation::Absolute(_) => None,
-        };
+        });
         if let Some(start_time) = start_time {
             output_handler.set_start_time(start_time);
         }
@@ -545,37 +545,6 @@ mod tests {
         res.iter_mut().for_each(|(_, changes)| changes.sort());
         res
     }
-
-    // #[derive(Debug, Clone)]
-    // pub(crate) struct TestInputPayload {
-    //     mapping: Vec<usize>,
-    //     timestamp: Duration,
-    //     a: f64,
-    //     d: Messages,
-    // }
-    //
-    // #[derive(Debug, Clone)]
-    // enum Messages {
-    //     M0 { b: f64 },
-    //     M1 { c: u64 },
-    // }
-    // impl TestInputPayload {
-    //     fn a(p: &Self) -> Value {
-    //         Value::from(p.a)
-    //     }
-    //     fn b(p: &Self) -> Value {
-    //         match p.d {
-    //             Messages::M0 { b } => Value::from(b),
-    //             _ => Value::None,
-    //         }
-    //     }
-    //     fn c(p: &Self) -> Value {
-    //         match p.d {
-    //             Messages::M1 { c } => Value::from(c),
-    //             _ => Value::None,
-    //         }
-    //     }
-    // }
 
     #[test]
     fn test_const_output_literals() {

@@ -60,11 +60,10 @@ impl Controller {
 
         let copy_output_handler = self.output_handler.clone();
 
-        let ir_clone = self.config.ir.clone();
         let cfg_clone = self.config.clone();
         // TODO: Wait until all events have been read.
         let _event = thread::Builder::new().name("EventDrivenManager".into()).spawn(move || {
-            let event_manager = EventDrivenManager::setup(ir_clone, cfg_clone, copy_output_handler, now);
+            let event_manager = EventDrivenManager::setup(cfg_clone, copy_output_handler, now);
             event_manager.start_online(work_tx);
         });
 
@@ -99,12 +98,11 @@ impl Controller {
 
         // Setup EventDrivenManager
         let output_copy_handler = self.output_handler.clone();
-        let ir_clone = self.config.ir.clone();
         let cfg_clone = self.config.clone();
         let edm_thread = thread::Builder::new()
             .name("EventDrivenManager".into())
             .spawn(move || {
-                let event_manager = EventDrivenManager::setup(ir_clone, cfg_clone, output_copy_handler, now);
+                let event_manager = EventDrivenManager::setup(cfg_clone, output_copy_handler, now);
                 event_manager
                     .start_offline(work_tx)
                     .unwrap_or_else(|e| unreachable!("EventDrivenManager failed: {}", e));
