@@ -23,6 +23,7 @@ enum TimeHandling {
     },
 }
 
+/// Configures the input source for the [CsvEventSource].
 #[derive(Debug, Clone)]
 pub struct CsvInputSource {
     pub(crate) exec_mode: ExecutionMode,
@@ -30,13 +31,23 @@ pub struct CsvInputSource {
     pub(crate) kind: CsvInputSourceKind,
 }
 
+/// Sets the input channel of the [CsvEventSource]
 #[derive(Debug, Clone)]
 pub enum CsvInputSourceKind {
+    /// Use the std-in as an input channel
     StdIn,
-    File { path: PathBuf, delay: Option<Duration> },
+    /// Use the specified file as an input channel
+    File {
+        /// The path of the file.
+        path: PathBuf,
+        /// An optional delay to apply between the lines in the file.
+        /// Note: Setting this option disregards the timestamps in the file.
+        delay: Option<Duration>,
+    },
 }
 
 impl CsvInputSource {
+    /// Create a CSV input from a file
     pub fn file(
         path: PathBuf,
         delay: Option<Duration>,
@@ -46,6 +57,7 @@ impl CsvInputSource {
         CsvInputSource { time_col, exec_mode, kind: CsvInputSourceKind::File { path, delay } }
     }
 
+    /// Create a CSV input from std-in
     pub fn stdin(time_col: Option<usize>, exec_mode: ExecutionMode) -> CsvInputSource {
         CsvInputSource { time_col, exec_mode, kind: CsvInputSourceKind::StdIn }
     }
@@ -117,6 +129,7 @@ impl ReaderWrapper {
     }
 }
 
+///Parser events in CSV format.
 #[derive(Debug)]
 pub struct CsvEventSource {
     reader: ReaderWrapper,

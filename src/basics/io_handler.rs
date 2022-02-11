@@ -73,11 +73,16 @@ pub(crate) fn create_event_source(
 
 // Output Handling
 
+/// The possible targets at which the output of the interpreter can be directed.
 #[derive(Debug, Clone)]
 pub enum OutputChannel {
+    /// Write the output to Std-Out
     StdOut,
+    /// Write the output to Std-Err
     StdErr,
+    /// Write the output to a File
     File(PathBuf),
+    /// Do not write any output
     None,
 }
 
@@ -87,6 +92,7 @@ impl Default for OutputChannel {
     }
 }
 
+/// Manages the output of the interpreter.
 #[derive(Debug)]
 pub struct OutputHandler {
     pub(crate) verbosity: Verbosity,

@@ -41,9 +41,12 @@ pub struct Config {
     pub start_time: Option<SystemTime>,
 }
 
+/// Used to define the level of statistics that should be computed.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Statistics {
+    /// No statistics will be computed
     None,
+    /// All statistics will be computed
     Debug,
 }
 
@@ -62,6 +65,7 @@ impl From<Verbosity> for Statistics {
     }
 }
 
+/// The different verbosities supported by the interpreter.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, ArgEnum)]
 pub enum Verbosity {
     /// Suppresses any kind of logging.
@@ -86,6 +90,7 @@ impl Default for Verbosity {
     }
 }
 
+/// The execution mode of the interpreter. See the `README` for more details.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ExecutionMode {
     /// Time provided by input source
@@ -94,18 +99,29 @@ pub enum ExecutionMode {
     Online,
 }
 
+/// The different supported input sources of the interpreter.
 #[derive(Debug, Clone)]
 pub enum EventSourceConfig {
+    /// Parse events in CSV format
     Csv {
+        /// The source of the CSV data.
         src: CsvInputSource,
     },
+
+    /// Parse events from network packets
     #[cfg(feature = "pcap_interface")]
     PCAP {
+        /// The source of the network packets.
         src: PCAPInputSource,
     },
+
+    /// The API handles the input.
     Api,
 }
 
+/// The time representations supported by the interpreter.
+/// Used to specify the input and output time format.
+/// See `README` for more details.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TimeRepresentation {
     /// Relative to fixed start time
@@ -130,23 +146,7 @@ impl TimeRepresentation {
     }
 }
 
-impl std::convert::TryFrom<&str> for TimeRepresentation {
-    type Error = ();
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        use TimeRepresentation::*;
-        Ok(match value {
-            "relative" | "relative_secs" | "relative_float_secs" => Relative(RelativeTimeFormat::FloatSecs),
-            "relative_nanos" | "relative_uint_nanos" => Relative(RelativeTimeFormat::UIntNanos),
-            "incremental" | "incremental_secs" | "incremental_float_secs" => Incremental(RelativeTimeFormat::FloatSecs),
-            "incremental_nanos" | "incremental_uint_nanos" => Incremental(RelativeTimeFormat::UIntNanos),
-            "absolute" | "absolute_rfc" | "absolute_rfc_3339" => Absolute(AbsoluteTimeFormat::Rfc3339),
-            "absolute_unix_float" => Absolute(AbsoluteTimeFormat::UnixTimeFloat),
-            _ => return Err(()),
-        })
-    }
-}
-
+/// The formats supported for a relative time representation.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RelativeTimeFormat {
     /// Time delta given as nano seconds
@@ -156,6 +156,7 @@ pub enum RelativeTimeFormat {
 }
 
 impl RelativeTimeFormat {
+    /// Tries to parse a string 's' in the respective format into a duration
     pub fn parse_str(&self, s: &str) -> Result<Duration, String> {
         match self {
             RelativeTimeFormat::UIntNanos => {
@@ -182,6 +183,7 @@ impl RelativeTimeFormat {
     }
 }
 
+/// The formats supported for an absolute time representation.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum AbsoluteTimeFormat {
     /// Time given as a string in the Rfc3339 format
@@ -200,6 +202,7 @@ impl AbsoluteTimeFormat {
 }
 
 impl Config {
+    /// Creates a new Debug config.
     pub fn debug(ir: RtLolaMir) -> Self {
         let mode = ExecutionMode::Offline(TimeRepresentation::Relative(RelativeTimeFormat::FloatSecs));
         Config {
@@ -214,6 +217,7 @@ impl Config {
         }
     }
 
+    /// Creates a new release config.
     pub fn release(
         ir: RtLolaMir,
         csv_path: String,
@@ -234,6 +238,7 @@ impl Config {
         }
     }
 
+    /// Creates a new API config
     pub fn api(ir: RtLolaMir, time_representation: TimeRepresentation) -> Self {
         Config {
             ir,
@@ -247,10 +252,12 @@ impl Config {
         }
     }
 
+    /// Run the interpreter on this configuration.
     pub fn run(self) -> Result<Arc<OutputHandler>, Box<dyn std::error::Error>> {
         Controller::new(self).start()
     }
 
+    /// Turn the configuration into the [Monitor] API.
     pub fn monitor<S: Input, V: VerdictRepresentation>(self, data: S::CreationData) -> Monitor<S, V> {
         Monitor::setup(self, data)
     }

@@ -171,6 +171,13 @@ impl<C: SubConfig, S: ConfigState> ConfigBuilder<C, S> {
         self
     }
 
+    /// Sets the time in the output of the monitor to be incremental, i.e. relative to the preceding event.
+    /// See the README for further details.
+    pub fn incremental_output_time(mut self, format: RelativeTimeFormat) -> Self {
+        self.output_time_representation = Some(TimeRepresentation::Incremental(format));
+        self
+    }
+
     /// Sets the time in the output of the monitor to be relative.
     /// See the README for further details.
     pub fn relative_output_time(mut self, format: RelativeTimeFormat) -> Self {
@@ -233,6 +240,29 @@ impl<S: ConfigState> ConfigBuilder<ExecConfig<ConfigureMode>, S> {
                 verbosity,
                 output_channel,
                 state: ConfigureSource { mode: ExecutionMode::Offline(TimeRepresentation::Relative(format)) },
+            },
+            state: cs,
+        }
+    }
+
+    /// Sets the execute mode to be offline, i.e. takes the time of events from the input source.
+    /// The time should be incremental in the given format.
+    /// See the README for further details.
+    pub fn offline_incremental(self, format: RelativeTimeFormat) -> ConfigBuilder<ExecConfig<ConfigureSource>, S> {
+        let ConfigBuilder {
+            output_time_representation,
+            start_time,
+            sub_config: ExecConfig { statistics, verbosity, output_channel, state: _ },
+            state: cs,
+        } = self;
+        ConfigBuilder {
+            output_time_representation,
+            start_time,
+            sub_config: ExecConfig {
+                statistics,
+                verbosity,
+                output_channel,
+                state: ConfigureSource { mode: ExecutionMode::Offline(TimeRepresentation::Incremental(format)) },
             },
             state: cs,
         }

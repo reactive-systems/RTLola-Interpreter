@@ -418,9 +418,12 @@ fn get_packet_protocol(packet: &SlicedPacket) -> Value {
 // ################################
 // Event Source Handling
 // ################################
+/// Determines the input source for network packets.
 #[derive(Debug, Clone)]
 pub enum PCAPInputSource {
+    /// Use the specified device for packet input.
     Device { name: String, local_network: String },
+    /// Use the given file for packet input.
     File { path: PathBuf, delay: Option<Duration>, local_network: String },
 }
 
@@ -430,6 +433,7 @@ enum TimeHandling {
     Delayed { delay: Duration, time: Time },
 }
 
+/// Parses events from network packets.
 #[allow(missing_debug_implementations)] // Capture -> PcapOnDemand does not implement Debug.
 pub struct PCAPEventSource {
     capture_handle: Capture<dyn Activated>,
