@@ -422,9 +422,21 @@ fn get_packet_protocol(packet: &SlicedPacket) -> Value {
 #[derive(Debug, Clone)]
 pub enum PCAPInputSource {
     /// Use the specified device for packet input.
-    Device { name: String, local_network: String },
+    Device {
+        /// The name of the device to use.
+        name: String,
+        /// The description of your local network IP address range in CIDR-Notation.
+        local_network: String,
+    },
     /// Use the given file for packet input.
-    File { path: PathBuf, delay: Option<Duration>, local_network: String },
+    File {
+        /// The path to the PCAP file.
+        path: PathBuf,
+        /// Ignore the timestamps of packets and use the given delay between the packets instead.
+        delay: Option<Duration>,
+        /// The description of your local network IP address range in CIDR-Notation.
+        local_network: String,
+    },
 }
 
 enum TimeHandling {

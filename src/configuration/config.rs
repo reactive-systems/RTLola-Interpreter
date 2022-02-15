@@ -1,19 +1,20 @@
 //! This module contains all configuration related structures.
 
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 
 use clap::ArgEnum;
 use rtlola_frontend::RtLolaMir;
 
 #[cfg(feature = "pcap_interface")]
 use crate::basics::PCAPInputSource;
-use crate::basics::{CsvInputSource, OutputChannel, OutputHandler, RawTime};
+use crate::basics::{CsvInputSource, OutputChannel, OutputHandler};
 use crate::coordination::Controller;
 use crate::monitor::{Input, VerdictRepresentation};
 use crate::Monitor;
+use crate::configuration::time::{TimeRepresentation, RelativeFloat, AbsoluteRfc};
+use std::marker::PhantomData;
 
 /**
 `Config` combines an RTLola specification in [RtLolaMir] form with various configuration parameters for the interpreter.
@@ -22,7 +23,7 @@ The configuration describes how the specification should be executed.
 The `Config` can then be turned into a monitor for use via the API or simply executed.
  */
 #[derive(Clone, Debug)]
-pub struct Config {
+pub struct Config<IT: TimeRepresentation, OT: TimeRepresentation> {
     /// The representation of the specification
     pub ir: RtLolaMir,
     /// The source of events
@@ -34,9 +35,9 @@ pub struct Config {
     /// Where the output should go
     pub output_channel: OutputChannel,
     /// In which mode the evaluator is executed
-    pub mode: ExecutionMode,
+    pub mode: ExecutionMode<IT>,
     /// Which format to use to output time
-    pub output_time_representation: TimeRepresentation,
+    pub output_time_representation: PhantomData<OT>,
     /// The start time to assume
     pub start_time: Option<SystemTime>,
 }
@@ -92,9 +93,9 @@ impl Default for Verbosity {
 
 /// The execution mode of the interpreter. See the `README` for more details.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum ExecutionMode {
+pub enum ExecutionMode<T: TimeRepresentation> {
     /// Time provided by input source
-    Offline(TimeRepresentation),
+    Offline(PhantomData<*const T>),
     /// Time taken by evaluator
     Online,
 }
@@ -119,92 +120,10 @@ pub enum EventSourceConfig {
     Api,
 }
 
-/// The time representations supported by the interpreter.
-/// Used to specify the input and output time format.
-/// See `README` for more details.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum TimeRepresentation {
-    /// Relative to fixed start time
-    /// Start time defaults to start time of the monitor
-    Relative(RelativeTimeFormat),
-    /// Relative time as a delta between two events
-    /// Start time defaults to start time of the monitor
-    Incremental(RelativeTimeFormat),
-    /// Time provided as absolute timestamps
-    /// Start time required. defaults to time of first event
-    Absolute(AbsoluteTimeFormat),
-}
-
-impl TimeRepresentation {
-    pub(crate) fn parse(&self, s: &str) -> Result<RawTime, String> {
-        match self {
-            TimeRepresentation::Relative(format) | TimeRepresentation::Incremental(format) => {
-                format.parse_str(s).map(RawTime::Relative)
-            }
-            TimeRepresentation::Absolute(format) => format.parse_str(s).map(RawTime::Absolute),
-        }
-    }
-}
-
-/// The formats supported for a relative time representation.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum RelativeTimeFormat {
-    /// Time delta given as nano seconds
-    UIntNanos,
-    /// Time delta given as seconds and sub-seconds
-    FloatSecs,
-}
-
-impl RelativeTimeFormat {
-    /// Tries to parse a string 's' in the respective format into a duration
-    pub fn parse_str(&self, s: &str) -> Result<Duration, String> {
-        match self {
-            RelativeTimeFormat::UIntNanos => {
-                let nanos = u64::from_str(s).map_err(|e| e.to_string())?;
-                Ok(Duration::from_nanos(nanos))
-            }
-            RelativeTimeFormat::FloatSecs => match s.split_once('.') {
-                Some((secs, nanos)) => {
-                    let secs = u64::from_str(secs).map_err(|e| e.to_string())?;
-                    let nanos = nanos
-                        .char_indices()
-                        .fold(Some(0u32), |val, (pos, c)| {
-                            val.and_then(|val| c.to_digit(10).map(|c| val + c * (10u32.pow(8 - pos as u32))))
-                        })
-                        .ok_or("invalid character in number literal")?;
-                    Ok(Duration::new(secs, nanos))
-                }
-                None => {
-                    let secs = u64::from_str(s).map_err(|e| e.to_string())?;
-                    Ok(Duration::from_secs(secs))
-                }
-            },
-        }
-    }
-}
-
-/// The formats supported for an absolute time representation.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum AbsoluteTimeFormat {
-    /// Time given as a string in the Rfc3339 format
-    Rfc3339,
-    /// Time given as a float representing the unix timestamp and a fraction of seconds
-    UnixTimeFloat,
-}
-
-impl AbsoluteTimeFormat {
-    pub(crate) fn parse_str(&self, s: &str) -> Result<SystemTime, String> {
-        match self {
-            AbsoluteTimeFormat::Rfc3339 => humantime::parse_rfc3339(s).map_err(|e| e.to_string()),
-            AbsoluteTimeFormat::UnixTimeFloat => RelativeTimeFormat::FloatSecs.parse_str(s).map(|dur| UNIX_EPOCH + dur),
-        }
-    }
-}
-
-impl Config {
+impl<IT: TimeRepresentation, OT: TimeRepresentation> Config<IT, OT> {
     /// Creates a new Debug config.
-    pub fn debug(ir: RtLolaMir) -> Self {
-        let mode = ExecutionMode::Offline(TimeRepresentation::Relative(RelativeTimeFormat::FloatSecs));
+    pub fn debug(ir: RtLolaMir) -> Config<RelativeFloat, AbsoluteRfc> {
+        let mode = ExecutionMode::Offline(PhantomData::default());
         Config {
             ir,
             source: EventSourceConfig::Csv { src: CsvInputSource::stdin(None, mode) },
@@ -212,7 +131,7 @@ impl Config {
             verbosity: Verbosity::Debug,
             output_channel: OutputChannel::StdOut,
             mode,
-            output_time_representation: TimeRepresentation::Absolute(AbsoluteTimeFormat::Rfc3339),
+            output_time_representation: PhantomData::<AbsoluteRfc>::default(),
             start_time: None,
         }
     }
@@ -222,8 +141,7 @@ impl Config {
         ir: RtLolaMir,
         csv_path: String,
         output: OutputChannel,
-        mode: ExecutionMode,
-        output_time_representation: TimeRepresentation,
+        mode: ExecutionMode<IT>,
         start_time: Option<SystemTime>,
     ) -> Self {
         Config {
@@ -233,21 +151,21 @@ impl Config {
             verbosity: Verbosity::Triggers,
             output_channel: output,
             mode,
-            output_time_representation,
+            output_time_representation: PhantomData::<OT>::default(),
             start_time,
         }
     }
 
     /// Creates a new API config
-    pub fn api(ir: RtLolaMir, time_representation: TimeRepresentation) -> Self {
+    pub fn api(ir: RtLolaMir) -> Self {
         Config {
             ir,
             source: EventSourceConfig::Api,
             statistics: Statistics::None,
             verbosity: Verbosity::Triggers,
             output_channel: OutputChannel::None,
-            mode: ExecutionMode::Offline(time_representation),
-            output_time_representation: time_representation,
+            mode: ExecutionMode::Offline(PhantomData::<IT>::default()),
+            output_time_representation: PhantomData::<OT>::default(),
             start_time: None,
         }
     }
@@ -258,7 +176,7 @@ impl Config {
     }
 
     /// Turn the configuration into the [Monitor] API.
-    pub fn monitor<S: Input, V: VerdictRepresentation>(self, data: S::CreationData) -> Monitor<S, V> {
+    pub fn monitor<I: Input, V: VerdictRepresentation>(self, data: I::CreationData) -> Monitor<I, IT, V, OT> {
         Monitor::setup(self, data)
     }
 }

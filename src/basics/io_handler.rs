@@ -3,7 +3,7 @@
 use crate::basics::CsvEventSource;
 #[cfg(feature = "pcap_interface")]
 use crate::basics::PCAPEventSource;
-use crate::config::{AbsoluteTimeFormat, Config, EventSourceConfig, RelativeTimeFormat, TimeRepresentation, Verbosity};
+use crate::config::{AbsoluteTimeFormat, Config, EventSourceConfig, RelativeTimeFormat, TimeRepresentationEnum, Verbosity};
 use crate::storage::Value;
 use crate::Time;
 use crossterm::{
@@ -100,7 +100,7 @@ pub struct OutputHandler {
     file: Option<File>,
     pub(crate) statistics: Option<Statistics>,
     start_time: RwLock<Option<SystemTime>>,
-    time_representation: TimeRepresentation,
+    time_representation: TimeRepresentationEnum,
     // Incremental time handling
     last_event: RwLock<Time>,
     is_incremental: bool,
@@ -126,7 +126,7 @@ impl OutputHandler {
             start_time: RwLock::new(None),
             time_representation: config.output_time_representation,
             last_event: Default::default(),
-            is_incremental: matches!(config.output_time_representation, TimeRepresentation::Incremental(_)),
+            is_incremental: matches!(config.output_time_representation, TimeRepresentationEnum::Offset(_)),
         }
     }
 
@@ -144,23 +144,23 @@ impl OutputHandler {
     fn time_info(&self, time: Time) -> String {
         use AbsoluteTimeFormat::*;
         use RelativeTimeFormat::*;
-        use TimeRepresentation::*;
+        use TimeRepresentationEnum::*;
 
         let start = self.start_time.read().unwrap().expect("Start-time not correctly initialized");
 
         match self.time_representation {
-            Relative(format) => match format {
+            RelativeTimestamp(format) => match format {
                 UIntNanos => format!("{}", time.as_nanos()),
                 FloatSecs => format!("{}.{:09}", time.as_secs(), time.subsec_nanos()),
             },
-            Incremental(format) => {
+            Offset(format) => {
                 let diff = time - *self.last_event.read().unwrap();
                 match format {
                     UIntNanos => format!("{}", diff.as_nanos()),
                     FloatSecs => format!("{}.{:09}", diff.as_secs(), diff.subsec_nanos()),
                 }
             }
-            Absolute(format) => {
+            AbsoluteTimestamp(format) => {
                 let time = start + time;
                 // Convert to unix timestamp
                 let absolute = time.duration_since(UNIX_EPOCH).expect("Computation of duration failed!");

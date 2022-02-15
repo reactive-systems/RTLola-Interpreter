@@ -1,5 +1,5 @@
 use crate::basics::{create_event_source, EventSource, OutputHandler, RawTime};
-use crate::config::{AbsoluteTimeFormat, Config, ExecutionMode, TimeRepresentation};
+use crate::config::{AbsoluteTimeFormat, Config, ExecutionMode, TimeRepresentationEnum};
 use crate::coordination::{WorkItem, CAP_LOCAL_QUEUE};
 use crate::Time;
 use crate::Value;
@@ -35,7 +35,7 @@ pub(crate) struct EventDrivenManager {
     output_handler: Arc<OutputHandler>,
     event_source: Box<dyn EventSource>,
     last_event_time: Duration,
-    time_repr: TimeRepresentation,
+    time_repr: TimeRepresentationEnum,
     start_time: Option<SystemTime>,
 }
 
@@ -57,13 +57,15 @@ impl EventDrivenManager {
         let time_repr = match mode {
             ExecutionMode::Offline(tr) => tr,
             //Exact time format does not matter here
-            ExecutionMode::Online => TimeRepresentation::Absolute(AbsoluteTimeFormat::UnixTimeFloat),
+            ExecutionMode::Online => TimeRepresentationEnum::AbsoluteTimestamp(AbsoluteTimeFormat::UnixTimeFloat),
         };
 
         let start_time = match time_repr {
-            TimeRepresentation::Relative(_) | TimeRepresentation::Incremental(_) => start_time.or(Some(monitor_start)),
+            TimeRepresentationEnum::RelativeTimestamp(_) | TimeRepresentationEnum::Offset(_) => {
+                start_time.or(Some(monitor_start))
+            }
             // If None, Default time should be the one of first event
-            TimeRepresentation::Absolute(_) => start_time,
+            TimeRepresentationEnum::AbsoluteTimestamp(_) => start_time,
         };
         if let Some(start_time) = start_time {
             out_handler.set_start_time(start_time);
@@ -81,12 +83,12 @@ impl EventDrivenManager {
 
     pub(crate) fn finalize_time(&mut self, time: RawTime) -> Time {
         match self.time_repr {
-            TimeRepresentation::Relative(_) => time.relative(),
-            TimeRepresentation::Incremental(_) => {
+            TimeRepresentationEnum::RelativeTimestamp(_) => time.relative(),
+            TimeRepresentationEnum::Offset(_) => {
                 self.last_event_time += time.relative();
                 self.last_event_time
             }
-            TimeRepresentation::Absolute(_) => {
+            TimeRepresentationEnum::AbsoluteTimestamp(_) => {
                 let t = time.absolute();
                 if self.start_time.is_none() {
                     self.start_time = Some(t);

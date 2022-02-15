@@ -1,7 +1,7 @@
 #![allow(clippy::mutex_atomic)]
 
 use crate::basics::{EventSource, RawTime};
-use crate::config::{ExecutionMode, TimeRepresentation};
+use crate::config::{ExecutionMode};
 use crate::storage::Value;
 use crate::Time;
 use csv::{ByteRecord, Reader as CSVReader, Result as ReaderResult, StringRecord};
@@ -16,7 +16,7 @@ use std::time::{Duration, SystemTime};
 enum TimeHandling {
     RealTime,
     /// If start is None it should default to the time of the first event.
-    FromSrc(TimeRepresentation),
+    FromSrc(TimeRepresentationEnum),
     Delayed {
         delay: Duration,
         time: Time,
@@ -129,7 +129,7 @@ impl ReaderWrapper {
     }
 }
 
-///Parser events in CSV format.
+///Parses events in CSV format.
 #[derive(Debug)]
 pub struct CsvEventSource {
     reader: ReaderWrapper,

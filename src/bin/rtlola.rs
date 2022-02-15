@@ -2,7 +2,7 @@ use clap::{AppSettings, ArgEnum, ArgGroup, Args, IntoApp, Parser};
 use lazy_static::lazy_static;
 use rtlola_interpreter::basics::{CsvInputSource, OutputChannel};
 use rtlola_interpreter::config::{
-    AbsoluteTimeFormat, Config, EventSourceConfig, ExecutionMode, RelativeTimeFormat, TimeRepresentation, Verbosity,
+    AbsoluteTimeFormat, Config, EventSourceConfig, ExecutionMode, RelativeTimeFormat, TimeRepresentationEnum, Verbosity,
 };
 
 #[cfg(feature = "pcap_interface")]
@@ -250,23 +250,23 @@ enum CliTimeRepresentation {
     /// Time represented as a positive real number representing seconds and sub-seconds relative to a fixed start time.
     /// ie. 5.2
     RelativeFloatSecs,
-    /// Short for incremental-float-secs.
-    Incremental,
-    /// Short for incremental-uint-nanos.
-    IncrementalNanos,
-    /// Time represented as the unsigned number of nanoseconds relative to the preceding event.
-    IncrementalUintNanos,
-    /// Short for incremental-float-secs.
-    IncrementalSecs,
-    /// Time represented as a positive real number representing seconds and sub-seconds relative to the preceding event.
-    IncrementalFloatSecs,
+    /// Short for offset-float-secs.
+    Offset,
+    /// Short for offset-uint-nanos.
+    OffsetNanos,
+    /// Time represented as the unsigned number in nanoseconds as the offset to the preceding event.
+    OffsetUintNanos,
+    /// Short for offset-float-secs.
+    OffsetSecs,
+    /// Time represented as a positive real number representing seconds and sub-seconds as the offset to the preceding event.
+    OffsetFloatSecs,
     /// Short for absolute-unix.
     Absolute,
-    /// Time represented as a positive real number representing seconds and sub-seconds relative to the start of the Unix Epoch.
+    /// Time represented as wall clock time given as a positive real number representing seconds and sub-seconds since the start of the Unix Epoch.
     AbsoluteUnix,
     /// Short for absolute-rfc3339.
     AbsoluteRfc,
-    /// Time represented as a string in RFC3339 format.
+    /// Time represented as wall clock time in RFC3339 format.
     AbsoluteRfc3339,
 }
 
@@ -306,28 +306,28 @@ impl IdsInput {
     }
 }
 
-impl From<CliTimeRepresentation> for TimeRepresentation {
+impl From<CliTimeRepresentation> for TimeRepresentationEnum {
     fn from(time_repr: CliTimeRepresentation) -> Self {
         match time_repr {
             CliTimeRepresentation::RelativeNanos | CliTimeRepresentation::RelativeUintNanos => {
-                TimeRepresentation::Relative(RelativeTimeFormat::UIntNanos)
+                TimeRepresentationEnum::RelativeTimestamp(RelativeTimeFormat::UIntNanos)
             }
             CliTimeRepresentation::Relative
             | CliTimeRepresentation::RelativeSecs
-            | CliTimeRepresentation::RelativeFloatSecs => TimeRepresentation::Relative(RelativeTimeFormat::FloatSecs),
-            CliTimeRepresentation::IncrementalNanos | CliTimeRepresentation::IncrementalUintNanos => {
-                TimeRepresentation::Incremental(RelativeTimeFormat::UIntNanos)
+            | CliTimeRepresentation::RelativeFloatSecs => {
+                TimeRepresentationEnum::RelativeTimestamp(RelativeTimeFormat::FloatSecs)
             }
-            CliTimeRepresentation::Incremental
-            | CliTimeRepresentation::IncrementalSecs
-            | CliTimeRepresentation::IncrementalFloatSecs => {
-                TimeRepresentation::Incremental(RelativeTimeFormat::FloatSecs)
+            CliTimeRepresentation::OffsetNanos | CliTimeRepresentation::OffsetUintNanos => {
+                TimeRepresentationEnum::Offset(RelativeTimeFormat::UIntNanos)
             }
+            CliTimeRepresentation::Offset
+            | CliTimeRepresentation::OffsetSecs
+            | CliTimeRepresentation::OffsetFloatSecs => TimeRepresentationEnum::Offset(RelativeTimeFormat::FloatSecs),
             CliTimeRepresentation::Absolute | CliTimeRepresentation::AbsoluteUnix => {
-                TimeRepresentation::Absolute(AbsoluteTimeFormat::UnixTimeFloat)
+                TimeRepresentationEnum::AbsoluteTimestamp(AbsoluteTimeFormat::UnixTimeFloat)
             }
             CliTimeRepresentation::AbsoluteRfc | CliTimeRepresentation::AbsoluteRfc3339 => {
-                TimeRepresentation::Absolute(AbsoluteTimeFormat::Rfc3339)
+                TimeRepresentationEnum::AbsoluteTimestamp(AbsoluteTimeFormat::Rfc3339)
             }
         }
     }
@@ -363,7 +363,7 @@ impl From<IdsInput> for ExecutionMode {
         if input.interface.is_some() {
             ExecutionMode::Online
         } else {
-            ExecutionMode::Offline(TimeRepresentation::Absolute(AbsoluteTimeFormat::UnixTimeFloat))
+            ExecutionMode::Offline(TimeRepresentationEnum::AbsoluteTimestamp(AbsoluteTimeFormat::UnixTimeFloat))
         }
     }
 }

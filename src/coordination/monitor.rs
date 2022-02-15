@@ -16,7 +16,7 @@
 //! * [TriggersWithInfoValues]: For each event a list of violated triggers with their specified corresponding values is returned.
 
 use crate::basics::OutputHandler;
-use crate::config::{Config, ExecutionMode, TimeRepresentation};
+use crate::config::{Config, ExecutionMode, TimeRepresentationEnum};
 use crate::coordination::time_driven_manager::TimeDrivenManager;
 use crate::coordination::DynamicSchedule;
 use crate::evaluator::{Evaluator, EvaluatorData};
@@ -29,6 +29,8 @@ use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomData;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use crate::configuration::time::{TimeRepresentation, RelativeFloat};
+
 /// An event to be handled by the interpreter
 pub type Event = Vec<Value>;
 
@@ -141,9 +143,9 @@ impl VerdictRepresentation for TriggersWithInfoValues {
     The field `timed` is a vector, containing all updates of periodic streams since the last event.
 */
 #[derive(Debug)]
-pub struct Verdicts<V: VerdictRepresentation> {
+pub struct Verdicts<V: VerdictRepresentation, T> {
     /// All verdicts caused by timed streams given at each deadline that occurred.
-    pub timed: Vec<(Time, V)>,
+    pub timed: Vec<(T, V)>,
     /// The verdict that resulted from evaluation the event.
     pub event: V,
 }
@@ -158,26 +160,36 @@ The generic argument `V` implements the [VerdictRepresentation] trait describing
 The generic argument `S` implements the [Input] trait describing the input source of the API.
 */
 #[allow(missing_debug_implementations)]
-pub struct Monitor<S: Input, V: VerdictRepresentation = Incremental> {
-    /// The representation of the specification. See [RTLolaMir](rtlola_frontend::mir::RtLolaMir).
-    pub ir: RtLolaMir,
+pub struct Monitor<I, IT, V = Incremental, VT = RelativeFloat>
+    where
+        I: Input,
+        IT: TimeRepresentation,
+        V: VerdictRepresentation,
+        VT: TimeRepresentation,
+{
+    ir: RtLolaMir,
     eval: Evaluator,
-    pub(crate) output_handler: Arc<OutputHandler>,
+
     time_manager: TimeDrivenManager,
 
-    last_event_time: Duration,
-    time_repr: TimeRepresentation,
-    start_time: Option<SystemTime>,
+    source: I,
+    source_time: IT,
 
-    source: S,
+    output_time: VT,
 
     phantom: PhantomData<V>,
 }
 
 /// Crate-public interface
-impl<S: Input, V: VerdictRepresentation> Monitor<S, V> {
+impl<I, IT, V, VT> Monitor<I, IT, V, VT>
+    where
+    I: Input,
+    IT: TimeRepresentation,
+    V: VerdictRepresentation,
+    VT: TimeRepresentation,
+{
     ///setup
-    pub(crate) fn setup(config: Config, setup_data: S::CreationData) -> Monitor<S, V> {
+    pub(crate) fn setup(config: Config, setup_data: I::CreationData) -> Monitor<I, IT, V, VT> {
         let output_handler = Arc::new(OutputHandler::new(&config, config.ir.triggers.len()));
         let dyn_schedule = Arc::new((Mutex::new(DynamicSchedule::new()), Condvar::new()));
         let monitor_start = SystemTime::now();
@@ -187,9 +199,9 @@ impl<S: Input, V: VerdictRepresentation> Monitor<S, V> {
             ExecutionMode::Online => unreachable!(),
         };
         let start_time = config.start_time.or(match time_repr {
-            TimeRepresentation::Relative(_) | TimeRepresentation::Incremental(_) => Some(monitor_start),
+            TimeRepresentationEnum::RelativeTimestamp(_) | TimeRepresentationEnum::Offset(_) => Some(monitor_start),
             // If None, Default time should be the one of first event
-            TimeRepresentation::Absolute(_) => None,
+            TimeRepresentationEnum::AbsoluteTimestamp(_) => None,
         });
         if let Some(start_time) = start_time {
             output_handler.set_start_time(start_time);
@@ -205,12 +217,12 @@ impl<S: Input, V: VerdictRepresentation> Monitor<S, V> {
         Monitor {
             ir: config.ir,
             eval: eval_data.into_evaluator(),
-            output_handler,
             time_manager,
-            last_event_time: Duration::default(),
-            time_repr,
-            start_time,
-            source: S::new(input_map, setup_data),
+
+            source: I::new(input_map, setup_data),
+            source_time: IT::default(),
+
+            output_time: VT::default(),
             phantom: PhantomData,
         }
     }
@@ -220,16 +232,15 @@ impl<S: Input, V: VerdictRepresentation> Monitor<S, V> {
     /// Note: `TimeRepresentation::Absolute(AbsoluteTimeFormat::Rfc3339)` is currently not supported
     fn finalize_time(&mut self, ts: Time) -> Time {
         match self.time_repr {
-            TimeRepresentation::Relative(_) => ts,
-            TimeRepresentation::Incremental(_) => {
+            TimeRepresentationEnum::RelativeTimestamp(_) => ts,
+            TimeRepresentationEnum::Offset(_) => {
                 self.last_event_time += ts;
                 self.last_event_time
             }
-            TimeRepresentation::Absolute(_) => {
+            TimeRepresentationEnum::AbsoluteTimestamp(_) => {
                 let unix = UNIX_EPOCH + ts;
                 if self.start_time.is_none() {
                     self.start_time = Some(unix);
-                    self.output_handler.set_start_time(unix);
                 }
                 unix.duration_since(self.start_time.unwrap()).expect("Time did not behave monotonically!")
             }
@@ -361,15 +372,20 @@ impl<E: Into<Event>> Input for EventInput<E> {
 }
 
 /// Public interface
-impl<S: Input, V: VerdictRepresentation> Monitor<S, V> {
+impl<I, IT, V, VT> Monitor<I, IT, V, VT>
+    where
+        I: Input,
+        IT: TimeRepresentation,
+        V: VerdictRepresentation,
+        VT: TimeRepresentation,
+{
     /**
     Computes all periodic streams up through the new timestamp and then handles the input event.
 
     The new event is therefore not seen by periodic streams up through a new timestamp.
     */
-    pub fn accept_event(&mut self, ev: S::Record, ts: Time) -> Verdicts<V> {
+    pub fn accept_event(&mut self, ev: I::Record, ts: IT::InnerTime) -> Verdicts<V, VT::InnerTime> {
         let ev = self.source.get_event(ev);
-        self.output_handler.debug(|| format!("Accepted {:?}.", ev));
 
         let ts = self.finalize_time(ts);
 
@@ -380,7 +396,6 @@ impl<S: Input, V: VerdictRepresentation> Monitor<S, V> {
         });
 
         // Evaluate
-        self.output_handler.new_event();
         self.eval.eval_event(ev.as_slice(), ts);
         let event_change = V::create(RawVerdict::from(&self.eval));
 
@@ -390,7 +405,7 @@ impl<S: Input, V: VerdictRepresentation> Monitor<S, V> {
     /**
     Computes all periodic streams up through and including the timestamp.
     */
-    pub fn accept_time(&mut self, ts: Time) -> Vec<(Time, V)> {
+    pub fn accept_time(&mut self, ts: IT::InnerTime) -> Vec<(VT::InnerTime, V)> {
         let mut timed_changes: Vec<(Time, V)> = vec![];
 
         let ts = self.finalize_time(ts);
@@ -405,6 +420,11 @@ impl<S: Input, V: VerdictRepresentation> Monitor<S, V> {
         });
 
         timed_changes
+    }
+
+    /// Returns the underlying representation of the specification as an [RtLolaMir]
+    pub fn ir(&self) -> &RtLolaMir {
+        &self.ir
     }
 
     /**
@@ -494,27 +514,23 @@ impl<S: Input, V: VerdictRepresentation> Monitor<S, V> {
     }
 
     /// Switch [VerdictRepresentation]s of the [Monitor].
-    pub fn with_verdict_representation<T: VerdictRepresentation>(self) -> Monitor<S, T> {
+    pub fn with_verdict_representation<T: VerdictRepresentation>(self) -> Monitor<I, IT, T, VT> {
         let Monitor {
             ir,
             eval,
-            output_handler,
             time_manager,
-            last_event_time,
-            time_repr,
-            start_time,
+            source_time,
             source,
+            output_time,
             phantom: _,
         } = self;
-        Monitor::<S, T> {
+        Monitor {
             ir,
             eval,
-            output_handler,
             time_manager,
-            last_event_time,
-            time_repr,
-            start_time,
+            source_time,
             source,
+            output_time,
             phantom: PhantomData,
         }
     }
