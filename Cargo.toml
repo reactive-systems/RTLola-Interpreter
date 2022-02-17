@@ -42,6 +42,7 @@ string_template = "0.2.1" # Format Trigger Messages
 priority-queue = "1.1.0" # For the dynamic schedule
 clap_complete = "3.0.5"
 itertools = "0.10.3"
+rust_decimal = "1.21.0"
 
 [features]
 public = ["human-panic"]

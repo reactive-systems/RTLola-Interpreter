@@ -16,7 +16,8 @@
 //! * [TriggersWithInfoValues]: For each event a list of violated triggers with their specified corresponding values is returned.
 
 use crate::basics::OutputHandler;
-use crate::config::{Config, ExecutionMode, TimeRepresentationEnum};
+use crate::config::Config;
+use crate::configuration::time::{RelativeFloat, TimeRepresentation};
 use crate::coordination::time_driven_manager::TimeDrivenManager;
 use crate::coordination::DynamicSchedule;
 use crate::evaluator::{Evaluator, EvaluatorData};
@@ -28,8 +29,7 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomData;
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use crate::configuration::time::{TimeRepresentation, RelativeFloat};
+use std::time::Duration;
 
 /// An event to be handled by the interpreter
 pub type Event = Vec<Value>;
@@ -161,11 +161,11 @@ The generic argument `S` implements the [Input] trait describing the input sourc
 */
 #[allow(missing_debug_implementations)]
 pub struct Monitor<I, IT, V = Incremental, VT = RelativeFloat>
-    where
-        I: Input,
-        IT: TimeRepresentation,
-        V: VerdictRepresentation,
-        VT: TimeRepresentation,
+where
+    I: Input,
+    IT: TimeRepresentation,
+    V: VerdictRepresentation,
+    VT: TimeRepresentation,
 {
     ir: RtLolaMir,
     eval: Evaluator,
@@ -182,30 +182,21 @@ pub struct Monitor<I, IT, V = Incremental, VT = RelativeFloat>
 
 /// Crate-public interface
 impl<I, IT, V, VT> Monitor<I, IT, V, VT>
-    where
+where
     I: Input,
     IT: TimeRepresentation,
     V: VerdictRepresentation,
     VT: TimeRepresentation,
 {
     ///setup
-    pub(crate) fn setup(config: Config, setup_data: I::CreationData) -> Monitor<I, IT, V, VT> {
+    pub(crate) fn setup(config: Config<IT, VT>, setup_data: I::CreationData) -> Monitor<I, IT, V, VT> {
         let output_handler = Arc::new(OutputHandler::new(&config, config.ir.triggers.len()));
         let dyn_schedule = Arc::new((Mutex::new(DynamicSchedule::new()), Condvar::new()));
-        let monitor_start = SystemTime::now();
+        let source_time = IT::default();
+        let mut output_time = VT::default();
 
-        let time_repr = match &config.mode {
-            ExecutionMode::Offline(repr) => *repr,
-            ExecutionMode::Online => unreachable!(),
-        };
-        let start_time = config.start_time.or(match time_repr {
-            TimeRepresentationEnum::RelativeTimestamp(_) | TimeRepresentationEnum::Offset(_) => Some(monitor_start),
-            // If None, Default time should be the one of first event
-            TimeRepresentationEnum::AbsoluteTimestamp(_) => None,
-        });
-        if let Some(start_time) = start_time {
-            output_handler.set_start_time(start_time);
-        }
+        let start_time = config.start_time.or(IT::default_start_time());
+        output_time.set_start_time(start_time);
 
         let input_map = config.ir.inputs.iter().map(|i| (i.name.clone(), i.reference.in_ix())).collect();
 
@@ -220,30 +211,10 @@ impl<I, IT, V, VT> Monitor<I, IT, V, VT>
             time_manager,
 
             source: I::new(input_map, setup_data),
-            source_time: IT::default(),
+            source_time,
 
-            output_time: VT::default(),
+            output_time,
             phantom: PhantomData,
-        }
-    }
-
-    /// Computes transforms the given time into the internal time representation.
-    /// Following the given input time format
-    /// Note: `TimeRepresentation::Absolute(AbsoluteTimeFormat::Rfc3339)` is currently not supported
-    fn finalize_time(&mut self, ts: Time) -> Time {
-        match self.time_repr {
-            TimeRepresentationEnum::RelativeTimestamp(_) => ts,
-            TimeRepresentationEnum::Offset(_) => {
-                self.last_event_time += ts;
-                self.last_event_time
-            }
-            TimeRepresentationEnum::AbsoluteTimestamp(_) => {
-                let unix = UNIX_EPOCH + ts;
-                if self.start_time.is_none() {
-                    self.start_time = Some(unix);
-                }
-                unix.duration_since(self.start_time.unwrap()).expect("Time did not behave monotonically!")
-            }
         }
     }
 }
@@ -373,11 +344,11 @@ impl<E: Into<Event>> Input for EventInput<E> {
 
 /// Public interface
 impl<I, IT, V, VT> Monitor<I, IT, V, VT>
-    where
-        I: Input,
-        IT: TimeRepresentation,
-        V: VerdictRepresentation,
-        VT: TimeRepresentation,
+where
+    I: Input,
+    IT: TimeRepresentation,
+    V: VerdictRepresentation,
+    VT: TimeRepresentation,
 {
     /**
     Computes all periodic streams up through the new timestamp and then handles the input event.
@@ -387,12 +358,12 @@ impl<I, IT, V, VT> Monitor<I, IT, V, VT>
     pub fn accept_event(&mut self, ev: I::Record, ts: IT::InnerTime) -> Verdicts<V, VT::InnerTime> {
         let ev = self.source.get_event(ev);
 
-        let ts = self.finalize_time(ts);
+        let ts = self.source_time.convert_from(ts);
 
         // Evaluate timed streams with due < ts
-        let mut timed: Vec<(Time, V)> = vec![];
+        let mut timed: Vec<(VT::InnerTime, V)> = vec![];
         self.time_manager.accept_time_offline_with_callback(&mut self.eval, ts, |due, eval| {
-            timed.push((due, V::create(RawVerdict::from(eval))))
+            timed.push((self.output_time.convert_into(due), V::create(RawVerdict::from(eval))))
         });
 
         // Evaluate
@@ -408,15 +379,15 @@ impl<I, IT, V, VT> Monitor<I, IT, V, VT>
     pub fn accept_time(&mut self, ts: IT::InnerTime) -> Vec<(VT::InnerTime, V)> {
         let mut timed_changes: Vec<(Time, V)> = vec![];
 
-        let ts = self.finalize_time(ts);
+        let ts = self.source_time.convert_from(ts);
 
         // Eval all timed streams with due < ts
         self.time_manager.accept_time_offline_with_callback(&mut self.eval, ts, |due, eval| {
-            timed_changes.push((due, V::create(RawVerdict::from(eval))))
+            timed_changes.push((self.output_time.convert_into(due), V::create(RawVerdict::from(eval))))
         });
         // Eval all timed streams with due = ts
         self.time_manager.end_offline_with_callback(&mut self.eval, ts, |due, eval| {
-            timed_changes.push((due, V::create(RawVerdict::from(eval))))
+            timed_changes.push((self.output_time.convert_into(due), V::create(RawVerdict::from(eval))))
         });
 
         timed_changes
@@ -515,24 +486,8 @@ impl<I, IT, V, VT> Monitor<I, IT, V, VT>
 
     /// Switch [VerdictRepresentation]s of the [Monitor].
     pub fn with_verdict_representation<T: VerdictRepresentation>(self) -> Monitor<I, IT, T, VT> {
-        let Monitor {
-            ir,
-            eval,
-            time_manager,
-            source_time,
-            source,
-            output_time,
-            phantom: _,
-        } = self;
-        Monitor {
-            ir,
-            eval,
-            time_manager,
-            source_time,
-            source,
-            output_time,
-            phantom: PhantomData,
-        }
+        let Monitor { ir, eval, time_manager, source_time, source, output_time, phantom: _ } = self;
+        Monitor { ir, eval, time_manager, source_time, source, output_time, phantom: PhantomData }
     }
 }
 

@@ -10,10 +10,10 @@ use rtlola_frontend::RtLolaMir;
 #[cfg(feature = "pcap_interface")]
 use crate::basics::PCAPInputSource;
 use crate::basics::{CsvInputSource, OutputChannel, OutputHandler};
+use crate::configuration::time::{AbsoluteRfc, RelativeFloat, TimeRepresentation};
 use crate::coordination::Controller;
 use crate::monitor::{Input, VerdictRepresentation};
 use crate::Monitor;
-use crate::configuration::time::{TimeRepresentation, RelativeFloat, AbsoluteRfc};
 use std::marker::PhantomData;
 
 /**
@@ -35,7 +35,9 @@ pub struct Config<IT: TimeRepresentation, OT: TimeRepresentation> {
     /// Where the output should go
     pub output_channel: OutputChannel,
     /// In which mode the evaluator is executed
-    pub mode: ExecutionMode<IT>,
+    pub mode: ExecutionMode,
+    /// Which format the time is given to the monitor
+    pub input_time_representation: PhantomData<IT>,
     /// Which format to use to output time
     pub output_time_representation: PhantomData<OT>,
     /// The start time to assume
@@ -93,9 +95,9 @@ impl Default for Verbosity {
 
 /// The execution mode of the interpreter. See the `README` for more details.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum ExecutionMode<T: TimeRepresentation> {
+pub enum ExecutionMode {
     /// Time provided by input source
-    Offline(PhantomData<*const T>),
+    Offline,
     /// Time taken by evaluator
     Online,
 }
@@ -141,7 +143,7 @@ impl<IT: TimeRepresentation, OT: TimeRepresentation> Config<IT, OT> {
         ir: RtLolaMir,
         csv_path: String,
         output: OutputChannel,
-        mode: ExecutionMode<IT>,
+        mode: ExecutionMode,
         start_time: Option<SystemTime>,
     ) -> Self {
         Config {
@@ -151,6 +153,7 @@ impl<IT: TimeRepresentation, OT: TimeRepresentation> Config<IT, OT> {
             verbosity: Verbosity::Triggers,
             output_channel: output,
             mode,
+            input_time_representation: PhantomData::<IT>::default(),
             output_time_representation: PhantomData::<OT>::default(),
             start_time,
         }
@@ -171,7 +174,7 @@ impl<IT: TimeRepresentation, OT: TimeRepresentation> Config<IT, OT> {
     }
 
     /// Run the interpreter on this configuration.
-    pub fn run(self) -> Result<Arc<OutputHandler>, Box<dyn std::error::Error>> {
+    pub fn run(self) -> Result<Arc<OutputHandler<OT>>, Box<dyn std::error::Error>> {
         Controller::new(self).start()
     }
 

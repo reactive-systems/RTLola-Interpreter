@@ -3,6 +3,7 @@ use super::time_driven_manager::TimeDrivenManager;
 use super::{WorkItem, CAP_WORK_QUEUE};
 use crate::basics::OutputHandler;
 use crate::config::{Config, ExecutionMode::*};
+use crate::configuration::time::TimeRepresentation;
 use crate::coordination::dynamic_schedule::DynamicSchedule;
 use crate::coordination::TimeEvaluation;
 use crate::evaluator::{Evaluator, EvaluatorData};
@@ -14,27 +15,27 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::SystemTime;
 
-pub(crate) struct Controller {
-    config: Config,
+pub(crate) struct Controller<IT: TimeRepresentation, OT: TimeRepresentation> {
+    config: Config<IT, OT>,
 
     /// Handles all kind of output behavior according to config.
-    pub(crate) output_handler: Arc<OutputHandler>,
+    pub(crate) output_handler: Arc<OutputHandler<OT>>,
 
     /// Dynamic schedules handles dynamic deadlines; The condition is notified whenever the schedule changes
     dyn_schedule: Arc<(Mutex<DynamicSchedule>, Condvar)>,
 }
 
-impl Controller {
-    pub(crate) fn new(config: Config) -> Self {
+impl<IT: TimeRepresentation, OT: TimeRepresentation> Controller<IT, OT> {
+    pub(crate) fn new(config: Config<IT, OT>) -> Self {
         let output_handler = Arc::new(OutputHandler::new(&config, config.ir.triggers.len()));
         let dyn_schedule = Arc::new((Mutex::new(DynamicSchedule::new()), Condvar::new()));
         Self { config, output_handler, dyn_schedule }
     }
 
-    pub(crate) fn start(self) -> Result<Arc<OutputHandler>, Box<dyn Error>> {
+    pub(crate) fn start(self) -> Result<Arc<OutputHandler<OT>>, Box<dyn Error>> {
         // TODO: Returning the Arc here makes no sense, fix asap.
         match self.config.mode {
-            Offline(_) => self.evaluate_offline().map(|_| self.output_handler),
+            Offline => self.evaluate_offline().map(|_| self.output_handler),
             Online => self.evaluate_online().map(|_| self.output_handler),
         }
     }

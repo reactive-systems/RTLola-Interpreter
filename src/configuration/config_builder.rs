@@ -1,21 +1,19 @@
-use crate::basics::{CsvInputSource, CsvInputSourceKind, OutputChannel, OutputHandler};
+use crate::basics::{CsvInputSource, CsvInputSourceKind, OutputChannel, OutputHandler, RealTime};
 use crate::config::ExecutionMode;
 
 #[cfg(feature = "pcap_interface")]
 use crate::basics::PCAPInputSource;
 
-use crate::config::{
-     Config, EventSourceConfig, Statistics, Verbosity,
-};
+use crate::config::{Config, EventSourceConfig, Statistics, Verbosity};
+use crate::configuration::time::{RelativeFloat, TimeRepresentation};
 use crate::coordination::Controller;
-use crate::monitor::{Input, VerdictRepresentation, Event, EventInput, Record, RecordInput};
+use crate::monitor::{Event, EventInput, Input, Record, RecordInput, VerdictRepresentation};
 use crate::Monitor;
 use rtlola_frontend::mir::RtLolaMir;
+use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
-use crate::configuration::time::{TimeRepresentation, RelativeNanos, RelativeFloat, OffsetNanos, OffsetFloat, AbsoluteRfc, AbsoluteFloat};
-use std::marker::PhantomData;
 
 /* Type state of shared config */
 /// Represents a state of the [ConfigBuilder]
@@ -49,20 +47,20 @@ impl ExecConfigState for ConfigureMode {}
 
 /// An executable configuration state in which the execution mode is configured but the event source is not.
 #[derive(Debug, Clone, Copy)]
-pub struct ConfigureSource {
+pub struct ConfigureSource<IT: TimeRepresentation> {
     mode: ExecutionMode,
+    input_time: PhantomData<IT>,
 }
-impl ExecConfigState for ConfigureSource {}
+impl<IT: TimeRepresentation> ExecConfigState for ConfigureSource<IT> {}
 
 /// An execution configuration state in which both the mode and the event source has been configured.
 #[derive(Debug, Clone)]
-pub struct SourceConfigured {
+pub struct SourceConfigured<IT: TimeRepresentation> {
     mode: ExecutionMode,
+    input_time: PhantomData<IT>,
     source: EventSourceConfig,
 }
-impl ExecConfigState for SourceConfigured {}
-
-
+impl<IT: TimeRepresentation> ExecConfigState for SourceConfigured<IT> {}
 
 /* Type state for api config */
 
@@ -83,43 +81,18 @@ impl ApiConfigState for ConfigureInput {}
 
 /// An API configuration state in which the input source is configured but the input time is not.
 #[derive(Debug, Clone, Default, Copy)]
-pub struct InputConfigured<I: Input,> {
+pub struct InputConfigured<I: Input> {
     source: PhantomData<I>,
 }
 impl<I: Input> ApiConfigState for InputConfigured<I> {}
 
-/// The time representation is configured but not the format in which time values are given
-pub trait PartialTimeConfig {}
-
-/// Time is configured to be relative but the format is not known
-struct PartialRelativeTime{}
-impl PartialTimeConfig for PartialRelativeTime{}
-
-/// Time is configured to be offset but the format is not known
-struct PartialOffsetTime{}
-impl PartialTimeConfig for PartialOffsetTime{}
-
-/// Time is configured to be offset but the format is not known
-struct PartialAbsoluteTime{}
-impl PartialTimeConfig for PartialAbsoluteTime{}
-
 /// An API configuration state in which the event input and the input time is configured but not its format
 #[derive(Debug, Clone, Copy, Default)]
-pub struct TimeRepConfigured<I: Input, IT: PartialTimeConfig> {
+pub struct TimeConfigured<I: Input, IT: TimeRepresentation> {
     source: PhantomData<I>,
     input_time: PhantomData<IT>,
 }
-impl <I: Input,IT: PartialTimeConfig> ApiConfigState for TimeRepConfigured<I, IT> {}
-
-/// An API configuration state in which the event input and the input time is configured but not its format
-#[derive(Debug, Clone, Copy, Default)]
-pub struct TimeFormatConfigured<I: Input, IT: TimeRepresentation> {
-    source: PhantomData<I>,
-    input_time: PhantomData<IT>,
-}
-impl <I: Input,IT: TimeRepresentation> ApiConfigState for TimeFormatConfigured<I, IT> {}
-
-
+impl<I: Input, IT: TimeRepresentation> ApiConfigState for TimeConfigured<I, IT> {}
 
 /// The executable monitor configuration
 #[derive(Debug, Clone, Default)]
@@ -166,9 +139,9 @@ impl<S: ExecConfigState> SubConfig for ExecConfig<S> {}
 ///     .run();
 /// ````
 #[derive(Debug, Clone)]
-pub struct ConfigBuilder<C: SubConfig, S: ConfigState> {
+pub struct ConfigBuilder<C: SubConfig, S: ConfigState, OT: TimeRepresentation> {
     /// Which format to use to output time
-    output_time_representation: Option<TimeRepresentationEnum>,
+    output_time_representation: PhantomData<OT>,
     /// The start time to assume
     start_time: Option<SystemTime>,
     /// The configuration for the chosen domain
@@ -177,11 +150,11 @@ pub struct ConfigBuilder<C: SubConfig, S: ConfigState> {
     state: S,
 }
 
-impl ConfigBuilder<ExecConfig<ConfigureMode>, ConfigureIR> {
+impl ConfigBuilder<ExecConfig<ConfigureMode>, ConfigureIR, RelativeFloat> {
     /// Creates a new executable configuration.
     pub fn runnable() -> Self {
         ConfigBuilder {
-            output_time_representation: None,
+            output_time_representation: PhantomData::default(),
             start_time: None,
             sub_config: ExecConfig::default(),
             state: ConfigureIR {},
@@ -189,11 +162,11 @@ impl ConfigBuilder<ExecConfig<ConfigureMode>, ConfigureIR> {
     }
 }
 
-impl ConfigBuilder<ApiConfig<ConfigureInput>, ConfigureIR> {
+impl ConfigBuilder<ApiConfig<ConfigureInput>, ConfigureIR, RelativeFloat> {
     /// Creates a new configuration to be used with the API.
     pub fn api() -> Self {
         ConfigBuilder {
-            output_time_representation: None,
+            output_time_representation: PhantomData::default(),
             start_time: None,
             sub_config: ApiConfig { state: ConfigureInput {} },
             state: ConfigureIR {},
@@ -201,26 +174,13 @@ impl ConfigBuilder<ApiConfig<ConfigureInput>, ConfigureIR> {
     }
 }
 
-impl<C: SubConfig, S: ConfigState> ConfigBuilder<C, S> {
-    /// Sets the time in the output of the monitor to be absolute.
-    /// See the README for further details.
-    pub fn absolute_output_time(mut self, format: AbsoluteTimeFormat) -> Self {
-        self.output_time_representation = Some(TimeRepresentationEnum::AbsoluteTimestamp(format));
-        self
-    }
-
-    /// Sets the time in the output of the monitor to be incremental, i.e. relative to the preceding event.
-    /// See the README for further details.
-    pub fn incremental_output_time(mut self, format: RelativeTimeFormat) -> Self {
-        self.output_time_representation = Some(TimeRepresentationEnum::Offset(format));
-        self
-    }
-
-    /// Sets the time in the output of the monitor to be relative.
-    /// See the README for further details.
-    pub fn relative_output_time(mut self, format: RelativeTimeFormat) -> Self {
-        self.output_time_representation = Some(TimeRepresentationEnum::RelativeTimestamp(format));
-        self
+impl<C: SubConfig, S: ConfigState, OT: TimeRepresentation> ConfigBuilder<C, S, OT> {
+    /// Sets the format in which time is returned.
+    /// See the README for more details on time formats.
+    /// For possible formats see the [Time](crate::config::time) module.
+    pub fn output_time<T: TimeRepresentation>(self) -> ConfigBuilder<C, S, T> {
+        let ConfigBuilder { output_time_representation: _, start_time, sub_config, state } = self;
+        ConfigBuilder { output_time_representation: PhantomData::default(), start_time, sub_config, state }
     }
 
     /// Sets the start time of the execution.
@@ -230,15 +190,15 @@ impl<C: SubConfig, S: ConfigState> ConfigBuilder<C, S> {
     }
 }
 
-impl<C: SubConfig> ConfigBuilder<C, ConfigureIR> {
+impl<C: SubConfig, OT: TimeRepresentation> ConfigBuilder<C, ConfigureIR, OT> {
     /// Use an existing ir with the configuration
-    pub fn with_ir(self, ir: RtLolaMir) -> ConfigBuilder<C, IrConfigured> {
+    pub fn with_ir(self, ir: RtLolaMir) -> ConfigBuilder<C, IrConfigured, OT> {
         let ConfigBuilder { output_time_representation, start_time, sub_config, state: _ } = self;
         ConfigBuilder { output_time_representation, start_time, sub_config, state: IrConfigured { ir } }
     }
 
     /// Read the specification from a file at the given path.
-    pub fn spec_file(self, path: PathBuf) -> ConfigBuilder<C, IrConfigured> {
+    pub fn spec_file(self, path: PathBuf) -> ConfigBuilder<C, IrConfigured, OT> {
         let ConfigBuilder { output_time_representation, start_time, sub_config, state: _ } = self;
         let config = rtlola_frontend::ParserConfig::from_path(path).unwrap_or_else(|e| {
             eprintln!("{}", e);
@@ -253,7 +213,7 @@ impl<C: SubConfig> ConfigBuilder<C, ConfigureIR> {
     }
 
     /// Read the specification from the given string.
-    pub fn spec_str(self, spec: &str) -> ConfigBuilder<C, IrConfigured> {
+    pub fn spec_str(self, spec: &str) -> ConfigBuilder<C, IrConfigured, OT> {
         let ConfigBuilder { output_time_representation, start_time, sub_config, state: _ } = self;
         let config = rtlola_frontend::ParserConfig::for_string(spec.to_string());
         let handler = rtlola_frontend::Handler::from(config.clone());
@@ -265,11 +225,12 @@ impl<C: SubConfig> ConfigBuilder<C, ConfigureIR> {
     }
 }
 
-impl<S: ConfigState> ConfigBuilder<ExecConfig<ConfigureMode>, S> {
+impl<S: ConfigState, OT: TimeRepresentation> ConfigBuilder<ExecConfig<ConfigureMode>, S, OT> {
     /// Sets the execute mode to be offline, i.e. takes the time of events from the input source.
-    /// The time is interpreted as relative timestamps in the given format.
-    /// See the README for further details.
-    pub fn offline_relative(self, format: RelativeTimeFormat) -> ConfigBuilder<ExecConfig<ConfigureSource>, S> {
+    /// The time representation is given as the type parameter.
+    /// See the README for further details on time representations.
+    /// For possible [TimeRepresentation]s see the [Time](crate::configure::time) Module.
+    pub fn offline<IT: TimeRepresentation>(self) -> ConfigBuilder<ExecConfig<ConfigureSource<IT>>, S, OT> {
         let ConfigBuilder {
             output_time_representation,
             start_time,
@@ -283,60 +244,14 @@ impl<S: ConfigState> ConfigBuilder<ExecConfig<ConfigureMode>, S> {
                 statistics,
                 verbosity,
                 output_channel,
-                state: ConfigureSource { mode: ExecutionMode::Offline(TimeRepresentationEnum::RelativeTimestamp(format)) },
-            },
-            state: cs,
-        }
-    }
-
-    /// Sets the execute mode to be offline, i.e. takes the time of events from the input source.
-    /// The time is interpreted as the offset to the preceding event given in the specified format.
-    /// See the README for further details.
-    pub fn offline_offset(self, format: RelativeTimeFormat) -> ConfigBuilder<ExecConfig<ConfigureSource>, S> {
-        let ConfigBuilder {
-            output_time_representation,
-            start_time,
-            sub_config: ExecConfig { statistics, verbosity, output_channel, state: _ },
-            state: cs,
-        } = self;
-        ConfigBuilder {
-            output_time_representation,
-            start_time,
-            sub_config: ExecConfig {
-                statistics,
-                verbosity,
-                output_channel,
-                state: ConfigureSource { mode: ExecutionMode::Offline(TimeRepresentationEnum::Offset(format)) },
-            },
-            state: cs,
-        }
-    }
-
-    /// Sets the execute mode to be offline, i.e. takes the time of events from the input source.
-    /// The time is interpreted as absolute timestamps in the given format.
-    /// See the README for further details.
-    pub fn offline_absolute(self, format: AbsoluteTimeFormat) -> ConfigBuilder<ExecConfig<ConfigureSource>, S> {
-        let ConfigBuilder {
-            output_time_representation,
-            start_time,
-            sub_config: ExecConfig { statistics, verbosity, output_channel, state: _ },
-            state: cs,
-        } = self;
-        ConfigBuilder {
-            output_time_representation,
-            start_time,
-            sub_config: ExecConfig {
-                statistics,
-                verbosity,
-                output_channel,
-                state: ConfigureSource { mode: ExecutionMode::Offline(TimeRepresentationEnum::AbsoluteTimestamp(format)) },
+                state: ConfigureSource { mode: ExecutionMode::Offline, input_time: PhantomData::default() },
             },
             state: cs,
         }
     }
 
     /// Sets the execute mode to be online, i.e. the time of events is taken by the interpreter.
-    pub fn online(self) -> ConfigBuilder<ExecConfig<ConfigureSource>, S> {
+    pub fn online(self) -> ConfigBuilder<ExecConfig<ConfigureSource<RealTime>>, S, OT> {
         let ConfigBuilder {
             output_time_representation,
             start_time,
@@ -350,14 +265,16 @@ impl<S: ConfigState> ConfigBuilder<ExecConfig<ConfigureMode>, S> {
                 statistics,
                 verbosity,
                 output_channel,
-                state: ConfigureSource { mode: ExecutionMode::Online },
+                state: ConfigureSource { mode: ExecutionMode::Online, input_time: PhantomData::default() },
             },
             state: cs,
         }
     }
 }
 
-impl<S: ConfigState> ConfigBuilder<ExecConfig<ConfigureSource>, S> {
+impl<S: ConfigState, IT: TimeRepresentation, OT: TimeRepresentation>
+    ConfigBuilder<ExecConfig<ConfigureSource<IT>>, S, OT>
+{
     /// Take the events from a given CSV file at 'path'.
     /// A delay can be specified to ignore the given timestamps in the file and take the delay as the time between the events.
     /// Optionally, the time column in the input can be specified.
@@ -366,7 +283,7 @@ impl<S: ConfigState> ConfigBuilder<ExecConfig<ConfigureSource>, S> {
         path: PathBuf,
         delay: Option<Duration>,
         time_col: Option<usize>,
-    ) -> ConfigBuilder<ExecConfig<SourceConfigured>, S> {
+    ) -> ConfigBuilder<ExecConfig<SourceConfigured<IT>>, S, OT> {
         let ConfigBuilder {
             output_time_representation,
             start_time,
@@ -386,7 +303,7 @@ impl<S: ConfigState> ConfigBuilder<ExecConfig<ConfigureSource>, S> {
 
     /// Take the events in CSV format from stdin.
     /// Optionally, the time column in the input can be specified.
-    pub fn csv_stdin_input(self, time_col: Option<usize>) -> ConfigBuilder<ExecConfig<SourceConfigured>, S> {
+    pub fn csv_stdin_input(self, time_col: Option<usize>) -> ConfigBuilder<ExecConfig<SourceConfigured<IT>>, S, OT> {
         let ConfigBuilder {
             output_time_representation,
             start_time,
@@ -413,7 +330,7 @@ impl<S: ConfigState> ConfigBuilder<ExecConfig<ConfigureSource>, S> {
         path: PathBuf,
         delay: Option<Duration>,
         local_network: String,
-    ) -> ConfigBuilder<ExecConfig<SourceConfigured>, S> {
+    ) -> ConfigBuilder<ExecConfig<SourceConfigured<IT>>, S, OT> {
         let ConfigBuilder {
             output_time_representation,
             start_time,
@@ -436,7 +353,7 @@ impl<S: ConfigState> ConfigBuilder<ExecConfig<ConfigureSource>, S> {
         self,
         name: String,
         local_network: String,
-    ) -> ConfigBuilder<ExecConfig<SourceConfigured>, S> {
+    ) -> ConfigBuilder<ExecConfig<SourceConfigured<IT>>, S, OT> {
         let ConfigBuilder {
             output_time_representation,
             start_time,
@@ -453,7 +370,7 @@ impl<S: ConfigState> ConfigBuilder<ExecConfig<ConfigureSource>, S> {
     }
 }
 
-impl<ES: ExecConfigState, S: ConfigState> ConfigBuilder<ExecConfig<ES>, S> {
+impl<ES: ExecConfigState, S: ConfigState, OT: TimeRepresentation> ConfigBuilder<ExecConfig<ES>, S, OT> {
     /// Enable the output of statistics like processes events per second.
     pub fn enable_statistics(mut self) -> Self {
         self.sub_config.statistics = Some(Statistics::Debug);
@@ -485,44 +402,37 @@ impl<ES: ExecConfigState, S: ConfigState> ConfigBuilder<ExecConfig<ES>, S> {
     }
 }
 
-impl<S: ConfigState> ConfigBuilder<ApiConfig<ConfigureInput>, S> {
-    pub fn event_input<E: Into<Event>>(self) -> ConfigBuilder<ApiConfig<InputConfigured<EventInput<E>>>, S> {
+impl<S: ConfigState, OT: TimeRepresentation> ConfigBuilder<ApiConfig<ConfigureInput>, S, OT> {
+    pub fn event_input<E: Into<Event>>(self) -> ConfigBuilder<ApiConfig<InputConfigured<EventInput<E>>>, S, OT> {
         let ConfigBuilder { output_time_representation, start_time, sub_config: ApiConfig { state: _ }, state: s } =
             self;
 
         ConfigBuilder {
             output_time_representation,
             start_time,
-            sub_config: ApiConfig {
-                state: InputConfigured{
-                    source: PhantomData::default(),
-                },
-            },
+            sub_config: ApiConfig { state: InputConfigured { source: PhantomData::default() } },
             state: s,
         }
     }
 
-    pub fn record_input<R: Record>(self) -> ConfigBuilder<ApiConfig<InputConfigured<RecordInput<R>>>, S> {
+    pub fn record_input<R: Record>(self) -> ConfigBuilder<ApiConfig<InputConfigured<RecordInput<R>>>, S, OT> {
         let ConfigBuilder { output_time_representation, start_time, sub_config: ApiConfig { state: _ }, state: s } =
             self;
 
         ConfigBuilder {
             output_time_representation,
             start_time,
-            sub_config: ApiConfig {
-                state: InputConfigured{
-                    source: PhantomData::default(),
-                },
-            },
+            sub_config: ApiConfig { state: InputConfigured { source: PhantomData::default() } },
             state: s,
         }
     }
 }
 
-impl<I: Input, S: ConfigState> ConfigBuilder<ApiConfig<InputConfigured<I>>, S> {
-    /// Sets the timestamps provided to the API to be a relative timestamp.
+impl<I: Input, S: ConfigState, OT: TimeRepresentation> ConfigBuilder<ApiConfig<InputConfigured<I>>, S, OT> {
+    /// Sets the format in which time is provided to the API.
     /// See the README for more details on the input time format.
-    pub fn relative_input_time(self) -> ConfigBuilder<ApiConfig<TimeRepConfigured<I, PartialRelativeTime>>, S> {
+    /// For possible formats see the [Time](crate::config::time) module.
+    pub fn input_time<IT: TimeRepresentation>(self) -> ConfigBuilder<ApiConfig<TimeConfigured<I, IT>>, S, OT> {
         let ConfigBuilder { output_time_representation, start_time, sub_config: ApiConfig { state: _ }, state: s } =
             self;
 
@@ -530,180 +440,42 @@ impl<I: Input, S: ConfigState> ConfigBuilder<ApiConfig<InputConfigured<I>>, S> {
             output_time_representation,
             start_time,
             sub_config: ApiConfig {
-                state: TimeRepConfigured{
-                    source: PhantomData::default(),
-                    input_time: PhantomData::default(),
-                },
-            },
-            state: s,
-        }
-    }
-
-
-
-    /// Sets the time provided to the API to be an offset to the preceeding event.
-    /// See the README for more details on the input time format.
-    pub fn offset_input_time(self) -> ConfigBuilder<ApiConfig<TimeRepConfigured<I, PartialOffsetTime>>, S> {
-        let ConfigBuilder { output_time_representation, start_time, sub_config: ApiConfig { state: _ }, state: s } =
-            self;
-        ConfigBuilder {
-            output_time_representation,
-            start_time,
-            sub_config: ApiConfig { state: TimeRepConfigured{
-                source: PhantomData::default(),
-                input_time: PhantomData::default(),
-            } },
-            state: s,
-        }
-    }
-
-    /// Sets the timestamps provided to the API to be absolute.
-    /// See the README for more details on the input time format.
-    pub fn absolute_input_time(self) -> ConfigBuilder<ApiConfig<TimeRepConfigured<I, PartialAbsoluteTime>>, S> {
-        let ConfigBuilder { output_time_representation, start_time, sub_config: ApiConfig { state: _ }, state: s } =
-            self;
-        ConfigBuilder {
-            output_time_representation,
-            start_time,
-            sub_config: ApiConfig {
-                state: TimeRepConfigured{
-                    source: PhantomData::default(),
-                    input_time: PhantomData::default(),
-                }
+                state: TimeConfigured { source: PhantomData::default(), input_time: PhantomData::default() },
             },
             state: s,
         }
     }
 }
 
-impl<I: Input, S: ConfigState> ConfigBuilder<ApiConfig<TimeRepConfigured<I, PartialRelativeTime>>, S> {
-    pub fn nanos(self) ->  ConfigBuilder<ApiConfig<TimeFormatConfigured<I, RelativeNanos>>, S> {
-        let ConfigBuilder { output_time_representation, start_time, sub_config: ApiConfig { state: _ }, state: s } =
-            self;
-        ConfigBuilder {
+impl<I: Input, IT: TimeRepresentation, OT: TimeRepresentation>
+    ConfigBuilder<ApiConfig<TimeConfigured<I, IT>>, IrConfigured, OT>
+{
+    /// Finalize the configuration and generate a configuration.
+    pub fn build(self) -> Config<IT, OT> {
+        let ConfigBuilder {
             output_time_representation,
             start_time,
-            sub_config: ApiConfig {
-                state: TimeFormatConfigured{
-                    source: PhantomData::<I>::default(),
-                    input_time: PhantomData::<RelativeNanos>::default(),
-                },
-            },
-            state: s,
-        }
-    }
-
-    pub fn float_secs(self) ->  ConfigBuilder<ApiConfig<TimeFormatConfigured<I, RelativeFloat>>, S> {
-        let ConfigBuilder { output_time_representation, start_time, sub_config: ApiConfig { state: _ }, state: s } =
-            self;
-        ConfigBuilder {
+            sub_config: ApiConfig { state: _ },
+            state: IrConfigured { ir },
+        } = self;
+        Config {
+            ir,
+            source: EventSourceConfig::Api,
+            statistics: Statistics::None,
+            verbosity: Verbosity::Triggers,
+            output_channel: OutputChannel::None,
+            mode: ExecutionMode::Offline(PhantomData::default()),
             output_time_representation,
             start_time,
-            sub_config: ApiConfig {
-                state: TimeFormatConfigured{
-                    source: PhantomData::<I>::default(),
-                    input_time: PhantomData::<RelativeFloat>::default(),
-                },
-            },
-            state: s,
         }
     }
-}
-
-impl<I: Input, S: ConfigState> ConfigBuilder<ApiConfig<TimeRepConfigured<I, PartialOffsetTime>>, S> {
-    pub fn nanos(self) ->  ConfigBuilder<ApiConfig<TimeFormatConfigured<I, OffsetNanos>>, S> {
-        let ConfigBuilder { output_time_representation, start_time, sub_config: ApiConfig { state: _ }, state: s } =
-            self;
-        ConfigBuilder {
-            output_time_representation,
-            start_time,
-            sub_config: ApiConfig {
-                state: TimeFormatConfigured{
-                    source: PhantomData::<I>::default(),
-                    input_time: PhantomData::<OffsetNanos>::default(),
-                },
-            },
-            state: s,
-        }
-    }
-
-    pub fn float_secs(self) ->  ConfigBuilder<ApiConfig<TimeFormatConfigured<I, OffsetFloat>>, S> {
-        let ConfigBuilder { output_time_representation, start_time, sub_config: ApiConfig { state: _ }, state: s } =
-            self;
-        ConfigBuilder {
-            output_time_representation,
-            start_time,
-            sub_config: ApiConfig {
-                state: TimeFormatConfigured{
-                    source: PhantomData::<I>::default(),
-                    input_time: PhantomData::<OffsetFloat>::default(),
-                },
-            },
-            state: s,
-        }
-    }
-}
-
-impl<I: Input, S: ConfigState> ConfigBuilder<ApiConfig<TimeRepConfigured<I, PartialAbsoluteTime>>, S> {
-    pub fn rfc3339(self) ->  ConfigBuilder<ApiConfig<TimeFormatConfigured<I, AbsoluteRfc>>, S> {
-        let ConfigBuilder { output_time_representation, start_time, sub_config: ApiConfig { state: _ }, state: s } =
-            self;
-        ConfigBuilder {
-            output_time_representation,
-            start_time,
-            sub_config: ApiConfig {
-                state: TimeFormatConfigured{
-                    source: PhantomData::<I>::default(),
-                    input_time: PhantomData::<AbsoluteRfc>::default(),
-                },
-            },
-            state: s,
-        }
-    }
-
-    pub fn float_secs(self) ->  ConfigBuilder<ApiConfig<TimeFormatConfigured<I, AbsoluteFloat>>, S> {
-        let ConfigBuilder { output_time_representation, start_time, sub_config: ApiConfig { state: _ }, state: s } =
-            self;
-        ConfigBuilder {
-            output_time_representation,
-            start_time,
-            sub_config: ApiConfig {
-                state: TimeFormatConfigured{
-                    source: PhantomData::<I>::default(),
-                    input_time: PhantomData::<AbsoluteFloat>::default(),
-                },
-            },
-            state: s,
-        }
-    }
-}
-
-impl <I: Input, IT: TimeRepresentation> ConfigBuilder<ApiConfig<TimeFormatConfigured<I, IT>>, IrConfigured> {
-    // /// Finalize the configuration and generate a configuration.
-    // pub fn build(self) -> Config {
-    //     let ConfigBuilder {
-    //         output_time_representation,
-    //         start_time,
-    //         sub_config: ApiConfig { state: _ },
-    //         state: IrConfigured { ir },
-    //     } = self;
-    //     Config {
-    //         ir,
-    //         source: EventSourceConfig::Api,
-    //         statistics: Statistics::None,
-    //         verbosity: Verbosity::Triggers,
-    //         output_channel: OutputChannel::None,
-    //         mode: ExecutionMode::Offline(input_time_repr),
-    //         output_time_representation: output_time_representation
-    //             .unwrap_or(TimeRepresentationEnum::AbsoluteTimestamp(AbsoluteTimeFormat::Rfc3339)),
-    //         start_time,
-    //     }
-    // }
 
     /// Create a [Monitor] from the configuration. The entrypoint of the API. The data is provided to the [Input](crate::monitor::Input) source at creation.
-    pub fn monitor_with_data<V: VerdictRepresentation, VT: TimeRepresentation>(self, data: I::CreationData) -> Monitor<I, IT, V, VT> {
-        //Monitor::setup(self.build(), data)
-        todo!()
+    pub fn monitor_with_data<V: VerdictRepresentation, VT: TimeRepresentation>(
+        self,
+        data: I::CreationData,
+    ) -> Monitor<I, IT, V, VT> {
+        Monitor::setup(self.build(), data)
     }
 
     /// Create a [Monitor] from the configuration. The entrypoint of the API.
@@ -711,14 +483,13 @@ impl <I: Input, IT: TimeRepresentation> ConfigBuilder<ApiConfig<TimeFormatConfig
     where
         I: Input<CreationData = ()>,
     {
-        //Monitor::setup(self.build(), ())
-        todo!()
+        Monitor::setup(self.build(), ())
     }
 }
 
-impl ConfigBuilder<ExecConfig<SourceConfigured>, IrConfigured> {
+impl<IT: TimeRepresentation, OT: TimeRepresentation> ConfigBuilder<ExecConfig<SourceConfigured<IT>>, IrConfigured, OT> {
     /// Finalize the configuration and generate a configuration.
-    pub fn build(self) -> Config {
+    pub fn build(self) -> Config<IT, OT> {
         let ConfigBuilder {
             output_time_representation,
             start_time,
@@ -732,14 +503,13 @@ impl ConfigBuilder<ExecConfig<SourceConfigured>, IrConfigured> {
             verbosity: verbosity.unwrap_or_default(),
             output_channel: output_channel.unwrap_or_default(),
             mode,
-            output_time_representation: output_time_representation
-                .unwrap_or(TimeRepresentationEnum::AbsoluteTimestamp(AbsoluteTimeFormat::Rfc3339)),
+            output_time_representation,
             start_time,
         }
     }
 
     /// Run the interpreter with the constructed configuration
-    pub fn run(self) -> Result<Arc<OutputHandler>, Box<dyn std::error::Error>> {
+    pub fn run(self) -> Result<Arc<OutputHandler<OT>>, Box<dyn std::error::Error>> {
         // TODO: Rather than returning OutputHandler publicly --- let alone an Arc ---, transform into more suitable format or make OutputHandler more accessible.
         Controller::new(self.build()).start()
     }

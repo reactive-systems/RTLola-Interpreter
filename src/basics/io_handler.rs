@@ -3,7 +3,8 @@
 use crate::basics::CsvEventSource;
 #[cfg(feature = "pcap_interface")]
 use crate::basics::PCAPEventSource;
-use crate::config::{AbsoluteTimeFormat, Config, EventSourceConfig, RelativeTimeFormat, TimeRepresentationEnum, Verbosity};
+use crate::config::{Config, EventSourceConfig, Verbosity};
+use crate::configuration::time::TimeRepresentation;
 use crate::storage::Value;
 use crate::Time;
 use crossterm::{
@@ -19,49 +20,80 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
 //Input Handling
 
-/// Time as read from the input source
-/// Must be converted to the internal time format before use
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum RawTime {
-    Relative(Duration),
-    Absolute(SystemTime),
+#[derive(Debug, Clone, Default)]
+pub(crate) struct DelayTime {
+    current: Duration,
+    delay: Duration,
 }
 
-impl RawTime {
-    pub(crate) fn relative(&self) -> Duration {
-        match self {
-            RawTime::Relative(d) => *d,
-            _ => panic!("Expected relative time"),
-        }
+impl DelayTime {
+    pub(crate) fn new(delay: Duration) -> Self {
+        DelayTime { current: Default::default(), delay }
+    }
+}
+
+impl TimeRepresentation for DelayTime {
+    type InnerTime = Time;
+
+    fn convert_from(&mut self, _inner: Self::InnerTime) -> Time {
+        *self.current += self.delay;
+        self.current
     }
 
-    pub(crate) fn absolute(&self) -> SystemTime {
-        match self {
-            RawTime::Absolute(t) => *t,
-            _ => panic!("Expected absolute time"),
+    fn convert_into(&mut self, ts: Time) -> Self::InnerTime {
+        ts
+    }
+
+    fn parse(&mut self, s: &str) -> Result<Time, String> {
+        Ok(self.convert_from(()))
+    }
+}
+
+#[derive(Debug, Copy, Clone, Default)]
+pub(crate) struct RealTime {
+    start_time: Option<SystemTime>,
+}
+impl TimeRepresentation for RealTime {
+    type InnerTime = ();
+
+    fn convert_from(&mut self, _inner: Self::InnerTime) -> Time {
+        let current = SystemTime::now();
+        if self.start_time.is_none() {
+            self.start_time = Some(current);
         }
+        current.duration_since(self.start_time.unwrap()).expect("Time did not behave monotonically!")
+    }
+
+    fn parse(&mut self, _s: &str) -> Result<Time, String> {
+        Ok(self.convert_from(()))
+    }
+
+    fn convert_into(&mut self, ts: Time) -> Self::InnerTime {}
+
+    fn set_start_time(&mut self, time: Option<SystemTime>) {
+        self.start_time = time;
     }
 }
 
 /// A trait that represents the functionality needed for an event source.
 /// The order in which the functions are called is:
-/// has_event -> get_event -> read_time
-pub(crate) trait EventSource {
+/// has_event -> get_event
+pub(crate) trait EventSource<IT: TimeRepresentation> {
     /// Returns true if another event can be obtained from the Event Source
     fn has_event(&mut self) -> bool;
 
     /// Returns an Event consisting of a vector of Values for the input streams and the time passed since the start of the evaluation
-    fn get_event(&mut self) -> (Vec<Value>, RawTime);
+    fn get_event(&mut self) -> (Vec<Value>, Time);
 }
 
-pub(crate) fn create_event_source(
+pub(crate) fn create_event_source<IT: TimeRepresentation>(
     config: EventSourceConfig,
     ir: &RtLolaMir,
-) -> Result<Box<dyn EventSource>, Box<dyn Error>> {
+) -> Result<Box<dyn EventSource<IT>>, Box<dyn Error>> {
     use EventSourceConfig::*;
     match config {
         Csv { src } => CsvEventSource::setup(&src, ir),
@@ -94,21 +126,17 @@ impl Default for OutputChannel {
 
 /// Manages the output of the interpreter.
 #[derive(Debug)]
-pub struct OutputHandler {
+pub struct OutputHandler<OT: TimeRepresentation> {
     pub(crate) verbosity: Verbosity,
     channel: OutputChannel,
     file: Option<File>,
     pub(crate) statistics: Option<Statistics>,
-    start_time: RwLock<Option<SystemTime>>,
-    time_representation: TimeRepresentationEnum,
-    // Incremental time handling
-    last_event: RwLock<Time>,
-    is_incremental: bool,
+    output_time: RwLock<OT>,
 }
 
-impl OutputHandler {
+impl<OT: TimeRepresentation> OutputHandler<OT> {
     /// Creates a new Output Handler. If None is given as 'start_time', then the first event determines it.
-    pub(crate) fn new(config: &Config, num_trigger: usize) -> OutputHandler {
+    pub(crate) fn new(config: &Config<impl TimeRepresentation, OT>, num_trigger: usize) -> OutputHandler<OT> {
         let statistics = if config.verbosity == Verbosity::Progress {
             let stats = Statistics::new(num_trigger);
             stats.start_print_progress();
@@ -123,15 +151,12 @@ impl OutputHandler {
             channel: config.output_channel.clone(),
             file: None,
             statistics,
-            start_time: RwLock::new(None),
-            time_representation: config.output_time_representation,
-            last_event: Default::default(),
-            is_incremental: matches!(config.output_time_representation, TimeRepresentationEnum::Offset(_)),
+            output_time: RwLock::new(OT::default()),
         }
     }
 
     pub(crate) fn set_start_time(&self, time: SystemTime) {
-        *self.start_time.write().unwrap() = Some(time);
+        self.output_time.write().unwrap().set_start_time(Some(time));
     }
 
     pub(crate) fn runtime_warning<F, T: Into<String>>(&self, msg: F)
@@ -141,43 +166,13 @@ impl OutputHandler {
         self.emit(Verbosity::WarningsOnly, msg);
     }
 
-    fn time_info(&self, time: Time) -> String {
-        use AbsoluteTimeFormat::*;
-        use RelativeTimeFormat::*;
-        use TimeRepresentationEnum::*;
-
-        let start = self.start_time.read().unwrap().expect("Start-time not correctly initialized");
-
-        match self.time_representation {
-            RelativeTimestamp(format) => match format {
-                UIntNanos => format!("{}", time.as_nanos()),
-                FloatSecs => format!("{}.{:09}", time.as_secs(), time.subsec_nanos()),
-            },
-            Offset(format) => {
-                let diff = time - *self.last_event.read().unwrap();
-                match format {
-                    UIntNanos => format!("{}", diff.as_nanos()),
-                    FloatSecs => format!("{}.{:09}", diff.as_secs(), diff.subsec_nanos()),
-                }
-            }
-            AbsoluteTimestamp(format) => {
-                let time = start + time;
-                // Convert to unix timestamp
-                let absolute = time.duration_since(UNIX_EPOCH).expect("Computation of duration failed!");
-                match format {
-                    UnixTimeFloat => format!("{}.{:09}", absolute.as_secs(), absolute.subsec_nanos()),
-                    Rfc3339 => format!("{}", humantime::format_rfc3339(time)),
-                }
-            }
-        }
-    }
-
     #[allow(dead_code)]
     pub(crate) fn trigger<F, T: Into<String>>(&self, msg: F, trigger_idx: usize, time: Time)
     where
         F: FnOnce() -> T,
     {
-        let msg = || format!("{}: {}", self.time_info(time), msg().into());
+        let time = self.output_time.read().unwrap().convert_into_string(time);
+        let msg = || format!("{}: {}", time, msg().into());
         self.emit(Verbosity::Triggers, msg);
         if let Some(statistics) = &self.statistics {
             statistics.trigger(trigger_idx);

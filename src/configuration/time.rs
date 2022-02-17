@@ -1,21 +1,43 @@
 use crate::Time;
+use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
+use std::convert::TryFrom;
+use std::fmt::Display;
 use std::ops::Sub;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
+
+const NANOS_IN_SECOND: Decimal = Decimal::from(1_000_000_000);
 
 pub trait TimeRepresentation: Default {
     type InnerTime;
 
     fn convert_from(&mut self, inner: Self::InnerTime) -> Time;
     fn convert_into(&mut self, ts: Time) -> Self::InnerTime;
+
+    fn convert_into_string(&mut self, ts: Time) -> String
+    where
+        Self::InnerTime: Display,
+    {
+        let inner = self.convert_into(ts);
+        inner.to_string()
+    }
+
+    fn parse<'a>(&mut self, s: &'a str) -> Result<Time, String>
+    where
+        Self::InnerTime: TryFrom<&'a str>,
+    {
+        Self::InnerTime::try_from(s).map(|i| self.convert_from(i)).map_err(|e| e.to_string())
+    }
+
+    fn default_start_time() -> Option<SystemTime> {
+        Some(SystemTime::now())
+    }
+    fn set_start_time(&mut self, _time: Option<SystemTime>) {}
 }
 
 pub trait FromFloat {
     fn parse(s: &str) -> Result<(u64, u32), String>;
-}
-
-pub trait AbsoluteTime: TimeRepresentation {
-    fn set_start_time(&mut self, time: SystemTime);
 }
 
 #[derive(Debug, Copy, Clone, Default)]
@@ -45,6 +67,19 @@ impl TimeRepresentation for RelativeFloat {
 
     fn convert_into(&mut self, ts: Time) -> Self::InnerTime {
         (ts.as_secs(), ts.subsec_nanos())
+    }
+
+    fn convert_into_string(&mut self, ts: Time) -> String {
+        let (secs, sub_secs) = self.convert_into(ts);
+        let decimal = Decimal::from(secs) + Decimal::new(sub_secs as i64, 9);
+        decimal.round_dp(9).to_string()
+    }
+
+    fn parse(&mut self, s: &str) -> Result<Time, String> {
+        let num = Decimal::from_str(s)?;
+        let nanos = (num.fract() * NANOS_IN_SECOND).to_u32().ok_or("Could not convert nano seconds")?;
+        let secs = num.trunc().to_u64().ok_or("Could not convert seconds")?;
+        Ok(self.convert_from((secs, nanos)))
     }
 }
 
@@ -87,17 +122,24 @@ impl TimeRepresentation for OffsetFloat {
         let dur = ts - self.last_time;
         (dur.as_secs(), dur.subsec_nanos())
     }
+
+    fn convert_into_string(&mut self, ts: Time) -> String {
+        let (secs, sub_secs) = self.convert_into(ts);
+        let decimal = Decimal::from(secs) + Decimal::new(sub_secs as i64, 9);
+        decimal.round_dp(9).to_string()
+    }
+
+    fn parse(&mut self, s: &str) -> Result<Time, String> {
+        let num = Decimal::from_str(s)?;
+        let nanos = (num.fract() * NANOS_IN_SECOND).to_u32().ok_or("Could not convert nano seconds")?;
+        let secs = num.trunc().to_u64().ok_or("Could not convert seconds")?;
+        Ok(self.convert_from((secs, nanos)))
+    }
 }
 
 #[derive(Debug, Copy, Clone, Default)]
 pub struct AbsoluteFloat {
     start_time: Option<SystemTime>,
-}
-
-impl AbsoluteTime for AbsoluteFloat {
-    fn set_start_time(&mut self, time: SystemTime) {
-        self.start_time = Some(time);
-    }
 }
 
 impl TimeRepresentation for AbsoluteFloat {
@@ -116,17 +158,32 @@ impl TimeRepresentation for AbsoluteFloat {
         let dur = ts.duration_since(SystemTime::UNIX_EPOCH).expect("Time did not behave monotonically!");
         (dur.as_secs(), dur.subsec_nanos())
     }
+
+    fn convert_into_string(&mut self, ts: Time) -> String {
+        let (secs, sub_secs) = self.convert_into(ts);
+        let decimal = Decimal::from(secs) + Decimal::new(sub_secs as i64, 9);
+        decimal.round_dp(9).to_string()
+    }
+
+    fn parse(&mut self, s: &str) -> Result<Time, String> {
+        let num = Decimal::from_str(s)?;
+        let nanos = (num.fract() * NANOS_IN_SECOND).to_u32().ok_or("Could not convert nano seconds")?;
+        let secs = num.trunc().to_u64().ok_or("Could not convert seconds")?;
+        Ok(self.convert_from((secs, nanos)))
+    }
+
+    fn default_start_time() -> Option<SystemTime> {
+        None
+    }
+
+    fn set_start_time(&mut self, time: Option<SystemTime>) {
+        self.start_time = time;
+    }
 }
 
 #[derive(Debug, Copy, Clone, Default)]
 pub struct AbsoluteRfc {
     start_time: Option<SystemTime>,
-}
-
-impl AbsoluteTime for AbsoluteRfc {
-    fn set_start_time(&mut self, time: SystemTime) {
-        self.start_time = Some(time);
-    }
 }
 
 impl TimeRepresentation for AbsoluteRfc {
@@ -144,25 +201,12 @@ impl TimeRepresentation for AbsoluteRfc {
         let ts = self.start_time.unwrap() + ts;
         humantime::format_rfc3339(ts).to_string()
     }
-}
 
-impl<T: TimeRepresentation<InnerTime = (u64, u32)>> FromFloat for T {
-    fn parse(s: &str) -> Result<(u64, u32), String> {
-        match s.split_once('.') {
-            Some((secs, nanos)) => {
-                let secs = u64::from_str(secs).map_err(|e| e.to_string())?;
-                let nanos = nanos
-                    .char_indices()
-                    .fold(Some(0u32), |val, (pos, c)| {
-                        val.and_then(|val| c.to_digit(10).map(|c| val + c * (10u32.pow(8 - pos as u32))))
-                    })
-                    .ok_or("invalid character in number literal")?;
-                Ok((secs, nanos))
-            }
-            None => {
-                let secs = u64::from_str(s).map_err(|e| e.to_string())?;
-                Ok((secs, 0))
-            }
-        }
+    fn default_start_time() -> Option<SystemTime> {
+        None
+    }
+
+    fn set_start_time(&mut self, time: Option<SystemTime>) {
+        self.start_time = time;
     }
 }
