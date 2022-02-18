@@ -14,14 +14,14 @@ pub(crate) struct EventDrivenManager<IT: TimeRepresentation, OT: TimeRepresentat
     event_source: Box<dyn EventSource<IT>>,
 }
 
-impl<RT: TimeRepresentation, OT: TimeRepresentation> EventDrivenManager<RT, OT> {
+impl<IT: TimeRepresentation, OT: TimeRepresentation> EventDrivenManager<IT, OT> {
     /// Creates a new EventDrivenManager managing event-driven output streams.
-    pub(crate) fn setup<IT: TimeRepresentation>(
+    pub(crate) fn setup(
         config: Config<IT, OT>,
         output_handler: Arc<OutputHandler<OT>>,
-    ) -> Self {
-        let Config { ir, source, start_time, mode, .. } = config;
-        let event_source = match create_event_source::<IT>(source, &ir) {
+    ) -> EventDrivenManager<IT, OT> {
+        let Config { ir, source, start_time, input_time_representation, .. } = config;
+        let event_source = match create_event_source::<IT> (source, &ir, start_time, input_time_representation ) {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("Cannot create input reader: {}", e);
@@ -29,7 +29,7 @@ impl<RT: TimeRepresentation, OT: TimeRepresentation> EventDrivenManager<RT, OT> 
             }
         };
 
-        Self { output_handler, event_source }
+        EventDrivenManager { output_handler, event_source }
     }
 
     pub(crate) fn start_online(mut self, work_queue: Sender<WorkItem>) -> ! {
@@ -41,9 +41,7 @@ impl<RT: TimeRepresentation, OT: TimeRepresentation> EventDrivenManager<RT, OT> 
                     std::thread::sleep(std::time::Duration::new(u64::MAX, 0))
                 }
             }
-            let (event, raw_time) = self.event_source.get_event();
-            let time = self.finalize_time(raw_time);
-            self.output_handler.new_input(time);
+            let (event, time) = self.event_source.get_event();
             match work_queue.send(WorkItem::Event(event, time)) {
                 Ok(_) => {}
                 Err(e) => self.output_handler.runtime_warning(|| format!("Error when sending work item. {}", e)),
@@ -60,8 +58,7 @@ impl<RT: TimeRepresentation, OT: TimeRepresentation> EventDrivenManager<RT, OT> 
                     let _ = work_queue.send(local_queue);
                     return Ok(());
                 }
-                let (event, raw_time) = self.event_source.get_event();
-                let time = self.finalize_time(raw_time);
+                let (event, time) = self.event_source.get_event();
 
                 local_queue.push(WorkItem::Event(event, time));
             }

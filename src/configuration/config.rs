@@ -9,7 +9,7 @@ use rtlola_frontend::RtLolaMir;
 
 #[cfg(feature = "pcap_interface")]
 use crate::basics::PCAPInputSource;
-use crate::basics::{CsvInputSource, OutputChannel, OutputHandler};
+use crate::basics::{CsvInputSource, OutputChannel, OutputHandler, CsvInputSourceKind};
 use crate::configuration::time::{AbsoluteRfc, RelativeFloat, TimeRepresentation};
 use crate::coordination::Controller;
 use crate::monitor::{Input, VerdictRepresentation};
@@ -37,7 +37,7 @@ pub struct Config<IT: TimeRepresentation, OT: TimeRepresentation> {
     /// In which mode the evaluator is executed
     pub mode: ExecutionMode,
     /// Which format the time is given to the monitor
-    pub input_time_representation: PhantomData<IT>,
+    pub input_time_representation: IT,
     /// Which format to use to output time
     pub output_time_representation: PhantomData<OT>,
     /// The start time to assume
@@ -125,14 +125,15 @@ pub enum EventSourceConfig {
 impl<IT: TimeRepresentation, OT: TimeRepresentation> Config<IT, OT> {
     /// Creates a new Debug config.
     pub fn debug(ir: RtLolaMir) -> Config<RelativeFloat, AbsoluteRfc> {
-        let mode = ExecutionMode::Offline(PhantomData::default());
+        let mode = ExecutionMode::Offline;
         Config {
             ir,
-            source: EventSourceConfig::Csv { src: CsvInputSource::stdin(None, mode) },
+            source: EventSourceConfig::Csv { src: CsvInputSource { time_col: None, kind: CsvInputSourceKind::StdIn } },
             statistics: Statistics::Debug,
             verbosity: Verbosity::Debug,
             output_channel: OutputChannel::StdOut,
             mode,
+            input_time_representation: RelativeFloat::default(),
             output_time_representation: PhantomData::<AbsoluteRfc>::default(),
             start_time: None,
         }
@@ -148,12 +149,12 @@ impl<IT: TimeRepresentation, OT: TimeRepresentation> Config<IT, OT> {
     ) -> Self {
         Config {
             ir,
-            source: EventSourceConfig::Csv { src: CsvInputSource::file(PathBuf::from(csv_path), None, None, mode) },
+            source: EventSourceConfig::Csv { src:CsvInputSource { time_col: None, kind: CsvInputSourceKind::File (PathBuf::from(csv_path)) } },
             statistics: Statistics::None,
             verbosity: Verbosity::Triggers,
             output_channel: output,
             mode,
-            input_time_representation: PhantomData::<IT>::default(),
+            input_time_representation: IT::default(),
             output_time_representation: PhantomData::<OT>::default(),
             start_time,
         }
@@ -167,8 +168,9 @@ impl<IT: TimeRepresentation, OT: TimeRepresentation> Config<IT, OT> {
             statistics: Statistics::None,
             verbosity: Verbosity::Triggers,
             output_channel: OutputChannel::None,
-            mode: ExecutionMode::Offline(PhantomData::<IT>::default()),
-            output_time_representation: PhantomData::<OT>::default(),
+            mode: ExecutionMode::Offline,
+            input_time_representation: IT::default(),
+            output_time_representation: PhantomData::default(),
             start_time: None,
         }
     }

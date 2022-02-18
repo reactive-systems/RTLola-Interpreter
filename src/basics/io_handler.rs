@@ -24,61 +24,6 @@ use std::time::{Duration, SystemTime};
 
 //Input Handling
 
-#[derive(Debug, Clone, Default)]
-pub(crate) struct DelayTime {
-    current: Duration,
-    delay: Duration,
-}
-
-impl DelayTime {
-    pub(crate) fn new(delay: Duration) -> Self {
-        DelayTime { current: Default::default(), delay }
-    }
-}
-
-impl TimeRepresentation for DelayTime {
-    type InnerTime = Time;
-
-    fn convert_from(&mut self, _inner: Self::InnerTime) -> Time {
-        *self.current += self.delay;
-        self.current
-    }
-
-    fn convert_into(&mut self, ts: Time) -> Self::InnerTime {
-        ts
-    }
-
-    fn parse(&mut self, s: &str) -> Result<Time, String> {
-        Ok(self.convert_from(()))
-    }
-}
-
-#[derive(Debug, Copy, Clone, Default)]
-pub(crate) struct RealTime {
-    start_time: Option<SystemTime>,
-}
-impl TimeRepresentation for RealTime {
-    type InnerTime = ();
-
-    fn convert_from(&mut self, _inner: Self::InnerTime) -> Time {
-        let current = SystemTime::now();
-        if self.start_time.is_none() {
-            self.start_time = Some(current);
-        }
-        current.duration_since(self.start_time.unwrap()).expect("Time did not behave monotonically!")
-    }
-
-    fn parse(&mut self, _s: &str) -> Result<Time, String> {
-        Ok(self.convert_from(()))
-    }
-
-    fn convert_into(&mut self, ts: Time) -> Self::InnerTime {}
-
-    fn set_start_time(&mut self, time: Option<SystemTime>) {
-        self.start_time = time;
-    }
-}
-
 /// A trait that represents the functionality needed for an event source.
 /// The order in which the functions are called is:
 /// has_event -> get_event
@@ -93,12 +38,14 @@ pub(crate) trait EventSource<IT: TimeRepresentation> {
 pub(crate) fn create_event_source<IT: TimeRepresentation>(
     config: EventSourceConfig,
     ir: &RtLolaMir,
+    start_time: Option<SystemTime>,
+    input_time_representation: IT,
 ) -> Result<Box<dyn EventSource<IT>>, Box<dyn Error>> {
     use EventSourceConfig::*;
     match config {
-        Csv { src } => CsvEventSource::setup(&src, ir),
+        Csv { src } => CsvEventSource::setup(&src,input_time_representation, ir, start_time),
         #[cfg(feature = "pcap_interface")]
-        PCAP { src } => PCAPEventSource::setup(&src, ir),
+        PCAP { src } => PCAPEventSource::setup(&src,input_time_representation, ir, start_time),
         Api => unreachable!("Currently, there is no need to create an event source for the API."),
     }
 }
@@ -155,10 +102,6 @@ impl<OT: TimeRepresentation> OutputHandler<OT> {
         }
     }
 
-    pub(crate) fn set_start_time(&self, time: SystemTime) {
-        self.output_time.write().unwrap().set_start_time(Some(time));
-    }
-
     pub(crate) fn runtime_warning<F, T: Into<String>>(&self, msg: F)
     where
         F: FnOnce() -> T,
@@ -171,7 +114,7 @@ impl<OT: TimeRepresentation> OutputHandler<OT> {
     where
         F: FnOnce() -> T,
     {
-        let time = self.output_time.read().unwrap().convert_into_string(time);
+        let time = self.output_time.write().unwrap().convert_into_string(time);
         let msg = || format!("{}: {}", time, msg().into());
         self.emit(Verbosity::Triggers, msg);
         if let Some(statistics) = &self.statistics {
@@ -213,12 +156,6 @@ impl<OT: TimeRepresentation> OutputHandler<OT> {
             OutputChannel::File(_) => self.file.as_ref().unwrap().write(msg.as_bytes()),
             OutputChannel::None => Ok(0),
         }; // TODO: Decide how to handle the result.
-    }
-
-    pub(crate) fn new_input(&self, ts: Time) {
-        if self.is_incremental {
-            *self.last_event.write().unwrap() = ts;
-        }
     }
 
     pub(crate) fn new_event(&self) {

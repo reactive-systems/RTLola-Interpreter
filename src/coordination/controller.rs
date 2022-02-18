@@ -13,7 +13,6 @@ use crossbeam_channel::{bounded, unbounded};
 use std::error::Error;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
-use std::time::SystemTime;
 
 pub(crate) struct Controller<IT: TimeRepresentation, OT: TimeRepresentation> {
     config: Config<IT, OT>,
@@ -23,13 +22,15 @@ pub(crate) struct Controller<IT: TimeRepresentation, OT: TimeRepresentation> {
 
     /// Dynamic schedules handles dynamic deadlines; The condition is notified whenever the schedule changes
     dyn_schedule: Arc<(Mutex<DynamicSchedule>, Condvar)>,
+
 }
 
 impl<IT: TimeRepresentation, OT: TimeRepresentation> Controller<IT, OT> {
     pub(crate) fn new(config: Config<IT, OT>) -> Self {
         let output_handler = Arc::new(OutputHandler::new(&config, config.ir.triggers.len()));
         let dyn_schedule = Arc::new((Mutex::new(DynamicSchedule::new()), Condvar::new()));
-        Self { config, output_handler, dyn_schedule }
+
+        Self { config, output_handler, dyn_schedule}
     }
 
     pub(crate) fn start(self) -> Result<Arc<OutputHandler<OT>>, Box<dyn Error>> {
@@ -44,9 +45,7 @@ impl<IT: TimeRepresentation, OT: TimeRepresentation> Controller<IT, OT> {
     /// and fetches/expects events from specified input source.
     fn evaluate_online(&self) -> Result<(), Box<dyn Error>> {
         let (work_tx, work_rx) = unbounded();
-        let now = SystemTime::now();
         let copy_output_handler = self.output_handler.clone();
-        copy_output_handler.set_start_time(now);
 
         if self.config.ir.has_time_driven_features() {
             let work_tx_clone = work_tx.clone();
@@ -55,7 +54,7 @@ impl<IT: TimeRepresentation, OT: TimeRepresentation> Controller<IT, OT> {
             let _ = thread::Builder::new().name("TimeDrivenManager".into()).spawn(move || {
                 let time_manager = TimeDrivenManager::setup(ir_clone, copy_output_handler, ds_clone)
                     .unwrap_or_else(|s| panic!("{}", s));
-                time_manager.start_online(now, work_tx_clone);
+                time_manager.start_online(work_tx_clone);
             });
         };
 
@@ -64,7 +63,7 @@ impl<IT: TimeRepresentation, OT: TimeRepresentation> Controller<IT, OT> {
         let cfg_clone = self.config.clone();
         // TODO: Wait until all events have been read.
         let _event = thread::Builder::new().name("EventDrivenManager".into()).spawn(move || {
-            let event_manager = EventDrivenManager::setup(cfg_clone, copy_output_handler, now);
+            let event_manager = EventDrivenManager::<IT, OT>::setup(cfg_clone, copy_output_handler);
             event_manager.start_online(work_tx);
         });
 
@@ -95,7 +94,6 @@ impl<IT: TimeRepresentation, OT: TimeRepresentation> Controller<IT, OT> {
     fn evaluate_offline(&self) -> Result<(), Box<dyn Error>> {
         // Use a bounded channel for offline mode, as we "control" time.
         let (work_tx, work_rx) = bounded(CAP_WORK_QUEUE);
-        let now = SystemTime::now();
 
         // Setup EventDrivenManager
         let output_copy_handler = self.output_handler.clone();
@@ -103,7 +101,7 @@ impl<IT: TimeRepresentation, OT: TimeRepresentation> Controller<IT, OT> {
         let edm_thread = thread::Builder::new()
             .name("EventDrivenManager".into())
             .spawn(move || {
-                let event_manager = EventDrivenManager::setup(cfg_clone, output_copy_handler, now);
+                let event_manager = EventDrivenManager::<IT, OT>::setup(cfg_clone, output_copy_handler);
                 event_manager
                     .start_offline(work_tx)
                     .unwrap_or_else(|e| unreachable!("EventDrivenManager failed: {}", e));
@@ -148,13 +146,13 @@ impl<IT: TimeRepresentation, OT: TimeRepresentation> Controller<IT, OT> {
     }
 
     #[inline]
-    pub(crate) fn evaluate_timed_item(&self, evaluator: &mut Evaluator, t: TimeEvaluation, ts: Time) {
+    pub(crate) fn evaluate_timed_item(&self, evaluator: &mut Evaluator<OT>, t: TimeEvaluation, ts: Time) {
         self.output_handler.new_event();
         evaluator.eval_time_driven_tasks(t, ts);
     }
 
     #[inline]
-    pub(crate) fn evaluate_event_item(&self, evaluator: &mut Evaluator, e: &[Value], ts: Time) {
+    pub(crate) fn evaluate_event_item(&self, evaluator: &mut Evaluator<OT>, e: &[Value], ts: Time) {
         self.output_handler.new_event();
         evaluator.eval_event(e, ts)
     }

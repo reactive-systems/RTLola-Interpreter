@@ -1,9 +1,7 @@
 #![allow(clippy::mutex_atomic)]
 
-use crate::basics::io_handler::DelayTime;
-use crate::basics::{EventSource, RealTime};
-use crate::config::ExecutionMode;
-use crate::configuration::time::TimeRepresentation;
+use crate::basics::EventSource;
+use crate::configuration::time::{TimeRepresentation, init_start_time};
 use crate::storage::Value;
 use crate::Time;
 use csv::{ByteRecord, Reader as CSVReader, Result as ReaderResult, StringRecord};
@@ -12,12 +10,11 @@ use std::error::Error;
 use std::fs::File;
 use std::io::stdin;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::SystemTime;
 
 /// Configures the input source for the [CsvEventSource].
 #[derive(Debug, Clone)]
 pub struct CsvInputSource {
-    pub(crate) exec_mode: ExecutionMode,
     pub(crate) time_col: Option<usize>,
     pub(crate) kind: CsvInputSourceKind,
 }
@@ -28,13 +25,7 @@ pub enum CsvInputSourceKind {
     /// Use the std-in as an input channel
     StdIn,
     /// Use the specified file as an input channel
-    File {
-        /// The path of the file.
-        path: PathBuf,
-        /// An optional delay to apply between the lines in the file.
-        /// Note: Setting this option disregards the timestamps in the file.
-        delay: Option<Duration>,
-    },
+    File (PathBuf),
 }
 
 #[derive(Debug, Clone)]
@@ -114,26 +105,18 @@ pub struct CsvEventSource<IT: TimeRepresentation> {
 }
 
 impl<IT: TimeRepresentation> CsvEventSource<IT> {
-    pub(crate) fn setup(src: &CsvInputSource, ir: &RtLolaMir) -> Result<Box<dyn EventSource<IT>>, Box<dyn Error>> {
-        let CsvInputSource { exec_mode, time_col, kind } = src;
-        let (mut wrapper, time_col) = match kind {
-            CsvInputSourceKind::StdIn => (ReaderWrapper::Std(CSVReader::from_reader(stdin())), *time_col),
-            CsvInputSourceKind::File { path, .. } => (ReaderWrapper::File(CSVReader::from_path(path)?), *time_col),
+    pub(crate) fn setup(src: &CsvInputSource, timer: IT, ir: &RtLolaMir, start_time: Option<SystemTime>) -> Result<Box<dyn EventSource<IT>>, Box<dyn Error>> {
+        let CsvInputSource {  time_col, kind } = src;
+        let mut wrapper = match kind {
+            CsvInputSourceKind::StdIn => ReaderWrapper::Std(CSVReader::from_reader(stdin())),
+            CsvInputSourceKind::File (path) => ReaderWrapper::File(CSVReader::from_path(path)?),
         };
 
         let stream_names: Vec<&str> = ir.inputs.iter().map(|i| i.name.as_str()).collect();
-        let mapping = CsvColumnMapping::from_header(stream_names.as_slice(), wrapper.get_header()?, time_col);
+        let mapping = CsvColumnMapping::from_header(stream_names.as_slice(), wrapper.get_header()?, *time_col);
         let in_types: Vec<Type> = ir.inputs.iter().map(|i| i.ty.clone()).collect();
 
-        let timer: Box<dyn TimeRepresentation> = match (exec_mode, kind) {
-            (ExecutionMode::Online, CsvInputSourceKind::StdIn) => Box::new(RealTime::default()),
-            (ExecutionMode::Offline, CsvInputSourceKind::File { delay, .. }) => match delay {
-                Some(d) => Box::new(DelayTime::new(*d)),
-                None => Box::new(IT::default()),
-            },
-            (ExecutionMode::Offline, CsvInputSourceKind::StdIn) => Box::new(IT::default()),
-            _ => panic!("CSV online mode only supported from StdIn"),
-        };
+        init_start_time::<IT>(start_time);
 
         Ok(Box::new(CsvEventSource { reader: wrapper, record: ByteRecord::new(), mapping, in_types, timer }))
     }
@@ -176,8 +159,8 @@ impl<IT: TimeRepresentation> CsvEventSource<IT> {
     }
 
     fn get_time(&mut self) -> Time {
-        let str = self.str_for_time().unwrap();
-        self.timer.parse(str).unwrap()
+        let str = self.str_for_time().unwrap().to_string();
+        self.timer.parse(&str).unwrap()
     }
 
     fn read_event(&self) -> Vec<Value> {

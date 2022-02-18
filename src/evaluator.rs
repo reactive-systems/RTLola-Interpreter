@@ -12,6 +12,7 @@ use rtlola_frontend::mir::{
 use std::ops::Not;
 use std::sync::{Arc, Condvar, Mutex};
 use string_template::Template;
+use crate::configuration::time::TimeRepresentation;
 
 /// Enum to describe the activation condition of a stream; If the activation condition is described by a conjunction, the evaluator uses a bitset representation.
 #[derive(Debug)]
@@ -22,7 +23,7 @@ pub(crate) enum ActivationConditionOp {
     General(Activation),
 }
 
-pub(crate) struct EvaluatorData {
+pub(crate) struct EvaluatorData<OT: TimeRepresentation> {
     // Evaluation order of output streams
     layers: Vec<Vec<Task>>,
     // Accessed by stream index
@@ -40,12 +41,12 @@ pub(crate) struct EvaluatorData {
     trigger_templates: Vec<Option<Template>>,
     closing_streams: Vec<OutputReference>,
     ir: RtLolaMir,
-    handler: Arc<OutputHandler>,
+    handler: Arc<OutputHandler<OT>>,
     dyn_schedule: Arc<(Mutex<DynamicSchedule>, Condvar)>,
 }
 
 #[allow(missing_debug_implementations)]
-pub(crate) struct Evaluator {
+pub(crate) struct Evaluator<OT: TimeRepresentation + 'static> {
     // Evaluation order of output streams
     layers: &'static [Vec<Task>],
     // Indexed by stream reference.
@@ -77,9 +78,9 @@ pub(crate) struct Evaluator {
     trigger_templates: &'static [Option<Template>],
     closing_streams: &'static [OutputReference],
     ir: &'static RtLolaMir,
-    handler: &'static OutputHandler,
+    handler: &'static OutputHandler<OT>,
     dyn_schedule: &'static (Mutex<DynamicSchedule>, Condvar),
-    raw_data: *mut EvaluatorData,
+    raw_data: *mut EvaluatorData<OT>,
 }
 
 pub(crate) struct EvaluationContext<'e> {
@@ -90,10 +91,10 @@ pub(crate) struct EvaluationContext<'e> {
     pub(crate) parameter: Vec<Value>,
 }
 
-impl EvaluatorData {
+impl<OT: TimeRepresentation> EvaluatorData<OT> {
     pub(crate) fn new(
         ir: RtLolaMir,
-        handler: Arc<OutputHandler>,
+        handler: Arc<OutputHandler<OT>>,
         dyn_schedule: Arc<(Mutex<DynamicSchedule>, Condvar)>,
     ) -> Self {
         // Layers of event based output streams
@@ -171,12 +172,12 @@ impl EvaluatorData {
         }
     }
 
-    pub(crate) fn into_evaluator(self) -> Evaluator {
+    pub(crate) fn into_evaluator(self) -> Evaluator<OT> {
         let mut on_heap = Box::new(self);
         // Store pointer to data so we can delete it in implementation of Drop trait.
         // This is necessary since we leak the evaluator data.
-        let heap_ptr: *mut EvaluatorData = &mut *on_heap;
-        let leaked_data: &'static mut EvaluatorData = Box::leak(on_heap);
+        let heap_ptr: *mut EvaluatorData<OT> = &mut *on_heap;
+        let leaked_data: &'static mut EvaluatorData<OT> = Box::leak(on_heap);
 
         //Compile expressions
         let compiled_stream_exprs = leaked_data
@@ -245,14 +246,14 @@ impl EvaluatorData {
     }
 }
 
-impl Drop for Evaluator {
+impl<OT: TimeRepresentation> Drop for Evaluator<OT> {
     #[allow(unsafe_code)]
     fn drop(&mut self) {
         drop(unsafe { Box::from_raw(self.raw_data) });
     }
 }
 
-impl Evaluator {
+impl<OT: TimeRepresentation> Evaluator<OT> {
     /// Values of event are expected in the order of the input streams
     /// Time should be relative to the starting time of the monitor
     pub(crate) fn eval_event(&mut self, event: &[Value], ts: Time) {

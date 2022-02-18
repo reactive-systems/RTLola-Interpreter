@@ -17,12 +17,11 @@
 
 use crate::basics::OutputHandler;
 use crate::config::Config;
-use crate::configuration::time::{RelativeFloat, TimeRepresentation};
+use crate::configuration::time::{RelativeFloat, TimeRepresentation, init_start_time};
 use crate::coordination::time_driven_manager::TimeDrivenManager;
 use crate::coordination::DynamicSchedule;
 use crate::evaluator::{Evaluator, EvaluatorData};
 use crate::storage::Value;
-use crate::Time;
 use itertools::Itertools;
 use rtlola_frontend::mir::{InputReference, OutputReference, RtLolaMir, Type};
 use std::collections::HashMap;
@@ -39,7 +38,7 @@ pub type Event = Vec<Value>;
 */
 pub trait VerdictRepresentation {
     /// Creates a snapshot of the streams values.
-    fn create(data: RawVerdict) -> Self
+    fn create(data: RawVerdict<impl TimeRepresentation>) -> Self
     where
         Self: Sized;
 }
@@ -82,7 +81,7 @@ impl Display for Change {
 pub type Incremental = Vec<(OutputReference, Vec<Change>)>;
 
 impl VerdictRepresentation for Incremental {
-    fn create(data: RawVerdict) -> Self {
+    fn create(data: RawVerdict<impl TimeRepresentation>) -> Self {
         data.eval.peek_fresh()
     }
 }
@@ -101,7 +100,7 @@ pub struct Total {
 }
 
 impl VerdictRepresentation for Total {
-    fn create(data: RawVerdict) -> Self {
+    fn create(data: RawVerdict<impl TimeRepresentation>) -> Self {
         Total { inputs: data.eval.peek_inputs(), outputs: data.eval.peek_outputs() }
     }
 }
@@ -112,7 +111,7 @@ impl VerdictRepresentation for Total {
 pub type TriggerMessages = Vec<(OutputReference, String)>;
 
 impl VerdictRepresentation for TriggerMessages {
-    fn create(data: RawVerdict) -> Self
+    fn create(data: RawVerdict<impl TimeRepresentation>) -> Self
     where
         Self: Sized,
     {
@@ -127,7 +126,7 @@ impl VerdictRepresentation for TriggerMessages {
 pub type TriggersWithInfoValues = Vec<(OutputReference, Vec<Option<Value>>)>;
 
 impl VerdictRepresentation for TriggersWithInfoValues {
-    fn create(data: RawVerdict) -> Self
+    fn create(data: RawVerdict<impl TimeRepresentation>) -> Self
     where
         Self: Sized,
     {
@@ -165,16 +164,16 @@ where
     I: Input,
     IT: TimeRepresentation,
     V: VerdictRepresentation,
-    VT: TimeRepresentation,
+    VT: TimeRepresentation + 'static,
 {
     ir: RtLolaMir,
-    eval: Evaluator,
+    eval: Evaluator<VT>,
 
-    time_manager: TimeDrivenManager,
+    time_manager: TimeDrivenManager<VT>,
 
     source: I,
-    source_time: IT,
 
+    source_time: IT,
     output_time: VT,
 
     phantom: PhantomData<V>,
@@ -192,11 +191,10 @@ where
     pub(crate) fn setup(config: Config<IT, VT>, setup_data: I::CreationData) -> Monitor<I, IT, V, VT> {
         let output_handler = Arc::new(OutputHandler::new(&config, config.ir.triggers.len()));
         let dyn_schedule = Arc::new((Mutex::new(DynamicSchedule::new()), Condvar::new()));
-        let source_time = IT::default();
-        let mut output_time = VT::default();
+        let source_time = config.input_time_representation;
+        let output_time = VT::default();
 
-        let start_time = config.start_time.or(IT::default_start_time());
-        output_time.set_start_time(start_time);
+        init_start_time::<IT>(config.start_time);
 
         let input_map = config.ir.inputs.iter().map(|i| (i.name.clone(), i.reference.in_ix())).collect();
 
@@ -211,9 +209,10 @@ where
             time_manager,
 
             source: I::new(input_map, setup_data),
-            source_time,
 
+            source_time,
             output_time,
+
             phantom: PhantomData,
         }
     }
@@ -221,12 +220,12 @@ where
 
 /// A raw verdict that is transformed into the respective representation
 #[allow(missing_debug_implementations)]
-pub struct RawVerdict<'a> {
-    eval: &'a Evaluator,
+pub struct RawVerdict<'a, OT: TimeRepresentation + 'static> {
+    eval: &'a Evaluator<OT>,
 }
 
-impl<'a> From<&'a Evaluator> for RawVerdict<'a> {
-    fn from(eval: &'a Evaluator) -> Self {
+impl<'a, OT: TimeRepresentation + 'static> From<&'a Evaluator<OT>> for RawVerdict<'a, OT> {
+    fn from(eval: &'a Evaluator<OT>) -> Self {
         RawVerdict { eval }
     }
 }
@@ -357,7 +356,6 @@ where
     */
     pub fn accept_event(&mut self, ev: I::Record, ts: IT::InnerTime) -> Verdicts<V, VT::InnerTime> {
         let ev = self.source.get_event(ev);
-
         let ts = self.source_time.convert_from(ts);
 
         // Evaluate timed streams with due < ts
@@ -370,14 +368,14 @@ where
         self.eval.eval_event(ev.as_slice(), ts);
         let event_change = V::create(RawVerdict::from(&self.eval));
 
-        Verdicts::<V> { timed, event: event_change }
+        Verdicts::<V, VT::InnerTime> { timed, event: event_change }
     }
 
     /**
     Computes all periodic streams up through and including the timestamp.
     */
     pub fn accept_time(&mut self, ts: IT::InnerTime) -> Vec<(VT::InnerTime, V)> {
-        let mut timed_changes: Vec<(Time, V)> = vec![];
+        let mut timed_changes: Vec<(VT::InnerTime, V)> = vec![];
 
         let ts = self.source_time.convert_from(ts);
 
