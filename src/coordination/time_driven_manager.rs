@@ -1,5 +1,6 @@
 use super::WorkItem;
 use crate::basics::OutputHandler;
+use crate::configuration::time::{RealTime, TimeRepresentation};
 use crate::coordination::dynamic_schedule::DynamicSchedule;
 use crate::evaluator::Evaluator;
 use crate::Time;
@@ -9,7 +10,6 @@ use rtlola_frontend::mir::{Deadline, OutputReference, PacingType, RtLolaMir, Str
 use std::cmp::Ordering;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::Duration;
-use crate::configuration::time::{TimeRepresentation, RealTime};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum EvaluationTask {
@@ -226,8 +226,12 @@ impl<OT: TimeRepresentation> TimeDrivenManager<OT> {
     }
 
     /// Evaluates all deadlines due before time `ts` and calls the callback after the evaluation of each deadline
-    pub(crate) fn accept_time_offline_with_callback<T>(&mut self, evaluator: &mut Evaluator<OT>, ts: Time, mut callback: T)
-    where
+    pub(crate) fn accept_time_offline_with_callback<T>(
+        &mut self,
+        evaluator: &mut Evaluator<OT>,
+        ts: Time,
+        mut callback: T,
+    ) where
         T: FnMut(Time, &Evaluator<OT>),
     {
         if !self.has_time_driven {

@@ -1,6 +1,7 @@
 #![allow(clippy::mutex_atomic)]
 
 use crate::basics::io_handler::EventSource;
+use crate::configuration::time::{init_start_time, TimeRepresentation};
 use crate::storage::Value;
 use crate::Time;
 use etherparse::{
@@ -10,13 +11,12 @@ use etherparse::{
 use ip_network::IpNetwork;
 use pcap::{Activated, Capture, Device, Error as PCAPError};
 use rtlola_frontend::mir::RtLolaMir;
+use std::convert::TryFrom;
 use std::error::Error;
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::SystemTime;
-use crate::configuration::time::{TimeRepresentation, init_start_time};
-use std::convert::TryFrom;
 
 // ################################
 // Packet parsing functions
@@ -449,7 +449,12 @@ pub struct PCAPEventSource<IT: TimeRepresentation> {
 }
 
 impl<IT: TimeRepresentation> PCAPEventSource<IT> {
-    pub(crate) fn setup(src: &PCAPInputSource, timer: IT, ir: &RtLolaMir, start_time: Option<SystemTime>) -> Result<Box<dyn EventSource<IT>>, Box<dyn Error>> {
+    pub(crate) fn setup(
+        src: &PCAPInputSource,
+        timer: IT,
+        ir: &RtLolaMir,
+        start_time: Option<SystemTime>,
+    ) -> Result<Box<dyn EventSource<IT>>, Box<dyn Error>> {
         let capture_handle = match src {
             PCAPInputSource::Device { name, .. } => {
                 let all_devices = Device::list()?;
@@ -643,7 +648,7 @@ impl<IT: TimeRepresentation> PCAPEventSource<IT> {
             mapping.push(val);
         }
 
-        Ok(Box::new(PCAPEventSource { capture_handle, timer, mapping, event: None}))
+        Ok(Box::new(PCAPEventSource { capture_handle, timer, mapping, event: None }))
     }
 
     fn process_packet(&mut self) -> Result<bool, Box<dyn Error>> {
@@ -657,7 +662,7 @@ impl<IT: TimeRepresentation> PCAPEventSource<IT> {
 
         let (secs, nanos) = (
             u64::try_from(raw_packet.header.ts.tv_sec).unwrap(),
-            u32::try_from(raw_packet.header.ts.tv_usec * 1000).unwrap()
+            u32::try_from(raw_packet.header.ts.tv_usec * 1000).unwrap(),
         );
         let time_str = format!("{}.{}", secs, nanos);
         let time = self.timer.parse(&time_str)?;

@@ -1,9 +1,7 @@
 use clap::{AppSettings, ArgEnum, ArgGroup, Args, IntoApp, Parser};
 use lazy_static::lazy_static;
-use rtlola_interpreter::basics::{CsvInputSource, OutputChannel};
-use rtlola_interpreter::config::{
-    AbsoluteTimeFormat, Config, EventSourceConfig, ExecutionMode, RelativeTimeFormat, TimeRepresentationEnum, Verbosity,
-};
+use rtlola_interpreter::basics::{CsvInputSource, CsvInputSourceKind, OutputChannel};
+use rtlola_interpreter::config::{Config, EventSourceConfig, ExecutionMode, Verbosity};
 
 #[cfg(feature = "pcap_interface")]
 use rtlola_interpreter::basics::PCAPInputSource;
@@ -16,7 +14,11 @@ use clap_complete::generate;
 use clap_complete::shells::*;
 #[cfg(feature = "public")]
 use human_panic::setup_panic;
-use std::convert::TryFrom;
+use rtlola_interpreter::time::{
+    parse_float_time, AbsoluteFloat, AbsoluteRfc, DelayTime, OffsetFloat, OffsetNanos, RealTime, RelativeFloat,
+    RelativeNanos,
+};
+use std::marker::PhantomData;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 macro_rules! enum_doc {
@@ -149,14 +151,11 @@ impl Shell {
     }
 }
 
-fn parse_start_time(time: &str) -> Result<Duration, String> {
-    RelativeTimeFormat::FloatSecs.parse_str(time)
-}
 #[derive(Clone, Debug, Args)]
 #[clap(help_heading = "Start Time")]
 struct CliStartTime {
     /// Sets the starting time of the monitor using a unix timestamp in 'seconds.subseconds' format.
-    #[clap(long="start-time-unix", parse(try_from_str = parse_start_time), group = "start-time")]
+    #[clap(long="start-time-unix", parse(try_from_str = parse_float_time), group = "start-time")]
     unix: Option<Duration>,
     /// Sets the starting time of the monitor using a timestamp in RFC3339 format.
     #[clap(long = "start-time-rfc3339", parse(try_from_str = humantime::parse_rfc3339),  group = "start-time")]
@@ -270,18 +269,18 @@ enum CliTimeRepresentation {
     AbsoluteRfc3339,
 }
 
-impl MonitorInput {
-    fn into_event_source(self, mode: ExecutionMode) -> EventSourceConfig {
-        if self.stdin {
-            EventSourceConfig::Csv { src: CsvInputSource::stdin(self.csv_time_column, mode) }
+impl From<MonitorInput> for EventSourceConfig {
+    fn from(input: MonitorInput) -> Self {
+        if input.stdin {
+            EventSourceConfig::Csv {
+                src: CsvInputSource { time_col: input.csv_time_column, kind: CsvInputSourceKind::StdIn },
+            }
         } else {
             EventSourceConfig::Csv {
-                src: CsvInputSource::file(
-                    self.csv_in.unwrap(),
-                    self.input_delay.map(Duration::from_millis),
-                    self.csv_time_column,
-                    mode,
-                ),
+                src: CsvInputSource {
+                    time_col: input.csv_time_column,
+                    kind: CsvInputSourceKind::File(input.csv_in.unwrap()),
+                },
             }
         }
     }
@@ -291,43 +290,10 @@ impl MonitorInput {
 impl IdsInput {
     fn into_event_source(self, local_net: String) -> EventSourceConfig {
         if let Some(pcap) = self.pcap_in {
-            EventSourceConfig::PCAP {
-                src: PCAPInputSource::File {
-                    path: pcap,
-                    delay: self.input_delay.map(Duration::from_millis),
-                    local_network: local_net,
-                },
-            }
+            EventSourceConfig::PCAP { src: PCAPInputSource::File { path: pcap, local_network: local_net } }
         } else {
             EventSourceConfig::PCAP {
                 src: PCAPInputSource::Device { name: self.interface.unwrap(), local_network: local_net },
-            }
-        }
-    }
-}
-
-impl From<CliTimeRepresentation> for TimeRepresentationEnum {
-    fn from(time_repr: CliTimeRepresentation) -> Self {
-        match time_repr {
-            CliTimeRepresentation::RelativeNanos | CliTimeRepresentation::RelativeUintNanos => {
-                TimeRepresentationEnum::RelativeTimestamp(RelativeTimeFormat::UIntNanos)
-            }
-            CliTimeRepresentation::Relative
-            | CliTimeRepresentation::RelativeSecs
-            | CliTimeRepresentation::RelativeFloatSecs => {
-                TimeRepresentationEnum::RelativeTimestamp(RelativeTimeFormat::FloatSecs)
-            }
-            CliTimeRepresentation::OffsetNanos | CliTimeRepresentation::OffsetUintNanos => {
-                TimeRepresentationEnum::Offset(RelativeTimeFormat::UIntNanos)
-            }
-            CliTimeRepresentation::Offset
-            | CliTimeRepresentation::OffsetSecs
-            | CliTimeRepresentation::OffsetFloatSecs => TimeRepresentationEnum::Offset(RelativeTimeFormat::FloatSecs),
-            CliTimeRepresentation::Absolute | CliTimeRepresentation::AbsoluteUnix => {
-                TimeRepresentationEnum::AbsoluteTimestamp(AbsoluteTimeFormat::UnixTimeFloat)
-            }
-            CliTimeRepresentation::AbsoluteRfc | CliTimeRepresentation::AbsoluteRfc3339 => {
-                TimeRepresentationEnum::AbsoluteTimestamp(AbsoluteTimeFormat::Rfc3339)
             }
         }
     }
@@ -349,8 +315,8 @@ impl From<CliOutputChannel> for OutputChannel {
 
 impl From<CliExecutionMode> for ExecutionMode {
     fn from(mode: CliExecutionMode) -> Self {
-        if let Some(time_repr) = mode.offline {
-            ExecutionMode::Offline(time_repr.into())
+        if mode.offline.is_some() {
+            ExecutionMode::Offline
         } else {
             ExecutionMode::Online
         }
@@ -363,7 +329,7 @@ impl From<IdsInput> for ExecutionMode {
         if input.interface.is_some() {
             ExecutionMode::Online
         } else {
-            ExecutionMode::Offline(TimeRepresentationEnum::AbsoluteTimestamp(AbsoluteTimeFormat::UnixTimeFloat))
+            ExecutionMode::Offline
         }
     }
 }
@@ -374,64 +340,170 @@ impl From<CliStartTime> for Option<SystemTime> {
     }
 }
 
-impl TryFrom<Cli> for Config {
-    type Error = ();
-
-    fn try_from(cli: Cli) -> Result<Self, Self::Error> {
-        match cli {
-            Cli::Analyze { .. } => Err(()),
-            Cli::Completions { .. } => Err(()),
-            #[cfg(feature = "pcap_interface")]
-            Cli::Ids { spec, local_network, output, input, start_time, verbosity, output_time_format } => {
-                let config = rtlola_frontend::ParserConfig::from_path(spec).unwrap_or_else(|e| {
-                    eprintln!("{}", e);
-                    std::process::exit(1)
-                });
-                let handler = rtlola_frontend::Handler::from(config.clone());
-                let ir = rtlola_frontend::parse(config).unwrap_or_else(|e| {
-                    handler.emit_error(&e);
-                    std::process::exit(1);
-                });
-
-                let source = input.clone().into_event_source(local_network);
-
-                Ok(Config {
-                    ir,
-                    source,
-                    statistics: verbosity.into(),
-                    verbosity,
-                    output_channel: output.into(),
-                    mode: input.into(),
-                    output_time_representation: output_time_format.into(),
-                    start_time: start_time.into(),
-                })
+macro_rules! run_config {
+    ($it:expr, $ot: expr, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: expr, $start_time: expr) => {
+        match $it {
+            CliTimeRepresentation::RelativeNanos | CliTimeRepresentation::RelativeUintNanos => {
+                run_config_it!(
+                    RelativeNanos::default(),
+                    $ot,
+                    $ir,
+                    $source,
+                    $statistics,
+                    $verbosity,
+                    $output,
+                    $mode,
+                    $start_time
+                )
             }
-            Cli::Monitor { spec, input, output, mode, start_time, verbosity, output_time_format } => {
-                let config = rtlola_frontend::ParserConfig::from_path(spec).unwrap_or_else(|e| {
-                    eprintln!("{}", e);
-                    std::process::exit(1)
-                });
-                let handler = rtlola_frontend::Handler::from(config.clone());
-                let ir = rtlola_frontend::parse(config).unwrap_or_else(|e| {
-                    handler.emit_error(&e);
-                    std::process::exit(1);
-                });
-
-                let source = input.into_event_source(mode.into());
-
-                Ok(Config {
-                    ir,
-                    source,
-                    statistics: verbosity.into(),
-                    verbosity,
-                    output_channel: output.into(),
-                    mode: mode.into(),
-                    output_time_representation: output_time_format.into(),
-                    start_time: start_time.into(),
-                })
+            CliTimeRepresentation::Relative
+            | CliTimeRepresentation::RelativeSecs
+            | CliTimeRepresentation::RelativeFloatSecs => {
+                run_config_it!(
+                    RelativeFloat::default(),
+                    $ot,
+                    $ir,
+                    $source,
+                    $statistics,
+                    $verbosity,
+                    $output,
+                    $mode,
+                    $start_time
+                )
+            }
+            CliTimeRepresentation::OffsetNanos | CliTimeRepresentation::OffsetUintNanos => {
+                run_config_it!(
+                    OffsetNanos::default(),
+                    $ot,
+                    $ir,
+                    $source,
+                    $statistics,
+                    $verbosity,
+                    $output,
+                    $mode,
+                    $start_time
+                )
+            }
+            CliTimeRepresentation::Offset
+            | CliTimeRepresentation::OffsetSecs
+            | CliTimeRepresentation::OffsetFloatSecs => {
+                run_config_it!(
+                    OffsetFloat::default(),
+                    $ot,
+                    $ir,
+                    $source,
+                    $statistics,
+                    $verbosity,
+                    $output,
+                    $mode,
+                    $start_time
+                )
+            }
+            CliTimeRepresentation::Absolute | CliTimeRepresentation::AbsoluteUnix => {
+                run_config_it!(
+                    AbsoluteFloat::default(),
+                    $ot,
+                    $ir,
+                    $source,
+                    $statistics,
+                    $verbosity,
+                    $output,
+                    $mode,
+                    $start_time
+                )
+            }
+            CliTimeRepresentation::AbsoluteRfc | CliTimeRepresentation::AbsoluteRfc3339 => {
+                run_config_it!(
+                    AbsoluteRfc::default(),
+                    $ot,
+                    $ir,
+                    $source,
+                    $statistics,
+                    $verbosity,
+                    $output,
+                    $mode,
+                    $start_time
+                )
             }
         }
-    }
+    };
+}
+
+macro_rules! run_config_it {
+    ($it:expr, $ot: expr, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: expr, $start_time: expr) => {
+        match $ot {
+            CliTimeRepresentation::RelativeNanos | CliTimeRepresentation::RelativeUintNanos => {
+                run_config_it_ot!(
+                    $it,
+                    RelativeNanos,
+                    $ir,
+                    $source,
+                    $statistics,
+                    $verbosity,
+                    $output,
+                    $mode,
+                    $start_time
+                )
+            }
+            CliTimeRepresentation::Relative
+            | CliTimeRepresentation::RelativeSecs
+            | CliTimeRepresentation::RelativeFloatSecs => {
+                run_config_it_ot!(
+                    $it,
+                    RelativeFloat,
+                    $ir,
+                    $source,
+                    $statistics,
+                    $verbosity,
+                    $output,
+                    $mode,
+                    $start_time
+                )
+            }
+            CliTimeRepresentation::OffsetNanos | CliTimeRepresentation::OffsetUintNanos => {
+                run_config_it_ot!($it, OffsetNanos, $ir, $source, $statistics, $verbosity, $output, $mode, $start_time)
+            }
+            CliTimeRepresentation::Offset
+            | CliTimeRepresentation::OffsetSecs
+            | CliTimeRepresentation::OffsetFloatSecs => {
+                run_config_it_ot!($it, OffsetFloat, $ir, $source, $statistics, $verbosity, $output, $mode, $start_time)
+            }
+            CliTimeRepresentation::Absolute | CliTimeRepresentation::AbsoluteUnix => {
+                run_config_it_ot!(
+                    $it,
+                    AbsoluteFloat,
+                    $ir,
+                    $source,
+                    $statistics,
+                    $verbosity,
+                    $output,
+                    $mode,
+                    $start_time
+                )
+            }
+            CliTimeRepresentation::AbsoluteRfc | CliTimeRepresentation::AbsoluteRfc3339 => {
+                run_config_it_ot!($it, AbsoluteRfc, $ir, $source, $statistics, $verbosity, $output, $mode, $start_time)
+            }
+        }
+    };
+}
+
+macro_rules! run_config_it_ot {
+    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: expr, $start_time: expr) => {
+        Config {
+            ir: $ir,
+            source: $source,
+            statistics: $statistics,
+            verbosity: $verbosity,
+            output_channel: $output,
+            mode: $mode,
+            input_time_representation: $it,
+            output_time_representation: PhantomData::<$ot>::default(),
+            start_time: $start_time,
+        }
+        .run()
+        .map(|_| ())
+    };
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -462,15 +534,113 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
             }
         }
-        Cli::Monitor { .. } => {
-            let cfg = Config::try_from(cli).expect("Case handled above");
-            cfg.run()?;
+        Cli::Monitor { spec, input, output, mode, start_time, verbosity, output_time_format } => {
+            let config = rtlola_frontend::ParserConfig::from_path(spec).unwrap_or_else(|e| {
+                eprintln!("{}", e);
+                std::process::exit(1)
+            });
+            let handler = rtlola_frontend::Handler::from(config.clone());
+            let ir = rtlola_frontend::parse(config).unwrap_or_else(|e| {
+                handler.emit_error(&e);
+                std::process::exit(1);
+            });
+
+            match mode {
+                CliExecutionMode { online: true, .. } => {
+                    run_config_it!(
+                        RealTime::default(),
+                        output_time_format,
+                        ir,
+                        input.into(),
+                        verbosity.into(),
+                        verbosity,
+                        output.into(),
+                        mode.into(),
+                        start_time.into()
+                    )?;
+                }
+                CliExecutionMode { offline: Some(it), .. } => {
+                    if let Some(d) = input.input_delay {
+                        run_config_it!(
+                            DelayTime::new(Duration::from_millis(d)),
+                            output_time_format,
+                            ir,
+                            input.into(),
+                            verbosity.into(),
+                            verbosity,
+                            output.into(),
+                            mode.into(),
+                            start_time.into()
+                        )?;
+                    } else {
+                        run_config!(
+                            it,
+                            output_time_format,
+                            ir,
+                            input.into(),
+                            verbosity.into(),
+                            verbosity,
+                            output.into(),
+                            mode.into(),
+                            start_time.into()
+                        )?;
+                    }
+                }
+                _ => unreachable!("Ensured by Clap"),
+            }
         }
 
         #[cfg(feature = "pcap_interface")]
-        Cli::Ids { .. } => {
-            let cfg = Config::try_from(cli).expect("Case handled above");
-            cfg.run()?;
+        Cli::Ids { spec, local_network, output, input, start_time, verbosity, output_time_format } => {
+            let config = rtlola_frontend::ParserConfig::from_path(spec).unwrap_or_else(|e| {
+                eprintln!("{}", e);
+                std::process::exit(1)
+            });
+            let handler = rtlola_frontend::Handler::from(config.clone());
+            let ir = rtlola_frontend::parse(config).unwrap_or_else(|e| {
+                handler.emit_error(&e);
+                std::process::exit(1);
+            });
+
+            let source = input.clone().into_event_source(local_network);
+
+            if input.interface.is_some() {
+                run_config_it!(
+                    RealTime::default(),
+                    output_time_format,
+                    ir,
+                    source,
+                    verbosity.into(),
+                    verbosity,
+                    output.into(),
+                    input.into(),
+                    start_time.into()
+                )?;
+            } else if let Some(d) = input.input_delay {
+                run_config_it!(
+                    DelayTime::new(Duration::from_millis(d)),
+                    output_time_format,
+                    ir,
+                    source,
+                    verbosity.into(),
+                    verbosity,
+                    output.into(),
+                    input.into(),
+                    start_time.into()
+                )?;
+            } else {
+                run_config_it!(
+                    AbsoluteFloat::default(),
+                    output_time_format,
+                    ir,
+                    source,
+                    verbosity.into(),
+                    verbosity,
+                    output.into(),
+                    input.into(),
+                    start_time.into()
+                )?;
+            }
         }
 
         Cli::Completions { shell } => shell.generate(),

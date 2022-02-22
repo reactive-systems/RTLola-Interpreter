@@ -43,9 +43,9 @@ pub(crate) fn create_event_source<IT: TimeRepresentation>(
 ) -> Result<Box<dyn EventSource<IT>>, Box<dyn Error>> {
     use EventSourceConfig::*;
     match config {
-        Csv { src } => CsvEventSource::setup(&src,input_time_representation, ir, start_time),
+        Csv { src } => CsvEventSource::setup(&src, input_time_representation, ir, start_time),
         #[cfg(feature = "pcap_interface")]
-        PCAP { src } => PCAPEventSource::setup(&src,input_time_representation, ir, start_time),
+        PCAP { src } => PCAPEventSource::setup(&src, input_time_representation, ir, start_time),
         Api => unreachable!("Currently, there is no need to create an event source for the API."),
     }
 }

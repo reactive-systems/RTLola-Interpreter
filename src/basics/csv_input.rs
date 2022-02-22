@@ -1,7 +1,7 @@
 #![allow(clippy::mutex_atomic)]
 
 use crate::basics::EventSource;
-use crate::configuration::time::{TimeRepresentation, init_start_time};
+use crate::configuration::time::{init_start_time, TimeRepresentation};
 use crate::storage::Value;
 use crate::Time;
 use csv::{ByteRecord, Reader as CSVReader, Result as ReaderResult, StringRecord};
@@ -15,8 +15,8 @@ use std::time::SystemTime;
 /// Configures the input source for the [CsvEventSource].
 #[derive(Debug, Clone)]
 pub struct CsvInputSource {
-    pub(crate) time_col: Option<usize>,
-    pub(crate) kind: CsvInputSourceKind,
+    pub time_col: Option<usize>,
+    pub kind: CsvInputSourceKind,
 }
 
 /// Sets the input channel of the [CsvEventSource]
@@ -25,7 +25,7 @@ pub enum CsvInputSourceKind {
     /// Use the std-in as an input channel
     StdIn,
     /// Use the specified file as an input channel
-    File (PathBuf),
+    File(PathBuf),
 }
 
 #[derive(Debug, Clone)]
@@ -105,11 +105,16 @@ pub struct CsvEventSource<IT: TimeRepresentation> {
 }
 
 impl<IT: TimeRepresentation> CsvEventSource<IT> {
-    pub(crate) fn setup(src: &CsvInputSource, timer: IT, ir: &RtLolaMir, start_time: Option<SystemTime>) -> Result<Box<dyn EventSource<IT>>, Box<dyn Error>> {
-        let CsvInputSource {  time_col, kind } = src;
+    pub(crate) fn setup(
+        src: &CsvInputSource,
+        timer: IT,
+        ir: &RtLolaMir,
+        start_time: Option<SystemTime>,
+    ) -> Result<Box<dyn EventSource<IT>>, Box<dyn Error>> {
+        let CsvInputSource { time_col, kind } = src;
         let mut wrapper = match kind {
             CsvInputSourceKind::StdIn => ReaderWrapper::Std(CSVReader::from_reader(stdin())),
-            CsvInputSourceKind::File (path) => ReaderWrapper::File(CSVReader::from_path(path)?),
+            CsvInputSourceKind::File(path) => ReaderWrapper::File(CSVReader::from_path(path)?),
         };
 
         let stream_names: Vec<&str> = ir.inputs.iter().map(|i| i.name.as_str()).collect();

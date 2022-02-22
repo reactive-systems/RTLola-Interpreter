@@ -9,7 +9,7 @@ use rtlola_frontend::RtLolaMir;
 
 #[cfg(feature = "pcap_interface")]
 use crate::basics::PCAPInputSource;
-use crate::basics::{CsvInputSource, OutputChannel, OutputHandler, CsvInputSourceKind};
+use crate::basics::{CsvInputSource, CsvInputSourceKind, OutputChannel, OutputHandler};
 use crate::configuration::time::{AbsoluteRfc, RelativeFloat, TimeRepresentation};
 use crate::coordination::Controller;
 use crate::monitor::{Input, VerdictRepresentation};
@@ -149,7 +149,9 @@ impl<IT: TimeRepresentation, OT: TimeRepresentation> Config<IT, OT> {
     ) -> Self {
         Config {
             ir,
-            source: EventSourceConfig::Csv { src:CsvInputSource { time_col: None, kind: CsvInputSourceKind::File (PathBuf::from(csv_path)) } },
+            source: EventSourceConfig::Csv {
+                src: CsvInputSource { time_col: None, kind: CsvInputSourceKind::File(PathBuf::from(csv_path)) },
+            },
             statistics: Statistics::None,
             verbosity: Verbosity::Triggers,
             output_channel: output,

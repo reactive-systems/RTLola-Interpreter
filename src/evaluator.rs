@@ -3,6 +3,7 @@ use crate::closuregen::{CompiledExpr, Expr};
 use crate::coordination::monitor::{Change, Instance};
 use crate::coordination::{DynamicSchedule, EvaluationTask};
 use crate::storage::{GlobalStore, Value};
+use crate::time::TimeRepresentation;
 use crate::Time;
 use bit_set::BitSet;
 use rtlola_frontend::mir::{
@@ -12,7 +13,6 @@ use rtlola_frontend::mir::{
 use std::ops::Not;
 use std::sync::{Arc, Condvar, Mutex};
 use string_template::Template;
-use crate::configuration::time::TimeRepresentation;
 
 /// Enum to describe the activation condition of a stream; If the activation condition is described by a conjunction, the evaluator uses a bitset representation.
 #[derive(Debug)]
@@ -46,7 +46,7 @@ pub(crate) struct EvaluatorData<OT: TimeRepresentation> {
 }
 
 #[allow(missing_debug_implementations)]
-pub(crate) struct Evaluator<OT: TimeRepresentation + 'static> {
+pub(crate) struct Evaluator<OT: TimeRepresentation> {
     // Evaluation order of output streams
     layers: &'static [Vec<Task>],
     // Indexed by stream reference.

@@ -22,7 +22,6 @@ pub(crate) struct Controller<IT: TimeRepresentation, OT: TimeRepresentation> {
 
     /// Dynamic schedules handles dynamic deadlines; The condition is notified whenever the schedule changes
     dyn_schedule: Arc<(Mutex<DynamicSchedule>, Condvar)>,
-
 }
 
 impl<IT: TimeRepresentation, OT: TimeRepresentation> Controller<IT, OT> {
@@ -30,7 +29,7 @@ impl<IT: TimeRepresentation, OT: TimeRepresentation> Controller<IT, OT> {
         let output_handler = Arc::new(OutputHandler::new(&config, config.ir.triggers.len()));
         let dyn_schedule = Arc::new((Mutex::new(DynamicSchedule::new()), Condvar::new()));
 
-        Self { config, output_handler, dyn_schedule}
+        Self { config, output_handler, dyn_schedule }
     }
 
     pub(crate) fn start(self) -> Result<Arc<OutputHandler<OT>>, Box<dyn Error>> {

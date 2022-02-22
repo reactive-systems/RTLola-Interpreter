@@ -5,7 +5,7 @@ use crate::config::ExecutionMode;
 use crate::basics::PCAPInputSource;
 
 use crate::config::{Config, EventSourceConfig, Statistics, Verbosity};
-use crate::configuration::time::{RelativeFloat, TimeRepresentation, RealTime, DelayTime, AbsoluteFloat};
+use crate::configuration::time::{AbsoluteFloat, DelayTime, RealTime, RelativeFloat, TimeRepresentation};
 use crate::coordination::Controller;
 use crate::monitor::{Event, EventInput, Input, Record, RecordInput, VerdictRepresentation};
 use crate::Monitor;
@@ -38,7 +38,7 @@ pub struct TimeConfigured<IT: TimeRepresentation> {
     ir: RtLolaMir,
     input_time_representation: IT,
 }
-impl <IT: TimeRepresentation> ConfigState for TimeConfigured<IT> {}
+impl<IT: TimeRepresentation> ConfigState for TimeConfigured<IT> {}
 
 /// A trait to capture a sub configuration.
 /// I.e. either for running the interpreter or for using the monitor API
@@ -72,7 +72,7 @@ impl ExecConfigState for SourceConfigured {}
 /// A sub-configuration for the API
 #[derive(Debug, Clone, Default, Copy)]
 pub struct ApiConfig<S: ApiConfigState> {
-    state: S,
+    state: PhantomData<S>,
 }
 impl<S: ApiConfigState> SubConfig for ApiConfig<S> {}
 
@@ -173,7 +173,7 @@ impl ConfigBuilder<ApiConfig<ConfigureInput>, ConfigureIR, RelativeFloat> {
         ConfigBuilder {
             output_time_representation: PhantomData::default(),
             start_time: None,
-            sub_config: ApiConfig { state: ConfigureInput {} },
+            sub_config: ApiConfig { state: PhantomData::default() },
             state: ConfigureIR {},
         }
     }
@@ -233,13 +233,13 @@ impl<C: SubConfig, OT: TimeRepresentation> ConfigBuilder<C, ConfigureIR, OT> {
 impl<C: SubConfig, OT: TimeRepresentation> ConfigBuilder<C, IrConfigured, OT> {
     /// Use an existing ir with the configuration
     pub fn input_time<IT: TimeRepresentation>(self) -> ConfigBuilder<C, TimeConfigured<IT>, OT> {
-        let ConfigBuilder { output_time_representation, start_time, sub_config, state: IrConfigured {
-            ir
-        } } = self;
-        ConfigBuilder { output_time_representation, start_time, sub_config, state: TimeConfigured {
-            ir,
-            input_time_representation: IT::default(),
-        } }
+        let ConfigBuilder { output_time_representation, start_time, sub_config, state: IrConfigured { ir } } = self;
+        ConfigBuilder {
+            output_time_representation,
+            start_time,
+            sub_config,
+            state: TimeConfigured { ir, input_time_representation: IT::default() },
+        }
     }
 }
 
@@ -274,7 +274,7 @@ impl<IT: TimeRepresentation, OT: TimeRepresentation> ConfigBuilder<ExecConfig<Co
             output_time_representation,
             start_time,
             sub_config: ExecConfig { statistics, verbosity, output_channel, state: _ },
-            state: TimeConfigured{ir, ..},
+            state: TimeConfigured { ir, .. },
         } = self;
         ConfigBuilder {
             output_time_representation,
@@ -285,10 +285,7 @@ impl<IT: TimeRepresentation, OT: TimeRepresentation> ConfigBuilder<ExecConfig<Co
                 output_channel,
                 state: ConfigureSource { mode: ExecutionMode::Online },
             },
-            state: TimeConfigured {
-                ir,
-                input_time_representation: RealTime::default(),
-            },
+            state: TimeConfigured { ir, input_time_representation: RealTime::default() },
         }
     }
 }
@@ -310,30 +307,28 @@ impl<IT: TimeRepresentation, OT: TimeRepresentation>
             state: cs,
         } = self;
         assert_ne!(mode, ExecutionMode::Online, "CSV File input is only supported in offline mode");
-        let source = EventSourceConfig::Csv {
-            src: CsvInputSource { time_col, kind: CsvInputSourceKind::File (path) },
-        };
+        let source = EventSourceConfig::Csv { src: CsvInputSource { time_col, kind: CsvInputSourceKind::File(path) } };
         ConfigBuilder {
             output_time_representation,
             start_time,
             sub_config: ExecConfig { statistics, verbosity, output_channel, state: SourceConfigured { mode, source } },
             state: cs,
         }
-
     }
 
     /// Take the events in CSV format from stdin.
     /// Optionally, the time column in the input can be specified.
-    pub fn csv_stdin_input(self, time_col: Option<usize>) -> ConfigBuilder<ExecConfig<SourceConfigured>, TimeConfigured<IT>, OT> {
+    pub fn csv_stdin_input(
+        self,
+        time_col: Option<usize>,
+    ) -> ConfigBuilder<ExecConfig<SourceConfigured>, TimeConfigured<IT>, OT> {
         let ConfigBuilder {
             output_time_representation,
             start_time,
             sub_config: ExecConfig { statistics, verbosity, output_channel, state: ConfigureSource { mode } },
             state: cs,
         } = self;
-        let source = EventSourceConfig::Csv {
-            src: CsvInputSource { time_col, kind: CsvInputSourceKind::StdIn },
-        };
+        let source = EventSourceConfig::Csv { src: CsvInputSource { time_col, kind: CsvInputSourceKind::StdIn } };
         ConfigBuilder {
             output_time_representation,
             start_time,
@@ -354,7 +349,7 @@ impl<IT: TimeRepresentation, OT: TimeRepresentation>
             output_time_representation,
             start_time,
             sub_config: ExecConfig { statistics, verbosity, output_channel, state: ConfigureSource { mode } },
-            state: TimeConfigured{ir, ..}
+            state: TimeConfigured { ir, .. },
         } = self;
         let source = EventSourceConfig::PCAP { src: PCAPInputSource::File { path, local_network } };
         assert_ne!(mode, ExecutionMode::Online, "PCAP File input is only supported in offline mode");
@@ -362,12 +357,8 @@ impl<IT: TimeRepresentation, OT: TimeRepresentation>
             output_time_representation,
             start_time,
             sub_config: ExecConfig { statistics, verbosity, output_channel, state: SourceConfigured { mode, source } },
-            state: TimeConfigured {
-                ir,
-                input_time_representation: AbsoluteFloat::default(),
-            },
+            state: TimeConfigured { ir, input_time_representation: AbsoluteFloat::default() },
         }
-
     }
 
     /// Use the network interface with the given name as input source for packets.
@@ -396,29 +387,32 @@ impl<IT: TimeRepresentation, OT: TimeRepresentation>
 }
 
 impl<IT: TimeRepresentation, OT: TimeRepresentation>
-ConfigBuilder<ExecConfig<SourceConfigured>, TimeConfigured<IT>, OT> {
+    ConfigBuilder<ExecConfig<SourceConfigured>, TimeConfigured<IT>, OT>
+{
     /// A delay is set to ignore the given timestamps in the input and take the delay as the time between the events.
     pub fn delay(self, delay: Duration) -> ConfigBuilder<ExecConfig<SourceConfigured>, TimeConfigured<DelayTime>, OT> {
         let ConfigBuilder {
             output_time_representation,
             start_time,
             sub_config: ExecConfig { statistics, verbosity, output_channel, state: SourceConfigured { source, mode } },
-            state: TimeConfigured{ir, ..},
+            state: TimeConfigured { ir, .. },
         } = self;
         match source {
-            EventSourceConfig::Api | EventSourceConfig::Csv { src: CsvInputSource{kind: CsvInputSourceKind::StdIn {..}, ..} } => panic!("A delay is only supported for file based input."),
+            EventSourceConfig::Api
+            | EventSourceConfig::Csv { src: CsvInputSource { kind: CsvInputSourceKind::StdIn { .. }, .. } } => {
+                panic!("A delay is only supported for file based input.")
+            }
             #[cfg(feature = "pcap_interface")]
-            EventSourceConfig::PCAP { src: PCAPInputSource::Device {..}} => panic!("A delay is only supported for file based input."),
+            EventSourceConfig::PCAP { src: PCAPInputSource::Device { .. } } => {
+                panic!("A delay is only supported for file based input.")
+            }
             _ => {}
         }
         ConfigBuilder {
             output_time_representation,
             start_time,
             sub_config: ExecConfig { statistics, verbosity, output_channel, state: SourceConfigured { mode, source } },
-            state: TimeConfigured{
-                ir,
-                input_time_representation: DelayTime::new(delay)
-            },
+            state: TimeConfigured { ir, input_time_representation: DelayTime::new(delay) },
         }
     }
 }
@@ -456,6 +450,7 @@ impl<ES: ExecConfigState, S: ConfigState, OT: TimeRepresentation> ConfigBuilder<
 }
 
 impl<S: ConfigState, OT: TimeRepresentation> ConfigBuilder<ApiConfig<ConfigureInput>, S, OT> {
+    /// Use the predefined [EventInput] method to provide inputs to the API.
     pub fn event_input<E: Into<Event>>(self) -> ConfigBuilder<ApiConfig<InputConfigured<EventInput<E>>>, S, OT> {
         let ConfigBuilder { output_time_representation, start_time, sub_config: ApiConfig { state: _ }, state: s } =
             self;
@@ -463,11 +458,12 @@ impl<S: ConfigState, OT: TimeRepresentation> ConfigBuilder<ApiConfig<ConfigureIn
         ConfigBuilder {
             output_time_representation,
             start_time,
-            sub_config: ApiConfig { state: InputConfigured { source: PhantomData::default() } },
+            sub_config: ApiConfig { state: PhantomData::default() },
             state: s,
         }
     }
 
+    /// Use the predefined [RecordInput] method to provide inputs to the API.
     pub fn record_input<R: Record>(self) -> ConfigBuilder<ApiConfig<InputConfigured<RecordInput<R>>>, S, OT> {
         let ConfigBuilder { output_time_representation, start_time, sub_config: ApiConfig { state: _ }, state: s } =
             self;
@@ -475,7 +471,20 @@ impl<S: ConfigState, OT: TimeRepresentation> ConfigBuilder<ApiConfig<ConfigureIn
         ConfigBuilder {
             output_time_representation,
             start_time,
-            sub_config: ApiConfig { state: InputConfigured { source: PhantomData::default() } },
+            sub_config: ApiConfig { state: PhantomData::default() },
+            state: s,
+        }
+    }
+
+    /// Use a custom input method to provide inputs to the API.
+    pub fn custom_input<I: Input>(self) -> ConfigBuilder<ApiConfig<InputConfigured<I>>, S, OT> {
+        let ConfigBuilder { output_time_representation, start_time, sub_config: ApiConfig { state: _ }, state: s } =
+            self;
+
+        ConfigBuilder {
+            output_time_representation,
+            start_time,
+            sub_config: ApiConfig { state: PhantomData::default() },
             state: s,
         }
     }
@@ -506,10 +515,7 @@ impl<I: Input, IT: TimeRepresentation, OT: TimeRepresentation>
     }
 
     /// Create a [Monitor] from the configuration. The entrypoint of the API. The data is provided to the [Input](crate::monitor::Input) source at creation.
-    pub fn monitor_with_data<V: VerdictRepresentation>(
-        self,
-        data: I::CreationData,
-    ) -> Monitor<I, IT, V, OT> {
+    pub fn monitor_with_data<V: VerdictRepresentation>(self, data: I::CreationData) -> Monitor<I, IT, V, OT> {
         Monitor::setup(self.build(), data)
     }
 
@@ -522,7 +528,9 @@ impl<I: Input, IT: TimeRepresentation, OT: TimeRepresentation>
     }
 }
 
-impl<IT: TimeRepresentation, OT: TimeRepresentation> ConfigBuilder<ExecConfig<SourceConfigured>, TimeConfigured<IT>, OT> {
+impl<IT: TimeRepresentation, OT: TimeRepresentation>
+    ConfigBuilder<ExecConfig<SourceConfigured>, TimeConfigured<IT>, OT>
+{
     /// Finalize the configuration and generate a configuration.
     pub fn build(self) -> Config<IT, OT> {
         let ConfigBuilder {

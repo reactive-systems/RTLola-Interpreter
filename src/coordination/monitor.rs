@@ -17,11 +17,12 @@
 
 use crate::basics::OutputHandler;
 use crate::config::Config;
-use crate::configuration::time::{RelativeFloat, TimeRepresentation, init_start_time};
+use crate::configuration::time::{init_start_time, RelativeFloat, TimeRepresentation};
 use crate::coordination::time_driven_manager::TimeDrivenManager;
 use crate::coordination::DynamicSchedule;
 use crate::evaluator::{Evaluator, EvaluatorData};
 use crate::storage::Value;
+use crate::Time;
 use itertools::Itertools;
 use rtlola_frontend::mir::{InputReference, OutputReference, RtLolaMir, Type};
 use std::collections::HashMap;
@@ -359,14 +360,16 @@ where
         let ts = self.source_time.convert_from(ts);
 
         // Evaluate timed streams with due < ts
-        let mut timed: Vec<(VT::InnerTime, V)> = vec![];
+        let mut timed: Vec<(Time, V)> = vec![];
         self.time_manager.accept_time_offline_with_callback(&mut self.eval, ts, |due, eval| {
-            timed.push((self.output_time.convert_into(due), V::create(RawVerdict::from(eval))))
+            timed.push((due, V::create(RawVerdict::from(eval))))
         });
 
         // Evaluate
         self.eval.eval_event(ev.as_slice(), ts);
         let event_change = V::create(RawVerdict::from(&self.eval));
+
+        let timed = timed.into_iter().map(|(t, v)| (self.output_time.convert_into(t), v)).collect();
 
         Verdicts::<V, VT::InnerTime> { timed, event: event_change }
     }
@@ -375,20 +378,20 @@ where
     Computes all periodic streams up through and including the timestamp.
     */
     pub fn accept_time(&mut self, ts: IT::InnerTime) -> Vec<(VT::InnerTime, V)> {
-        let mut timed_changes: Vec<(VT::InnerTime, V)> = vec![];
+        let mut timed_changes: Vec<(Time, V)> = vec![];
 
         let ts = self.source_time.convert_from(ts);
 
         // Eval all timed streams with due < ts
         self.time_manager.accept_time_offline_with_callback(&mut self.eval, ts, |due, eval| {
-            timed_changes.push((self.output_time.convert_into(due), V::create(RawVerdict::from(eval))))
+            timed_changes.push((due, V::create(RawVerdict::from(eval))))
         });
         // Eval all timed streams with due = ts
         self.time_manager.end_offline_with_callback(&mut self.eval, ts, |due, eval| {
-            timed_changes.push((self.output_time.convert_into(due), V::create(RawVerdict::from(eval))))
+            timed_changes.push((due, V::create(RawVerdict::from(eval))))
         });
 
-        timed_changes
+        timed_changes.into_iter().map(|(t, v)| (self.output_time.convert_into(t), v)).collect()
     }
 
     /// Returns the underlying representation of the specification as an [RtLolaMir]

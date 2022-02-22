@@ -16,12 +16,9 @@ pub(crate) struct EventDrivenManager<IT: TimeRepresentation, OT: TimeRepresentat
 
 impl<IT: TimeRepresentation, OT: TimeRepresentation> EventDrivenManager<IT, OT> {
     /// Creates a new EventDrivenManager managing event-driven output streams.
-    pub(crate) fn setup(
-        config: Config<IT, OT>,
-        output_handler: Arc<OutputHandler<OT>>,
-    ) -> EventDrivenManager<IT, OT> {
+    pub(crate) fn setup(config: Config<IT, OT>, output_handler: Arc<OutputHandler<OT>>) -> EventDrivenManager<IT, OT> {
         let Config { ir, source, start_time, input_time_representation, .. } = config;
-        let event_source = match create_event_source::<IT> (source, &ir, start_time, input_time_representation ) {
+        let event_source = match create_event_source::<IT>(source, &ir, start_time, input_time_representation) {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("Cannot create input reader: {}", e);

@@ -74,6 +74,7 @@ mod tests;
 // Public exports
 pub use crate::configuration::config;
 pub use crate::configuration::config_builder::ConfigBuilder;
+pub use crate::configuration::time;
 pub use crate::coordination::monitor;
 pub use crate::coordination::monitor::Monitor;
 
