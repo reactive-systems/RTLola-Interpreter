@@ -10,7 +10,7 @@ use rtlola_frontend::RtLolaMir;
 #[cfg(feature = "pcap_interface")]
 use crate::basics::PCAPInputSource;
 use crate::basics::{CsvInputSource, CsvInputSourceKind, OutputChannel, OutputHandler};
-use crate::configuration::time::{AbsoluteRfc, RelativeFloat, TimeRepresentation};
+use crate::configuration::time::{RelativeFloat, TimeRepresentation};
 use crate::coordination::Controller;
 use crate::monitor::{Input, VerdictRepresentation};
 use crate::Monitor;
@@ -122,9 +122,9 @@ pub enum EventSourceConfig {
     Api,
 }
 
-impl<IT: TimeRepresentation, OT: TimeRepresentation> Config<IT, OT> {
+impl Config<RelativeFloat, RelativeFloat> {
     /// Creates a new Debug config.
-    pub fn debug(ir: RtLolaMir) -> Config<RelativeFloat, AbsoluteRfc> {
+    pub fn debug(ir: RtLolaMir) -> Self {
         let mode = ExecutionMode::Offline;
         Config {
             ir,
@@ -134,11 +134,13 @@ impl<IT: TimeRepresentation, OT: TimeRepresentation> Config<IT, OT> {
             output_channel: OutputChannel::StdOut,
             mode,
             input_time_representation: RelativeFloat::default(),
-            output_time_representation: PhantomData::<AbsoluteRfc>::default(),
+            output_time_representation: PhantomData::<RelativeFloat>::default(),
             start_time: None,
         }
     }
+}
 
+impl<IT: TimeRepresentation, OT: TimeRepresentation> Config<IT, OT> {
     /// Creates a new release config.
     pub fn release(
         ir: RtLolaMir,

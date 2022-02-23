@@ -1,19 +1,21 @@
 //! End-to-end tests of the RTLola evaluator
 
 use crate::basics::OutputHandler;
-use crate::config::{RelativeTimeFormat, Verbosity};
+use crate::config::Verbosity;
+use crate::time::{RelativeFloat, TimeRepresentation};
 use crate::ConfigBuilder;
 use std::io::Write;
 use std::sync::Arc;
 use tempfile::NamedTempFile;
 
-fn run(spec: &str, data: &str) -> Result<Arc<OutputHandler>, Box<dyn std::error::Error>> {
+fn run(spec: &str, data: &str) -> Result<Arc<OutputHandler<impl TimeRepresentation>>, Box<dyn std::error::Error>> {
     let mut file = NamedTempFile::new().expect("failed to create temporary file");
     write!(file, "{}", data).expect("writing tempfile failed");
     ConfigBuilder::runnable()
         .spec_str(spec)
-        .offline_relative(RelativeTimeFormat::FloatSecs)
-        .csv_file_input(file.path().to_path_buf(), None, None)
+        .input_time::<RelativeFloat>()
+        .offline()
+        .csv_file_input(file.path().to_path_buf(), None)
         .verbosity(Verbosity::Silent)
         .enable_statistics()
         .output_to_stderr()

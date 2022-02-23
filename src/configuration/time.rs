@@ -17,7 +17,7 @@ lazy_static! {
 }
 
 pub(crate) fn init_start_time<T: TimeRepresentation>(start_time: Option<SystemTime>) {
-    *START_TIME.write().unwrap() = start_time.or(T::default_start_time());
+    *START_TIME.write().unwrap() = start_time.or_else(T::default_start_time);
 }
 
 pub fn parse_float_time(s: &str) -> Result<Duration, String> {
@@ -138,8 +138,7 @@ impl TimeRepresentation for OffsetFloat {
     }
 
     fn convert_into(&mut self, ts: Time) -> Self::InnerTime {
-        let dur = ts - self.last_time;
-        dur
+        ts - self.last_time
     }
 
     fn convert_into_string(&mut self, ts: Time) -> String {
@@ -251,9 +250,7 @@ impl TimeRepresentation for DelayTime {
         self.current
     }
 
-    fn convert_into(&mut self, _ts: Time) -> Self::InnerTime {
-        ()
-    }
+    fn convert_into(&mut self, _ts: Time) -> Self::InnerTime {}
 
     fn parse(&mut self, _s: &str) -> Result<Time, String> {
         Ok(self.convert_from(()))
@@ -282,9 +279,7 @@ impl TimeRepresentation for RealTime {
         }
     }
 
-    fn convert_into(&mut self, _ts: Time) -> Self::InnerTime {
-        ()
-    }
+    fn convert_into(&mut self, _ts: Time) -> Self::InnerTime {}
 
     fn convert_into_string(&mut self, ts: Time) -> String {
         let ts = START_TIME.read().unwrap().unwrap() + ts;

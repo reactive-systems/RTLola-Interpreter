@@ -836,7 +836,7 @@ mod tests {
     use rtlola_frontend::ParserConfig;
     use std::time::{Duration, Instant};
 
-    fn setup(spec: &str) -> (RtLolaMir, EvaluatorData, Instant) {
+    fn setup(spec: &str) -> (RtLolaMir, EvaluatorData<impl TimeRepresentation>, Instant) {
         let ir = rtlola_frontend::parse(ParserConfig::for_string(spec.to_string()))
             .unwrap_or_else(|e| panic!("spec is invalid: {:?}", e));
         let mut config = Config::debug(ir.clone());
@@ -850,7 +850,7 @@ mod tests {
         (ir, eval, now)
     }
 
-    fn setup_time(spec: &str) -> (RtLolaMir, EvaluatorData, Time) {
+    fn setup_time(spec: &str) -> (RtLolaMir, EvaluatorData<impl TimeRepresentation>, Time) {
         let (ir, eval, _) = setup(spec);
         (ir, eval, Time::default())
     }
@@ -1345,7 +1345,7 @@ mod tests {
     fn test_sum_window_discrete() {
         let (_, eval, mut time) =
             setup_time("input a: Int16\noutput b: Int16 @1Hz:= a.aggregate(over_discrete: 6, using: sum)");
-        let mut eval: Evaluator = eval.into_evaluator();
+        let mut eval = eval.into_evaluator();
         time += Duration::from_secs(45);
         let out_ref = StreamReference::Out(0);
         let in_ref = StreamReference::In(0);
@@ -1369,7 +1369,7 @@ mod tests {
         let (_, eval, mut time) = setup_time(
             "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over: 5s, using: last).defaults(to:0.0)",
         );
-        let mut eval: Evaluator = eval.into_evaluator();
+        let mut eval = eval.into_evaluator();
         time += Duration::from_secs(45);
         let out_ref = StreamReference::Out(0);
         let in_ref = StreamReference::In(0);
@@ -1390,7 +1390,7 @@ mod tests {
     fn test_last_window_signed() {
         let (_, eval, mut time) =
             setup_time("input a: Int32\noutput b: Int32 @1Hz:= a.aggregate(over: 20s, using: last).defaults(to:0)");
-        let mut eval: Evaluator = eval.into_evaluator();
+        let mut eval = eval.into_evaluator();
         time += Duration::from_secs(45);
         let out_ref = StreamReference::Out(0);
         let in_ref = StreamReference::In(0);
@@ -1411,7 +1411,7 @@ mod tests {
     fn test_last_window_unsigned() {
         let (_, eval, mut time) =
             setup_time("input a: UInt32\noutput b: UInt32 @1Hz:= a.aggregate(over: 20s, using: last).defaults(to:0)");
-        let mut eval: Evaluator = eval.into_evaluator();
+        let mut eval = eval.into_evaluator();
         time += Duration::from_secs(45);
         let out_ref = StreamReference::Out(0);
         let in_ref = StreamReference::In(0);
@@ -1442,7 +1442,7 @@ mod tests {
                 "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over: 10s, using: {}).defaults(to:0.0)",
                 pctl
             ));
-            let mut eval: Evaluator = eval.into_evaluator();
+            let mut eval = eval.into_evaluator();
             time += Duration::from_secs(45);
             let out_ref = StreamReference::Out(0);
             let in_ref = StreamReference::In(0);
@@ -1473,7 +1473,7 @@ mod tests {
                 "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over: 10s, using: {}).defaults(to:0.0)",
                 pctl
             ));
-            let mut eval: Evaluator = eval.into_evaluator();
+            let mut eval = eval.into_evaluator();
             time += Duration::from_secs(45);
             let out_ref = StreamReference::Out(0);
             let in_ref = StreamReference::In(0);
@@ -1505,7 +1505,7 @@ mod tests {
                 "input a: Int32\noutput b: Int32 @1Hz:= a.aggregate(over: 10s, using: {}).defaults(to:0)",
                 pctl
             ));
-            let mut eval: Evaluator = eval.into_evaluator();
+            let mut eval = eval.into_evaluator();
             time += Duration::from_secs(45);
             let out_ref = StreamReference::Out(0);
             let in_ref = StreamReference::In(0);
@@ -1535,7 +1535,7 @@ mod tests {
                 "input a: UInt32\noutput b: UInt32 @1Hz:= a.aggregate(over: 10s, using: {}).defaults(to:0)",
                 pctl
             ));
-            let mut eval: Evaluator = eval.into_evaluator();
+            let mut eval = eval.into_evaluator();
             time += Duration::from_secs(45);
             let out_ref = StreamReference::Out(0);
             let in_ref = StreamReference::In(0);
@@ -1565,7 +1565,7 @@ mod tests {
                 "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over_discrete: 10, using: {}).defaults(to:0.0)",
                 pctl
             ));
-            let mut eval: Evaluator = eval.into_evaluator();
+            let mut eval = eval.into_evaluator();
             time += Duration::from_secs(45);
             let out_ref = StreamReference::Out(0);
             let in_ref = StreamReference::In(0);
@@ -1587,7 +1587,7 @@ mod tests {
     fn test_var_equal_input() {
         let (_, eval, mut time) =
             setup_time("input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over: 5s, using: var).defaults(to:0.0)");
-        let mut eval: Evaluator = eval.into_evaluator();
+        let mut eval = eval.into_evaluator();
         time += Duration::from_secs(45);
         let out_ref = StreamReference::Out(0);
         let in_ref = StreamReference::In(0);
@@ -1622,7 +1622,7 @@ mod tests {
                 "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over: {}s, using: var).defaults(to:0.0)",
                 duration
             ));
-            let mut eval: Evaluator = eval.into_evaluator();
+            let mut eval = eval.into_evaluator();
             time += Duration::from_secs(45);
             let out_ref = StreamReference::Out(0);
             let in_ref = StreamReference::In(0);
@@ -1657,7 +1657,7 @@ mod tests {
                 "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over: {}s, using: sd).defaults(to:0.0)",
                 duration
             ));
-            let mut eval: Evaluator = eval.into_evaluator();
+            let mut eval = eval.into_evaluator();
             time += Duration::from_secs(45);
             let out_ref = StreamReference::Out(0);
             let in_ref = StreamReference::In(0);
@@ -1678,7 +1678,7 @@ mod tests {
     fn test_cov() {
         let (_, eval, mut time) =
             setup_time("input in: Float32\n input in2: Float32\noutput t@in&in2:= (in,in2)\n output out: Float32 @1Hz := t.aggregate(over: 6s, using: cov).defaults(to: 1337.0)");
-        let mut eval: Evaluator = eval.into_evaluator();
+        let mut eval = eval.into_evaluator();
         time += Duration::from_secs(45);
         let out_ref = StreamReference::Out(1);
         let in_ref = StreamReference::In(0);
@@ -1703,7 +1703,7 @@ mod tests {
     fn test_cov_2() {
         let (_, eval, mut time) =
             setup_time("input in: Float32\n input in2: Float32\noutput t@in&in2:= (in,in2)\n output out: Float32 @1Hz := t.aggregate(over: 5s, using: cov).defaults(to: 1337.0)");
-        let mut eval: Evaluator = eval.into_evaluator();
+        let mut eval = eval.into_evaluator();
         time += Duration::from_secs(45);
         let out_ref = StreamReference::Out(1);
         let in_ref = StreamReference::In(0);
@@ -1742,7 +1742,7 @@ mod tests {
                 "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over_discrete: {}, using: var).defaults(to:0.0)",
                 duration
             ));
-            let mut eval: Evaluator = eval.into_evaluator();
+            let mut eval = eval.into_evaluator();
             time += Duration::from_secs(45);
             let out_ref = StreamReference::Out(0);
             let in_ref = StreamReference::In(0);
@@ -1777,7 +1777,7 @@ mod tests {
                 "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over_discrete: {}, using: sd).defaults(to:0.0)",
                 duration
             ));
-            let mut eval: Evaluator = eval.into_evaluator();
+            let mut eval = eval.into_evaluator();
             time += Duration::from_secs(45);
             let out_ref = StreamReference::Out(0);
             let in_ref = StreamReference::In(0);
@@ -1813,7 +1813,7 @@ mod tests {
                 spec += ".defaults(to:1337.0)"
             }
             let (_, eval, mut time) = setup_time(&spec);
-            let mut eval: Evaluator = eval.into_evaluator();
+            let mut eval = eval.into_evaluator();
             time += Duration::from_secs(45);
             let out_ref = StreamReference::Out(0);
             let in_ref = StreamReference::In(0);
@@ -1850,7 +1850,7 @@ mod tests {
                 spec += ".defaults(to:1337)"
             }
             let (_, eval, mut time) = setup_time(&spec);
-            let mut eval: Evaluator = eval.into_evaluator();
+            let mut eval = eval.into_evaluator();
             time += Duration::from_secs(45);
             let out_ref = StreamReference::Out(0);
             let in_ref = StreamReference::In(0);
@@ -1887,7 +1887,7 @@ mod tests {
                 spec += ".defaults(to:1337)"
             }
             let (_, eval, mut time) = setup_time(&spec);
-            let mut eval: Evaluator = eval.into_evaluator();
+            let mut eval = eval.into_evaluator();
             time += Duration::from_secs(45);
             let out_ref = StreamReference::Out(0);
             let in_ref = StreamReference::In(0);

@@ -201,7 +201,7 @@ where
 
         let eval_data = EvaluatorData::new(config.ir.clone(), output_handler.clone(), dyn_schedule.clone());
 
-        let time_manager = TimeDrivenManager::setup(config.ir.clone(), output_handler.clone(), dyn_schedule)
+        let time_manager = TimeDrivenManager::setup(config.ir.clone(), output_handler, dyn_schedule)
             .expect("Error computing schedule for time-driven streams");
 
         Monitor {
@@ -494,16 +494,18 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::config::RelativeTimeFormat;
     use crate::coordination::monitor::Change;
     use crate::monitor::{Event, EventInput, Incremental, Monitor, Total, Value, VerdictRepresentation};
+    use crate::time::RelativeFloat;
     use crate::ConfigBuilder;
     use std::time::{Duration, Instant};
 
-    fn setup<V: VerdictRepresentation>(spec: &str) -> (Instant, Monitor<EventInput<Event>, V>) {
+    fn setup<V: VerdictRepresentation>(
+        spec: &str,
+    ) -> (Instant, Monitor<EventInput<Event>, RelativeFloat, V, RelativeFloat>) {
         // Init Monitor API
         let monitor =
-            ConfigBuilder::api().relative_input_time(RelativeTimeFormat::FloatSecs).spec_str(spec).monitor(());
+            ConfigBuilder::api().spec_str(spec).input_time::<RelativeFloat>().event_input::<Event>().monitor();
         (Instant::now(), monitor)
     }
 

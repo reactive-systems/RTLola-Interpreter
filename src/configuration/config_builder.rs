@@ -5,7 +5,7 @@ use crate::config::ExecutionMode;
 use crate::basics::PCAPInputSource;
 
 use crate::config::{Config, EventSourceConfig, Statistics, Verbosity};
-use crate::configuration::time::{AbsoluteFloat, DelayTime, RealTime, RelativeFloat, TimeRepresentation};
+use crate::configuration::time::{DelayTime, RealTime, RelativeFloat, TimeRepresentation};
 use crate::coordination::Controller;
 use crate::monitor::{Event, EventInput, Input, Record, RecordInput, VerdictRepresentation};
 use crate::Monitor;
@@ -119,28 +119,33 @@ impl<S: ExecConfigState> SubConfig for ExecConfig<S> {}
 /// An example construction of the API:
 /// ```
 /// use rtlola_interpreter::ConfigBuilder;
-/// use rtlola_interpreter::config::RelativeTimeFormat;
 /// use rtlola_interpreter::monitor::{EventInput, Incremental};
 /// use rtlola_interpreter::{Monitor, Value};
+/// use rtlola_interpreter::time::RelativeFloat;
 ///
-/// let monitor: Monitor<EventInput<Vec<Value>>, Incremental> =
-///     ConfigBuilder::api().relative_input_time(RelativeTimeFormat::FloatSecs).spec_str("input i: Int64").monitor(());
+/// let monitor: Monitor<_,_,Incremental,_> =
+///     ConfigBuilder::api()
+///         .spec_str("input i: Int64")
+///         .input_time::<RelativeFloat>()
+///         .event_input::<Vec<Value>>()
+///         .monitor();
 /// ````
 ///
 /// An example configuration to run the interpreter:
 /// ```
 /// use rtlola_interpreter::ConfigBuilder;
-/// use rtlola_interpreter::config::{RelativeTimeFormat};
 /// use rtlola_interpreter::monitor::{EventInput, Incremental};
 /// use rtlola_interpreter::{Monitor, Value};
 /// use rtlola_interpreter::config::Verbosity;
 /// use std::path::PathBuf;
+/// use rtlola_interpreter::time::RelativeFloat;
 ///
 ///  ConfigBuilder::runnable()
-///     .offline_relative(RelativeTimeFormat::FloatSecs)
 ///     .spec_str("input a: Int64")
+///     .input_time::<RelativeFloat>()
+///     .offline()
 ///     .verbosity(Verbosity::Silent)
-///     .csv_file_input(PathBuf::from("traces/tests/count_1_2.csv"), None, None)
+///     .csv_file_input(PathBuf::from("traces/tests/count_1_2.csv"), None)
 ///     .run();
 /// ````
 #[derive(Debug, Clone)]

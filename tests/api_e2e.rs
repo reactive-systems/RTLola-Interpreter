@@ -6,8 +6,8 @@ use itertools::Position;
 use junit_report::{Duration as JunitDuration, OffsetDateTime, ReportBuilder, TestCase, TestSuiteBuilder};
 use ordered_float::NotNan;
 use rtlola_frontend::mir::Type;
-use rtlola_interpreter::config::RelativeTimeFormat;
 use rtlola_interpreter::monitor::{Monitor, Record, RecordInput, TriggerMessages};
+use rtlola_interpreter::time::RelativeFloat;
 use rtlola_interpreter::{ConfigBuilder, Value};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -242,8 +242,9 @@ impl Test {
 
         // Init Monitor API
         let config = ConfigBuilder::api()
-            .relative_input_time(RelativeTimeFormat::FloatSecs)
             .spec_file(self.spec_file.clone())
+            .input_time::<RelativeFloat>()
+            .record_input::<CsvRecord>()
             .build();
 
         //Get Input names, Types and column
@@ -258,7 +259,7 @@ impl Test {
             })
             .collect();
 
-        let mut monitor: Monitor<RecordInput<CsvRecord>, TriggerMessages> = config.monitor(inputs);
+        let mut monitor: Monitor<RecordInput<CsvRecord>, _, TriggerMessages, _> = config.monitor(inputs);
 
         let mut actual = Vec::new();
         for line in csv.records().with_position() {
