@@ -1,8 +1,10 @@
 use crate::basics::{CsvInputSource, CsvInputSourceKind, OutputChannel, OutputHandler};
-use crate::config::ExecutionMode;
+use crate::config::{ExecutionMode, MonitorConfig};
 
 #[cfg(feature = "pcap_interface")]
 use crate::basics::PCAPInputSource;
+#[cfg(feature = "pcap_interface")]
+use crate::time::AbsoluteFloat;
 
 use crate::config::{Config, EventSourceConfig, Statistics, Verbosity};
 use crate::configuration::time::{DelayTime, RealTime, RelativeFloat, TimeRepresentation};
@@ -91,13 +93,13 @@ pub struct InputConfigured<I: Input> {
 }
 impl<I: Input> ApiConfigState for InputConfigured<I> {}
 
-// /// An API configuration state in which the event input and the input time is configured but not its format
-// #[derive(Debug, Clone, Copy, Default)]
-// pub struct TimeConfigured<I: Input, IT: TimeRepresentation> {
-//     source: PhantomData<I>,
-//     input_time: PhantomData<IT>,
-// }
-// impl<I: Input, IT: TimeRepresentation> ApiConfigState for TimeConfigured<I, IT> {}
+/// An API configuration state in which the input source is configured but the input time is not.
+#[derive(Debug, Clone, Default, Copy)]
+pub struct VerdictConfigured<I: Input, V: VerdictRepresentation> {
+    source: PhantomData<I>,
+    verdict: PhantomData<V>,
+}
+impl<I: Input, V: VerdictRepresentation> ApiConfigState for VerdictConfigured<I, V> {}
 
 /// The executable monitor configuration
 #[derive(Debug, Clone, Default)]
@@ -128,6 +130,7 @@ impl<S: ExecConfigState> SubConfig for ExecConfig<S> {}
 ///         .spec_str("input i: Int64")
 ///         .input_time::<RelativeFloat>()
 ///         .event_input::<Vec<Value>>()
+///         .with_verdict::<Incremental>()
 ///         .monitor();
 /// ````
 ///
@@ -495,18 +498,32 @@ impl<S: ConfigState, OT: TimeRepresentation> ConfigBuilder<ApiConfig<ConfigureIn
     }
 }
 
-impl<I: Input, IT: TimeRepresentation, OT: TimeRepresentation>
-    ConfigBuilder<ApiConfig<InputConfigured<I>>, TimeConfigured<IT>, OT>
+impl<S: ConfigState, OT: TimeRepresentation, I: Input> ConfigBuilder<ApiConfig<InputConfigured<I>>, S, OT> {
+    /// Sets the [VerdictRepresentation] for the monitor
+    pub fn with_verdict<V: VerdictRepresentation>(self) -> ConfigBuilder<ApiConfig<VerdictConfigured<I, V>>, S, OT> {
+        let ConfigBuilder { output_time_representation, start_time, sub_config: ApiConfig { state: _ }, state: s } =
+            self;
+        ConfigBuilder {
+            output_time_representation,
+            start_time,
+            sub_config: ApiConfig { state: PhantomData::default() },
+            state: s,
+        }
+    }
+}
+
+impl<I: Input, IT: TimeRepresentation, V: VerdictRepresentation, OT: TimeRepresentation>
+    ConfigBuilder<ApiConfig<VerdictConfigured<I, V>>, TimeConfigured<IT>, OT>
 {
     /// Finalize the configuration and generate a configuration.
-    pub fn build(self) -> Config<IT, OT> {
+    pub fn build(self) -> MonitorConfig<I, IT, V, OT> {
         let ConfigBuilder {
             output_time_representation,
             start_time,
             sub_config: ApiConfig { state: _ },
             state: TimeConfigured { ir, input_time_representation },
         } = self;
-        Config {
+        let config = Config {
             ir,
             source: EventSourceConfig::Api,
             statistics: Statistics::None,
@@ -516,20 +533,21 @@ impl<I: Input, IT: TimeRepresentation, OT: TimeRepresentation>
             input_time_representation,
             output_time_representation,
             start_time,
-        }
+        };
+        MonitorConfig::new(config)
     }
 
     /// Create a [Monitor] from the configuration. The entrypoint of the API. The data is provided to the [Input](crate::monitor::Input) source at creation.
-    pub fn monitor_with_data<V: VerdictRepresentation>(self, data: I::CreationData) -> Monitor<I, IT, V, OT> {
-        Monitor::setup(self.build(), data)
+    pub fn monitor_with_data(self, data: I::CreationData) -> Monitor<I, IT, V, OT> {
+        self.build().monitor_with_data(data)
     }
 
     /// Create a [Monitor] from the configuration. The entrypoint of the API.
-    pub fn monitor<V: VerdictRepresentation>(self) -> Monitor<I, IT, V, OT>
+    pub fn monitor(self) -> Monitor<I, IT, V, OT>
     where
         I: Input<CreationData = ()>,
     {
-        Monitor::setup(self.build(), ())
+        self.build().monitor()
     }
 }
 

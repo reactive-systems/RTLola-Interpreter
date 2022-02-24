@@ -245,10 +245,12 @@ impl Test {
             .spec_file(self.spec_file.clone())
             .input_time::<RelativeFloat>()
             .record_input::<CsvRecord>()
+            .with_verdict::<TriggerMessages>()
             .build();
 
         //Get Input names, Types and column
         let inputs: HashMap<String, (Type, usize)> = config
+            .inner()
             .ir
             .inputs
             .iter()
@@ -259,7 +261,7 @@ impl Test {
             })
             .collect();
 
-        let mut monitor: Monitor<RecordInput<CsvRecord>, _, TriggerMessages, _> = config.monitor(inputs);
+        let mut monitor: Monitor<RecordInput<CsvRecord>, _, TriggerMessages, _> = config.monitor_with_data(inputs);
 
         let mut actual = Vec::new();
         for line in csv.records().with_position() {

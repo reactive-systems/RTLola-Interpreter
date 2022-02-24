@@ -44,9 +44,8 @@ lazy_static! {
 
 #[derive(Parser, Debug, Clone)]
 #[clap(author, version, about, long_about = "RTLola is a tool to analyze and monitor Lola specifications.")]
-#[clap(global_setting(AppSettings::PropagateVersion))]
-#[clap(global_setting(AppSettings::UseLongFormatForHelpSubcommand))]
 #[clap(global_setting(AppSettings::DeriveDisplayOrder))]
+#[clap(propagate_version = true)]
 enum Cli {
     /// Parses the input file and runs semantic analysis.
     Analyze {
@@ -139,7 +138,7 @@ pub enum Shell {
 }
 impl Shell {
     fn generate(&self) {
-        let mut app = Cli::into_app();
+        let mut app = Cli::command();
         let mut fd = std::io::stdout();
         match self {
             Shell::Bash => generate(Bash, &mut app, "rtlola-interpreter", &mut fd),
@@ -152,7 +151,7 @@ impl Shell {
 }
 
 #[derive(Clone, Debug, Args)]
-#[clap(help_heading = "Start Time")]
+#[clap(next_help_heading = "Start Time")]
 struct CliStartTime {
     /// Sets the starting time of the monitor using a unix timestamp in 'seconds.subseconds' format.
     #[clap(long="start-time-unix", parse(try_from_str = parse_float_time), group = "start-time")]
@@ -164,7 +163,7 @@ struct CliStartTime {
 
 #[cfg(feature = "pcap_interface")]
 #[derive(Clone, Debug, Args)]
-#[clap(help_heading = "Input Source")]
+#[clap(next_help_heading = "Input Source")]
 #[clap(group(
     ArgGroup::new("ids_input")
     .required(true)
@@ -183,7 +182,7 @@ struct IdsInput {
 }
 
 #[derive(Clone, Debug, Args)]
-#[clap(help_heading = "Input Source")]
+#[clap(next_help_heading = "Input Source")]
 #[clap(group(
     ArgGroup::new("monitor_input")
     .required(true)
@@ -205,7 +204,7 @@ struct MonitorInput {
 }
 
 #[derive(Clone, Copy, Debug, Args)]
-#[clap(help_heading = "Execution Mode")]
+#[clap(next_help_heading = "Execution Mode")]
 #[clap(group(
     ArgGroup::new("mode")
     .required(true)
@@ -223,7 +222,7 @@ struct CliExecutionMode {
 }
 
 #[derive(Clone, Debug, Args)]
-#[clap(help_heading = "Output Channel")]
+#[clap(next_help_heading = "Output Channel")]
 struct CliOutputChannel {
     /// Print output to StdOut (default)
     #[clap(long, group = "output")]

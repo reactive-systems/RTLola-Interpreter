@@ -156,9 +156,11 @@ The Monitor is the central object exposed by the API.
 The [Monitor] accepts new events and computes streams.
 It can compute event-based streams based on new events through `accept_event`.
 It can also simply advance periodic streams up to a given timestamp through `accept_time`.
+The generic argument `I` implements the [Input] trait describing the input source of the API.
+The generic argument `IT` implements the [TimeRepresentation] trait defining the input time format.
 The generic argument `V` implements the [VerdictRepresentation] trait describing the output format of the API that is by default [Incremental].
-The generic argument `S` implements the [Input] trait describing the input source of the API.
-*/
+The generic argument `VT` implements the [TimeRepresentation] trait defining the output time format. It defaults to [RelativeFloat]
+ */
 #[allow(missing_debug_implementations)]
 pub struct Monitor<I, IT, V = Incremental, VT = RelativeFloat>
 where
@@ -504,8 +506,12 @@ mod tests {
         spec: &str,
     ) -> (Instant, Monitor<EventInput<Event>, RelativeFloat, V, RelativeFloat>) {
         // Init Monitor API
-        let monitor =
-            ConfigBuilder::api().spec_str(spec).input_time::<RelativeFloat>().event_input::<Event>().monitor();
+        let monitor = ConfigBuilder::api()
+            .spec_str(spec)
+            .input_time::<RelativeFloat>()
+            .event_input::<Event>()
+            .with_verdict::<V>()
+            .monitor();
         (Instant::now(), monitor)
     }
 

@@ -1,3 +1,44 @@
+//! This module contains the different time representations of the interpreter.
+//!
+//! ## Time Representations
+//! The RTLola interpreter supports multiple representations of time in its input and output.
+//! If run in offline mode, meaning the time for an event is parsed from the input source,
+//! the format in which the time is present in the input has to be set. Consider the following example CSV file:
+//!
+//! <pre>
+//! a,b,time
+//! 0,1,0.1
+//! 2,3,0.2
+//! 4,5,0.3
+//! </pre>
+//!
+//! The supported time representations are:
+//!
+//! #### Relative
+//! Time is considered relative to a fixed point in time. Call this point in time `x` then in the example above
+//! the first event gets the timestamp `x + 0.1`, the second one `x + 0.2` and so forth.
+//!
+//! #### Incremental
+//! Time is considered relative to the preceding event. This induces the following timestamps for the above example:
+//!
+//! <pre>
+//! a,b, time
+//! 0,1, x + 0.1
+//! 2,3, x + 0.3
+//! 4,5, x + 0.6
+//! </pre>
+//!
+//! #### Absolute
+//! Time is parsed as absolute timestamps.
+//!
+//! **Note**: The evaluation of periodic streams depends on the time passed between events.
+//! Depending on the representation, determining the time that passed before the first event is not obvious.
+//! While the relative and incremental representations do not strictly need a point of reference to determine
+//! the time passed, the absolute representation requires such a point of reference.
+//! This point of time can either be directly supplied during configuration using the [start_time](ConfigBuilder::start_time) method
+//! or inferred as the time of the first event.
+//! The latter consequently assumes that no time has passed before the first event in the input.
+
 use crate::Time;
 use humantime::Rfc3339Timestamp;
 use lazy_static::lazy_static;
@@ -20,6 +61,7 @@ pub(crate) fn init_start_time<T: TimeRepresentation>(start_time: Option<SystemTi
     *START_TIME.write().unwrap() = start_time.or_else(T::default_start_time);
 }
 
+/// Precisely parses an duration from a string of the form '{secs}.{sub-secs}'
 pub fn parse_float_time(s: &str) -> Result<Duration, String> {
     let num = Decimal::from_str(s).map_err(|e| e.to_string())?;
     let nanos = (num.fract() * Decimal::from(NANOS_IN_SECOND)).to_u32().ok_or("Could not convert nano seconds")?;
@@ -27,24 +69,28 @@ pub fn parse_float_time(s: &str) -> Result<Duration, String> {
     Ok(Duration::new(secs, nanos))
 }
 
+/// The functionality a time format has to provide.
 pub trait TimeRepresentation: Default + Clone + Send + Sync + 'static {
+    /// The internal representation of the time format.
     type InnerTime: Clone;
 
+    /// Convert from the internal time representation to the monitor time.
     fn convert_from(&mut self, inner: Self::InnerTime) -> Time;
+    /// Convert from monitor time to the internal representation.
     fn convert_into(&mut self, ts: Time) -> Self::InnerTime;
 
+    /// Convert monitor time into the internal representation and then into a string.
     fn convert_into_string(&mut self, ts: Time) -> String;
+    /// Parse the internal representation from a string and convert it into monitor time.
     fn parse(&mut self, s: &'_ str) -> Result<Time, String>;
 
+    /// Returns a default start time if applicable for the time representation.
     fn default_start_time() -> Option<SystemTime> {
         Some(SystemTime::now())
     }
 }
 
-pub trait FromFloat {
-    fn parse(s: &str) -> Result<(u64, u32), String>;
-}
-
+/// Time represented as the unsigned number of nanoseconds relative to a fixed start time.
 #[derive(Debug, Copy, Clone, Default)]
 pub struct RelativeNanos {}
 
@@ -68,6 +114,8 @@ impl TimeRepresentation for RelativeNanos {
     }
 }
 
+/// Time represented as a positive real number representing seconds and sub-seconds relative to a fixed start time.
+/// ie. 5.2
 #[derive(Debug, Copy, Clone, Default)]
 pub struct RelativeFloat {}
 
@@ -84,9 +132,7 @@ impl TimeRepresentation for RelativeFloat {
 
     fn convert_into_string(&mut self, ts: Time) -> String {
         let dur = self.convert_into(ts);
-        let (secs, sub_secs) = (dur.as_secs(), dur.subsec_nanos());
-        let decimal = Decimal::from(secs) + Decimal::new(sub_secs as i64, 9);
-        decimal.round_dp(9).to_string()
+        format! {"{}.{:09}", dur.as_secs(), dur.subsec_nanos()}
     }
 
     fn parse(&mut self, s: &str) -> Result<Time, String> {
@@ -94,6 +140,7 @@ impl TimeRepresentation for RelativeFloat {
     }
 }
 
+/// Time represented as the unsigned number in nanoseconds as the offset to the preceding event.
 #[derive(Debug, Copy, Clone, Default)]
 pub struct OffsetNanos {
     current: Time,
@@ -122,6 +169,7 @@ impl TimeRepresentation for OffsetNanos {
     }
 }
 
+/// Time represented as a positive real number representing seconds and sub-seconds as the offset to the preceding event.
 #[derive(Debug, Copy, Clone, Default)]
 pub struct OffsetFloat {
     current: Time,
@@ -143,9 +191,7 @@ impl TimeRepresentation for OffsetFloat {
 
     fn convert_into_string(&mut self, ts: Time) -> String {
         let dur = self.convert_into(ts);
-        let (secs, sub_secs) = (dur.as_secs(), dur.subsec_nanos());
-        let decimal = Decimal::from(secs) + Decimal::new(sub_secs as i64, 9);
-        decimal.round_dp(9).to_string()
+        format! {"{}.{:09}", dur.as_secs(), dur.subsec_nanos()}
     }
 
     fn parse(&mut self, s: &str) -> Result<Time, String> {
@@ -154,6 +200,7 @@ impl TimeRepresentation for OffsetFloat {
     }
 }
 
+/// Time represented as wall clock time given as a positive real number representing seconds and sub-seconds since the start of the Unix Epoch.
 #[derive(Debug, Copy, Clone, Default)]
 pub struct AbsoluteFloat {}
 
@@ -178,9 +225,7 @@ impl TimeRepresentation for AbsoluteFloat {
 
     fn convert_into_string(&mut self, ts: Time) -> String {
         let dur = self.convert_into(ts);
-        let (secs, sub_secs) = (dur.as_secs(), dur.subsec_nanos());
-        let decimal = Decimal::from(secs) + Decimal::new(sub_secs as i64, 9);
-        decimal.round_dp(9).to_string()
+        format! {"{}.{:09}", dur.as_secs(), dur.subsec_nanos()}
     }
 
     fn parse(&mut self, s: &str) -> Result<Time, String> {
@@ -193,6 +238,7 @@ impl TimeRepresentation for AbsoluteFloat {
     }
 }
 
+/// Time represented as wall clock time in RFC3339 format.
 #[derive(Debug, Copy, Clone, Default)]
 pub struct AbsoluteRfc {}
 
@@ -230,6 +276,8 @@ impl TimeRepresentation for AbsoluteRfc {
     }
 }
 
+/// Time is set to be a fixed delay between input events.
+/// The time given is ignored, and the fixed delay is applied.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DelayTime {
     current: Duration,
@@ -237,6 +285,7 @@ pub struct DelayTime {
 }
 
 impl DelayTime {
+    /// Creates a new DelayTime with a given delay.
     pub fn new(delay: Duration) -> Self {
         DelayTime { current: Default::default(), delay }
     }
@@ -257,12 +306,11 @@ impl TimeRepresentation for DelayTime {
     }
 
     fn convert_into_string(&mut self, ts: Time) -> String {
-        let (secs, sub_secs) = (ts.as_secs(), ts.subsec_nanos());
-        let decimal = Decimal::from(secs) + Decimal::new(sub_secs as i64, 9);
-        decimal.round_dp(9).to_string()
+        format! {"{}.{:09}", ts.as_secs(), ts.subsec_nanos()}
     }
 }
 
+/// Time is set to be real-time. I.e. the input time is ignored and the current timestamp in rfc3339 format is taken instead.
 #[derive(Debug, Copy, Clone, Default)]
 pub struct RealTime {}
 impl TimeRepresentation for RealTime {

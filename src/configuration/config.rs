@@ -12,7 +12,7 @@ use crate::basics::PCAPInputSource;
 use crate::basics::{CsvInputSource, CsvInputSourceKind, OutputChannel, OutputHandler};
 use crate::configuration::time::{RelativeFloat, TimeRepresentation};
 use crate::coordination::Controller;
-use crate::monitor::{Input, VerdictRepresentation};
+use crate::monitor::{Incremental, Input, VerdictRepresentation};
 use crate::Monitor;
 use std::marker::PhantomData;
 
@@ -42,6 +42,45 @@ pub struct Config<IT: TimeRepresentation, OT: TimeRepresentation> {
     pub output_time_representation: PhantomData<OT>,
     /// The start time to assume
     pub start_time: Option<SystemTime>,
+}
+
+/// A configuration struct containing all information (including type information) to initialize a Monitor.
+#[derive(Debug, Clone)]
+pub struct MonitorConfig<I, IT, V = Incremental, VT = RelativeFloat>
+where
+    I: Input,
+    IT: TimeRepresentation,
+    V: VerdictRepresentation,
+    VT: TimeRepresentation,
+{
+    config: Config<IT, VT>,
+    input: PhantomData<I>,
+    verdict: PhantomData<V>,
+}
+
+impl<I: Input, IT: TimeRepresentation, V: VerdictRepresentation, VT: TimeRepresentation> MonitorConfig<I, IT, V, VT> {
+    /// Creates a new monitor config from a config
+    pub fn new(config: Config<IT, VT>) -> Self {
+        Self { config, input: PhantomData::default(), verdict: PhantomData::default() }
+    }
+
+    /// Returns the underlying configuration
+    pub fn inner(&self) -> &Config<IT, VT> {
+        &self.config
+    }
+
+    /// Transforms the configuration into a [Monitor] using the provided data to setup the input source.
+    pub fn monitor_with_data(self, data: I::CreationData) -> Monitor<I, IT, V, VT> {
+        Monitor::setup(self.config, data)
+    }
+
+    /// Transforms the configuration into a [Monitor]
+    pub fn monitor(self) -> Monitor<I, IT, V, VT>
+    where
+        I: Input<CreationData = ()>,
+    {
+        Monitor::setup(self.config, ())
+    }
 }
 
 /// Used to define the level of statistics that should be computed.

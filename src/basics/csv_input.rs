@@ -15,7 +15,10 @@ use std::time::SystemTime;
 /// Configures the input source for the [CsvEventSource].
 #[derive(Debug, Clone)]
 pub struct CsvInputSource {
+    /// The index of column in which the time information is given
+    /// If none the column named 'time' is chosen.
     pub time_col: Option<usize>,
+    /// Specifies the input channel of the source.
     pub kind: CsvInputSourceKind,
 }
 
