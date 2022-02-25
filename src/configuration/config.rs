@@ -10,9 +10,9 @@ use rtlola_frontend::RtLolaMir;
 #[cfg(feature = "pcap_interface")]
 use crate::basics::PCAPInputSource;
 use crate::basics::{CsvInputSource, CsvInputSourceKind, OutputChannel, OutputHandler};
-use crate::configuration::time::{RelativeFloat, TimeRepresentation};
 use crate::coordination::Controller;
 use crate::monitor::{Incremental, Input, VerdictRepresentation};
+use crate::time::{OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
 use crate::Monitor;
 use std::marker::PhantomData;
 
@@ -23,7 +23,7 @@ The configuration describes how the specification should be executed.
 The `Config` can then be turned into a monitor for use via the API or simply executed.
  */
 #[derive(Clone, Debug)]
-pub struct Config<IT: TimeRepresentation, OT: TimeRepresentation> {
+pub struct Config<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation> {
     /// The representation of the specification
     pub ir: RtLolaMir,
     /// The source of events
@@ -37,47 +37,53 @@ pub struct Config<IT: TimeRepresentation, OT: TimeRepresentation> {
     /// In which mode the evaluator is executed
     pub mode: ExecutionMode,
     /// Which format the time is given to the monitor
-    pub input_time_representation: IT,
+    pub input_time_representation: InputTime,
     /// Which format to use to output time
-    pub output_time_representation: PhantomData<OT>,
+    pub output_time_representation: PhantomData<OutputTime>,
     /// The start time to assume
     pub start_time: Option<SystemTime>,
 }
 
 /// A configuration struct containing all information (including type information) to initialize a Monitor.
 #[derive(Debug, Clone)]
-pub struct MonitorConfig<I, IT, V = Incremental, VT = RelativeFloat>
+pub struct MonitorConfig<Source, SourceTime, Verdict = Incremental, VerdictTime = RelativeFloat>
 where
-    I: Input,
-    IT: TimeRepresentation,
-    V: VerdictRepresentation,
-    VT: TimeRepresentation,
+    Source: Input,
+    SourceTime: TimeRepresentation,
+    Verdict: VerdictRepresentation,
+    VerdictTime: OutputTimeRepresentation,
 {
-    config: Config<IT, VT>,
-    input: PhantomData<I>,
-    verdict: PhantomData<V>,
+    config: Config<SourceTime, VerdictTime>,
+    input: PhantomData<Source>,
+    verdict: PhantomData<Verdict>,
 }
 
-impl<I: Input, IT: TimeRepresentation, V: VerdictRepresentation, VT: TimeRepresentation> MonitorConfig<I, IT, V, VT> {
+impl<
+        Source: Input,
+        SourceTime: TimeRepresentation,
+        Verdict: VerdictRepresentation,
+        VerdictTime: OutputTimeRepresentation,
+    > MonitorConfig<Source, SourceTime, Verdict, VerdictTime>
+{
     /// Creates a new monitor config from a config
-    pub fn new(config: Config<IT, VT>) -> Self {
+    pub fn new(config: Config<SourceTime, VerdictTime>) -> Self {
         Self { config, input: PhantomData::default(), verdict: PhantomData::default() }
     }
 
     /// Returns the underlying configuration
-    pub fn inner(&self) -> &Config<IT, VT> {
+    pub fn inner(&self) -> &Config<SourceTime, VerdictTime> {
         &self.config
     }
 
     /// Transforms the configuration into a [Monitor] using the provided data to setup the input source.
-    pub fn monitor_with_data(self, data: I::CreationData) -> Monitor<I, IT, V, VT> {
+    pub fn monitor_with_data(self, data: Source::CreationData) -> Monitor<Source, SourceTime, Verdict, VerdictTime> {
         Monitor::setup(self.config, data)
     }
 
     /// Transforms the configuration into a [Monitor]
-    pub fn monitor(self) -> Monitor<I, IT, V, VT>
+    pub fn monitor(self) -> Monitor<Source, SourceTime, Verdict, VerdictTime>
     where
-        I: Input<CreationData = ()>,
+        Source: Input<CreationData = ()>,
     {
         Monitor::setup(self.config, ())
     }
@@ -179,7 +185,7 @@ impl Config<RelativeFloat, RelativeFloat> {
     }
 }
 
-impl<IT: TimeRepresentation, OT: TimeRepresentation> Config<IT, OT> {
+impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation> Config<InputTime, OutputTime> {
     /// Creates a new release config.
     pub fn release(
         ir: RtLolaMir,
@@ -197,8 +203,8 @@ impl<IT: TimeRepresentation, OT: TimeRepresentation> Config<IT, OT> {
             verbosity: Verbosity::Triggers,
             output_channel: output,
             mode,
-            input_time_representation: IT::default(),
-            output_time_representation: PhantomData::<OT>::default(),
+            input_time_representation: InputTime::default(),
+            output_time_representation: PhantomData::<OutputTime>::default(),
             start_time,
         }
     }
@@ -212,19 +218,22 @@ impl<IT: TimeRepresentation, OT: TimeRepresentation> Config<IT, OT> {
             verbosity: Verbosity::Triggers,
             output_channel: OutputChannel::None,
             mode: ExecutionMode::Offline,
-            input_time_representation: IT::default(),
+            input_time_representation: InputTime::default(),
             output_time_representation: PhantomData::default(),
             start_time: None,
         }
     }
 
     /// Run the interpreter on this configuration.
-    pub fn run(self) -> Result<Arc<OutputHandler<OT>>, Box<dyn std::error::Error>> {
+    pub fn run(self) -> Result<Arc<OutputHandler<OutputTime>>, Box<dyn std::error::Error>> {
         Controller::new(self).start()
     }
 
     /// Turn the configuration into the [Monitor] API.
-    pub fn monitor<I: Input, V: VerdictRepresentation>(self, data: I::CreationData) -> Monitor<I, IT, V, OT> {
+    pub fn monitor<Source: Input, Verdict: VerdictRepresentation>(
+        self,
+        data: Source::CreationData,
+    ) -> Monitor<Source, InputTime, Verdict, OutputTime> {
         Monitor::setup(self, data)
     }
 }

@@ -1,9 +1,9 @@
 use crate::basics::OutputHandler;
 use crate::closuregen::{CompiledExpr, Expr};
+use crate::configuration::time::OutputTimeRepresentation;
 use crate::coordination::monitor::{Change, Instance};
 use crate::coordination::{DynamicSchedule, EvaluationTask};
 use crate::storage::{GlobalStore, Value};
-use crate::time::TimeRepresentation;
 use crate::Time;
 use bit_set::BitSet;
 use rtlola_frontend::mir::{
@@ -23,7 +23,7 @@ pub(crate) enum ActivationConditionOp {
     General(Activation),
 }
 
-pub(crate) struct EvaluatorData<OT: TimeRepresentation> {
+pub(crate) struct EvaluatorData<OutputTime: OutputTimeRepresentation> {
     // Evaluation order of output streams
     layers: Vec<Vec<Task>>,
     // Accessed by stream index
@@ -41,12 +41,12 @@ pub(crate) struct EvaluatorData<OT: TimeRepresentation> {
     trigger_templates: Vec<Option<Template>>,
     closing_streams: Vec<OutputReference>,
     ir: RtLolaMir,
-    handler: Arc<OutputHandler<OT>>,
+    handler: Arc<OutputHandler<OutputTime>>,
     dyn_schedule: Arc<(Mutex<DynamicSchedule>, Condvar)>,
 }
 
 #[allow(missing_debug_implementations)]
-pub(crate) struct Evaluator<OT: TimeRepresentation> {
+pub(crate) struct Evaluator<OutputTime: OutputTimeRepresentation> {
     // Evaluation order of output streams
     layers: &'static [Vec<Task>],
     // Indexed by stream reference.
@@ -78,9 +78,9 @@ pub(crate) struct Evaluator<OT: TimeRepresentation> {
     trigger_templates: &'static [Option<Template>],
     closing_streams: &'static [OutputReference],
     ir: &'static RtLolaMir,
-    handler: &'static OutputHandler<OT>,
+    handler: &'static OutputHandler<OutputTime>,
     dyn_schedule: &'static (Mutex<DynamicSchedule>, Condvar),
-    raw_data: *mut EvaluatorData<OT>,
+    raw_data: *mut EvaluatorData<OutputTime>,
 }
 
 pub(crate) struct EvaluationContext<'e> {
@@ -91,10 +91,10 @@ pub(crate) struct EvaluationContext<'e> {
     pub(crate) parameter: Vec<Value>,
 }
 
-impl<OT: TimeRepresentation> EvaluatorData<OT> {
+impl<OutputTime: OutputTimeRepresentation> EvaluatorData<OutputTime> {
     pub(crate) fn new(
         ir: RtLolaMir,
-        handler: Arc<OutputHandler<OT>>,
+        handler: Arc<OutputHandler<OutputTime>>,
         dyn_schedule: Arc<(Mutex<DynamicSchedule>, Condvar)>,
     ) -> Self {
         // Layers of event based output streams
@@ -172,12 +172,12 @@ impl<OT: TimeRepresentation> EvaluatorData<OT> {
         }
     }
 
-    pub(crate) fn into_evaluator(self) -> Evaluator<OT> {
+    pub(crate) fn into_evaluator(self) -> Evaluator<OutputTime> {
         let mut on_heap = Box::new(self);
         // Store pointer to data so we can delete it in implementation of Drop trait.
         // This is necessary since we leak the evaluator data.
-        let heap_ptr: *mut EvaluatorData<OT> = &mut *on_heap;
-        let leaked_data: &'static mut EvaluatorData<OT> = Box::leak(on_heap);
+        let heap_ptr: *mut EvaluatorData<OutputTime> = &mut *on_heap;
+        let leaked_data: &'static mut EvaluatorData<OutputTime> = Box::leak(on_heap);
 
         //Compile expressions
         let compiled_stream_exprs = leaked_data
@@ -246,14 +246,14 @@ impl<OT: TimeRepresentation> EvaluatorData<OT> {
     }
 }
 
-impl<OT: TimeRepresentation> Drop for Evaluator<OT> {
+impl<OutputTime: OutputTimeRepresentation> Drop for Evaluator<OutputTime> {
     #[allow(unsafe_code)]
     fn drop(&mut self) {
         drop(unsafe { Box::from_raw(self.raw_data) });
     }
 }
 
-impl<OT: TimeRepresentation> Evaluator<OT> {
+impl<OutputTime: OutputTimeRepresentation> Evaluator<OutputTime> {
     /// Values of event are expected in the order of the input streams
     /// Time should be relative to the starting time of the monitor
     pub(crate) fn eval_event(&mut self, event: &[Value], ts: Time) {
@@ -836,7 +836,7 @@ mod tests {
     use rtlola_frontend::ParserConfig;
     use std::time::{Duration, Instant};
 
-    fn setup(spec: &str) -> (RtLolaMir, EvaluatorData<impl TimeRepresentation>, Instant) {
+    fn setup(spec: &str) -> (RtLolaMir, EvaluatorData<impl OutputTimeRepresentation>, Instant) {
         let ir = rtlola_frontend::parse(ParserConfig::for_string(spec.to_string()))
             .unwrap_or_else(|e| panic!("spec is invalid: {:?}", e));
         let mut config = Config::debug(ir.clone());
@@ -850,7 +850,7 @@ mod tests {
         (ir, eval, now)
     }
 
-    fn setup_time(spec: &str) -> (RtLolaMir, EvaluatorData<impl TimeRepresentation>, Time) {
+    fn setup_time(spec: &str) -> (RtLolaMir, EvaluatorData<impl OutputTimeRepresentation>, Time) {
         let (ir, eval, _) = setup(spec);
         (ir, eval, Time::default())
     }

@@ -35,7 +35,7 @@
 //! Depending on the representation, determining the time that passed before the first event is not obvious.
 //! While the relative and incremental representations do not strictly need a point of reference to determine
 //! the time passed, the absolute representation requires such a point of reference.
-//! This point of time can either be directly supplied during configuration using the [start_time](ConfigBuilder::start_time) method
+//! This point of time can either be directly supplied during configuration using the [start_time](crate::ConfigBuilder::start_time) method
 //! or inferred as the time of the first event.
 //! The latter consequently assumes that no time has passed before the first event in the input.
 
@@ -77,10 +77,10 @@ pub trait TimeRepresentation: Default + Clone + Send + Sync + 'static {
     /// Convert from the internal time representation to the monitor time.
     fn convert_from(&mut self, inner: Self::InnerTime) -> Time;
     /// Convert from monitor time to the internal representation.
-    fn convert_into(&mut self, ts: Time) -> Self::InnerTime;
+    fn convert_into(&self, ts: Time) -> Self::InnerTime;
 
     /// Convert monitor time into the internal representation and then into a string.
-    fn convert_into_string(&mut self, ts: Time) -> String;
+    fn convert_into_string(&self, ts: Time) -> String;
     /// Parse the internal representation from a string and convert it into monitor time.
     fn parse(&mut self, s: &'_ str) -> Result<Time, String>;
 
@@ -89,6 +89,9 @@ pub trait TimeRepresentation: Default + Clone + Send + Sync + 'static {
         Some(SystemTime::now())
     }
 }
+
+/// This trait captures the subset [TimeRepresentation]s suitable for output.
+pub trait OutputTimeRepresentation: TimeRepresentation {}
 
 /// Time represented as the unsigned number of nanoseconds relative to a fixed start time.
 #[derive(Debug, Copy, Clone, Default)]
@@ -101,11 +104,11 @@ impl TimeRepresentation for RelativeNanos {
         Duration::from_nanos(nanos)
     }
 
-    fn convert_into(&mut self, ts: Time) -> Self::InnerTime {
+    fn convert_into(&self, ts: Time) -> Self::InnerTime {
         ts.as_nanos() as u64
     }
 
-    fn convert_into_string(&mut self, ts: Time) -> String {
+    fn convert_into_string(&self, ts: Time) -> String {
         self.convert_into(ts).to_string()
     }
 
@@ -113,6 +116,7 @@ impl TimeRepresentation for RelativeNanos {
         u64::from_str(s).map(|n| self.convert_from(n)).map_err(|e| e.to_string())
     }
 }
+impl OutputTimeRepresentation for RelativeNanos {}
 
 /// Time represented as a positive real number representing seconds and sub-seconds relative to a fixed start time.
 /// ie. 5.2
@@ -126,11 +130,11 @@ impl TimeRepresentation for RelativeFloat {
         ts
     }
 
-    fn convert_into(&mut self, ts: Time) -> Self::InnerTime {
+    fn convert_into(&self, ts: Time) -> Self::InnerTime {
         ts
     }
 
-    fn convert_into_string(&mut self, ts: Time) -> String {
+    fn convert_into_string(&self, ts: Time) -> String {
         let dur = self.convert_into(ts);
         format! {"{}.{:09}", dur.as_secs(), dur.subsec_nanos()}
     }
@@ -139,6 +143,7 @@ impl TimeRepresentation for RelativeFloat {
         parse_float_time(s)
     }
 }
+impl OutputTimeRepresentation for RelativeFloat {}
 
 /// Time represented as the unsigned number in nanoseconds as the offset to the preceding event.
 #[derive(Debug, Copy, Clone, Default)]
@@ -156,11 +161,11 @@ impl TimeRepresentation for OffsetNanos {
         self.current
     }
 
-    fn convert_into(&mut self, ts: Time) -> Self::InnerTime {
+    fn convert_into(&self, ts: Time) -> Self::InnerTime {
         ts.sub(self.last_time).as_nanos() as u64
     }
 
-    fn convert_into_string(&mut self, ts: Time) -> String {
+    fn convert_into_string(&self, ts: Time) -> String {
         self.convert_into(ts).to_string()
     }
 
@@ -185,11 +190,11 @@ impl TimeRepresentation for OffsetFloat {
         self.current
     }
 
-    fn convert_into(&mut self, ts: Time) -> Self::InnerTime {
+    fn convert_into(&self, ts: Time) -> Self::InnerTime {
         ts - self.last_time
     }
 
-    fn convert_into_string(&mut self, ts: Time) -> String {
+    fn convert_into_string(&self, ts: Time) -> String {
         let dur = self.convert_into(ts);
         format! {"{}.{:09}", dur.as_secs(), dur.subsec_nanos()}
     }
@@ -218,12 +223,12 @@ impl TimeRepresentation for AbsoluteFloat {
         }
     }
 
-    fn convert_into(&mut self, ts: Time) -> Self::InnerTime {
+    fn convert_into(&self, ts: Time) -> Self::InnerTime {
         let ts = START_TIME.read().unwrap().unwrap() + ts;
         ts.duration_since(SystemTime::UNIX_EPOCH).expect("Time did not behave monotonically!")
     }
 
-    fn convert_into_string(&mut self, ts: Time) -> String {
+    fn convert_into_string(&self, ts: Time) -> String {
         let dur = self.convert_into(ts);
         format! {"{}.{:09}", dur.as_secs(), dur.subsec_nanos()}
     }
@@ -237,6 +242,7 @@ impl TimeRepresentation for AbsoluteFloat {
         None
     }
 }
+impl OutputTimeRepresentation for AbsoluteFloat {}
 
 /// Time represented as wall clock time in RFC3339 format.
 #[derive(Debug, Copy, Clone, Default)]
@@ -256,12 +262,12 @@ impl TimeRepresentation for AbsoluteRfc {
         }
     }
 
-    fn convert_into(&mut self, ts: Time) -> Self::InnerTime {
+    fn convert_into(&self, ts: Time) -> Self::InnerTime {
         let ts = START_TIME.read().unwrap().unwrap() + ts;
         humantime::format_rfc3339(ts)
     }
 
-    fn convert_into_string(&mut self, ts: Time) -> String {
+    fn convert_into_string(&self, ts: Time) -> String {
         self.convert_into(ts).to_string()
     }
 
@@ -275,6 +281,7 @@ impl TimeRepresentation for AbsoluteRfc {
         None
     }
 }
+impl OutputTimeRepresentation for AbsoluteRfc {}
 
 /// Time is set to be a fixed delay between input events.
 /// The time given is ignored, and the fixed delay is applied.
@@ -299,13 +306,13 @@ impl TimeRepresentation for DelayTime {
         self.current
     }
 
-    fn convert_into(&mut self, _ts: Time) -> Self::InnerTime {}
+    fn convert_into(&self, _ts: Time) -> Self::InnerTime {}
 
     fn parse(&mut self, _s: &str) -> Result<Time, String> {
         Ok(self.convert_from(()))
     }
 
-    fn convert_into_string(&mut self, ts: Time) -> String {
+    fn convert_into_string(&self, ts: Time) -> String {
         format! {"{}.{:09}", ts.as_secs(), ts.subsec_nanos()}
     }
 }
@@ -327,9 +334,9 @@ impl TimeRepresentation for RealTime {
         }
     }
 
-    fn convert_into(&mut self, _ts: Time) -> Self::InnerTime {}
+    fn convert_into(&self, _ts: Time) -> Self::InnerTime {}
 
-    fn convert_into_string(&mut self, ts: Time) -> String {
+    fn convert_into_string(&self, ts: Time) -> String {
         let ts = START_TIME.read().unwrap().unwrap() + ts;
         humantime::format_rfc3339(ts).to_string()
     }

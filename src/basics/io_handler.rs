@@ -4,7 +4,7 @@ use crate::basics::CsvEventSource;
 #[cfg(feature = "pcap_interface")]
 use crate::basics::PCAPEventSource;
 use crate::config::{Config, EventSourceConfig, Verbosity};
-use crate::configuration::time::TimeRepresentation;
+use crate::configuration::time::{OutputTimeRepresentation, TimeRepresentation};
 use crate::storage::Value;
 use crate::Time;
 use crossterm::{
@@ -18,7 +18,7 @@ use std::fs::File;
 use std::io::{stderr, stdout, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime};
 
@@ -27,7 +27,7 @@ use std::time::{Duration, SystemTime};
 /// A trait that represents the functionality needed for an event source.
 /// The order in which the functions are called is:
 /// has_event -> get_event
-pub(crate) trait EventSource<IT: TimeRepresentation> {
+pub(crate) trait EventSource<InputTime: TimeRepresentation> {
     /// Returns true if another event can be obtained from the Event Source
     fn has_event(&mut self) -> bool;
 
@@ -35,12 +35,12 @@ pub(crate) trait EventSource<IT: TimeRepresentation> {
     fn get_event(&mut self) -> (Vec<Value>, Time);
 }
 
-pub(crate) fn create_event_source<IT: TimeRepresentation>(
+pub(crate) fn create_event_source<InputTime: TimeRepresentation>(
     config: EventSourceConfig,
     ir: &RtLolaMir,
     start_time: Option<SystemTime>,
-    input_time_representation: IT,
-) -> Result<Box<dyn EventSource<IT>>, Box<dyn Error>> {
+    input_time_representation: InputTime,
+) -> Result<Box<dyn EventSource<InputTime>>, Box<dyn Error>> {
     use EventSourceConfig::*;
     match config {
         Csv { src } => CsvEventSource::setup(&src, input_time_representation, ir, start_time),
@@ -73,17 +73,20 @@ impl Default for OutputChannel {
 
 /// Manages the output of the interpreter.
 #[derive(Debug)]
-pub struct OutputHandler<OT: TimeRepresentation> {
+pub struct OutputHandler<OutputTime: OutputTimeRepresentation> {
     pub(crate) verbosity: Verbosity,
     channel: OutputChannel,
     file: Option<File>,
     pub(crate) statistics: Option<Statistics>,
-    output_time: RwLock<OT>,
+    output_time: OutputTime,
 }
 
-impl<OT: TimeRepresentation> OutputHandler<OT> {
+impl<OutputTime: OutputTimeRepresentation> OutputHandler<OutputTime> {
     /// Creates a new Output Handler. If None is given as 'start_time', then the first event determines it.
-    pub(crate) fn new(config: &Config<impl TimeRepresentation, OT>, num_trigger: usize) -> OutputHandler<OT> {
+    pub(crate) fn new(
+        config: &Config<impl TimeRepresentation, OutputTime>,
+        num_trigger: usize,
+    ) -> OutputHandler<OutputTime> {
         let statistics = if config.verbosity == Verbosity::Progress {
             let stats = Statistics::new(num_trigger);
             stats.start_print_progress();
@@ -98,7 +101,7 @@ impl<OT: TimeRepresentation> OutputHandler<OT> {
             channel: config.output_channel.clone(),
             file: None,
             statistics,
-            output_time: RwLock::new(OT::default()),
+            output_time: OutputTime::default(),
         }
     }
 
@@ -114,7 +117,7 @@ impl<OT: TimeRepresentation> OutputHandler<OT> {
     where
         F: FnOnce() -> T,
     {
-        let time = self.output_time.write().unwrap().convert_into_string(time);
+        let time = self.output_time.convert_into_string(time);
         let msg = || format!("{}: {}", time, msg().into());
         self.emit(Verbosity::Triggers, msg);
         if let Some(statistics) = &self.statistics {

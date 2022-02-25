@@ -17,7 +17,7 @@
 
 use crate::basics::OutputHandler;
 use crate::config::Config;
-use crate::configuration::time::{init_start_time, RelativeFloat, TimeRepresentation};
+use crate::configuration::time::{init_start_time, OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
 use crate::coordination::time_driven_manager::TimeDrivenManager;
 use crate::coordination::DynamicSchedule;
 use crate::evaluator::{Evaluator, EvaluatorData};
@@ -39,7 +39,7 @@ pub type Event = Vec<Value>;
 */
 pub trait VerdictRepresentation {
     /// Creates a snapshot of the streams values.
-    fn create(data: RawVerdict<impl TimeRepresentation>) -> Self
+    fn create(data: RawVerdict<impl OutputTimeRepresentation>) -> Self
     where
         Self: Sized;
 }
@@ -82,7 +82,7 @@ impl Display for Change {
 pub type Incremental = Vec<(OutputReference, Vec<Change>)>;
 
 impl VerdictRepresentation for Incremental {
-    fn create(data: RawVerdict<impl TimeRepresentation>) -> Self {
+    fn create(data: RawVerdict<impl OutputTimeRepresentation>) -> Self {
         data.eval.peek_fresh()
     }
 }
@@ -101,7 +101,7 @@ pub struct Total {
 }
 
 impl VerdictRepresentation for Total {
-    fn create(data: RawVerdict<impl TimeRepresentation>) -> Self {
+    fn create(data: RawVerdict<impl OutputTimeRepresentation>) -> Self {
         Total { inputs: data.eval.peek_inputs(), outputs: data.eval.peek_outputs() }
     }
 }
@@ -112,7 +112,7 @@ impl VerdictRepresentation for Total {
 pub type TriggerMessages = Vec<(OutputReference, String)>;
 
 impl VerdictRepresentation for TriggerMessages {
-    fn create(data: RawVerdict<impl TimeRepresentation>) -> Self
+    fn create(data: RawVerdict<impl OutputTimeRepresentation>) -> Self
     where
         Self: Sized,
     {
@@ -127,7 +127,7 @@ impl VerdictRepresentation for TriggerMessages {
 pub type TriggersWithInfoValues = Vec<(OutputReference, Vec<Option<Value>>)>;
 
 impl VerdictRepresentation for TriggersWithInfoValues {
-    fn create(data: RawVerdict<impl TimeRepresentation>) -> Self
+    fn create(data: RawVerdict<impl OutputTimeRepresentation>) -> Self
     where
         Self: Sized,
     {
@@ -143,9 +143,9 @@ impl VerdictRepresentation for TriggersWithInfoValues {
     The field `timed` is a vector, containing all updates of periodic streams since the last event.
 */
 #[derive(Debug)]
-pub struct Verdicts<V: VerdictRepresentation, T> {
+pub struct Verdicts<V: VerdictRepresentation, VerdictTime: OutputTimeRepresentation> {
     /// All verdicts caused by timed streams given at each deadline that occurred.
-    pub timed: Vec<(T, V)>,
+    pub timed: Vec<(VerdictTime::InnerTime, V)>,
     /// The verdict that resulted from evaluation the event.
     pub event: V,
 }
@@ -156,48 +156,51 @@ The Monitor is the central object exposed by the API.
 The [Monitor] accepts new events and computes streams.
 It can compute event-based streams based on new events through `accept_event`.
 It can also simply advance periodic streams up to a given timestamp through `accept_time`.
-The generic argument `I` implements the [Input] trait describing the input source of the API.
-The generic argument `IT` implements the [TimeRepresentation] trait defining the input time format.
-The generic argument `V` implements the [VerdictRepresentation] trait describing the output format of the API that is by default [Incremental].
-The generic argument `VT` implements the [TimeRepresentation] trait defining the output time format. It defaults to [RelativeFloat]
+The generic argument `Source` implements the [Input] trait describing the input source of the API.
+The generic argument `SourceTime` implements the [TimeRepresentation] trait defining the input time format.
+The generic argument `Verdict` implements the [VerdictRepresentation] trait describing the output format of the API that is by default [Incremental].
+The generic argument `VerdictTime` implements the [TimeRepresentation] trait defining the output time format. It defaults to [RelativeFloat]
  */
 #[allow(missing_debug_implementations)]
-pub struct Monitor<I, IT, V = Incremental, VT = RelativeFloat>
+pub struct Monitor<Source, SourceTime, Verdict = Incremental, VerdictTime = RelativeFloat>
 where
-    I: Input,
-    IT: TimeRepresentation,
-    V: VerdictRepresentation,
-    VT: TimeRepresentation + 'static,
+    Source: Input,
+    SourceTime: TimeRepresentation,
+    Verdict: VerdictRepresentation,
+    VerdictTime: OutputTimeRepresentation + 'static,
 {
     ir: RtLolaMir,
-    eval: Evaluator<VT>,
+    eval: Evaluator<VerdictTime>,
 
-    time_manager: TimeDrivenManager<VT>,
+    time_manager: TimeDrivenManager<VerdictTime>,
 
-    source: I,
+    source: Source,
 
-    source_time: IT,
-    output_time: VT,
+    source_time: SourceTime,
+    output_time: VerdictTime,
 
-    phantom: PhantomData<V>,
+    phantom: PhantomData<Verdict>,
 }
 
 /// Crate-public interface
-impl<I, IT, V, VT> Monitor<I, IT, V, VT>
+impl<Source, SourceTime, Verdict, VerdictTime> Monitor<Source, SourceTime, Verdict, VerdictTime>
 where
-    I: Input,
-    IT: TimeRepresentation,
-    V: VerdictRepresentation,
-    VT: TimeRepresentation,
+    Source: Input,
+    SourceTime: TimeRepresentation,
+    Verdict: VerdictRepresentation,
+    VerdictTime: OutputTimeRepresentation,
 {
     ///setup
-    pub(crate) fn setup(config: Config<IT, VT>, setup_data: I::CreationData) -> Monitor<I, IT, V, VT> {
+    pub(crate) fn setup(
+        config: Config<SourceTime, VerdictTime>,
+        setup_data: Source::CreationData,
+    ) -> Monitor<Source, SourceTime, Verdict, VerdictTime> {
         let output_handler = Arc::new(OutputHandler::new(&config, config.ir.triggers.len()));
         let dyn_schedule = Arc::new((Mutex::new(DynamicSchedule::new()), Condvar::new()));
         let source_time = config.input_time_representation;
-        let output_time = VT::default();
+        let output_time = VerdictTime::default();
 
-        init_start_time::<IT>(config.start_time);
+        init_start_time::<SourceTime>(config.start_time);
 
         let input_map = config.ir.inputs.iter().map(|i| (i.name.clone(), i.reference.in_ix())).collect();
 
@@ -211,7 +214,7 @@ where
             eval: eval_data.into_evaluator(),
             time_manager,
 
-            source: I::new(input_map, setup_data),
+            source: Source::new(input_map, setup_data),
 
             source_time,
             output_time,
@@ -223,12 +226,14 @@ where
 
 /// A raw verdict that is transformed into the respective representation
 #[allow(missing_debug_implementations)]
-pub struct RawVerdict<'a, OT: TimeRepresentation + 'static> {
-    eval: &'a Evaluator<OT>,
+pub struct RawVerdict<'a, VerdictTime: OutputTimeRepresentation + 'static> {
+    eval: &'a Evaluator<VerdictTime>,
 }
 
-impl<'a, OT: TimeRepresentation + 'static> From<&'a Evaluator<OT>> for RawVerdict<'a, OT> {
-    fn from(eval: &'a Evaluator<OT>) -> Self {
+impl<'a, VerdictTime: OutputTimeRepresentation + 'static> From<&'a Evaluator<VerdictTime>>
+    for RawVerdict<'a, VerdictTime>
+{
+    fn from(eval: &'a Evaluator<VerdictTime>) -> Self {
         RawVerdict { eval }
     }
 }
@@ -302,24 +307,24 @@ pub trait Record {
 /// }
 /// ```
 #[allow(missing_debug_implementations)]
-pub struct RecordInput<P: Record> {
-    translators: Vec<Box<dyn (Fn(&P) -> Value)>>,
+pub struct RecordInput<Inner: Record> {
+    translators: Vec<Box<dyn (Fn(&Inner) -> Value)>>,
 }
 
-impl<P: Record> Input for RecordInput<P> {
-    type Record = P;
-    type CreationData = P::CreationData;
+impl<Inner: Record> Input for RecordInput<Inner> {
+    type Record = Inner;
+    type CreationData = Inner::CreationData;
 
     fn new(map: HashMap<String, InputReference>, setup_data: Self::CreationData) -> Self {
         let mut translators: Vec<Option<_>> = (0..map.len()).map(|_| None).collect();
         map.iter().for_each(|(input_name, index)| {
-            translators[*index] = Some(P::func_for_input(input_name.as_str(), setup_data.clone()))
+            translators[*index] = Some(Inner::func_for_input(input_name.as_str(), setup_data.clone()))
         });
         let translators = translators.into_iter().map(Option::unwrap).collect();
         Self { translators }
     }
 
-    fn get_event(&self, rec: P) -> Event {
+    fn get_event(&self, rec: Inner) -> Event {
         self.translators.iter().map(|f| f(&rec)).collect()
     }
 }
@@ -345,52 +350,52 @@ impl<E: Into<Event>> Input for EventInput<E> {
 }
 
 /// Public interface
-impl<I, IT, V, VT> Monitor<I, IT, V, VT>
+impl<Source, SourceTime, Verdict, VerdictTime> Monitor<Source, SourceTime, Verdict, VerdictTime>
 where
-    I: Input,
-    IT: TimeRepresentation,
-    V: VerdictRepresentation,
-    VT: TimeRepresentation,
+    Source: Input,
+    SourceTime: TimeRepresentation,
+    Verdict: VerdictRepresentation,
+    VerdictTime: OutputTimeRepresentation,
 {
     /**
     Computes all periodic streams up through the new timestamp and then handles the input event.
 
     The new event is therefore not seen by periodic streams up through a new timestamp.
     */
-    pub fn accept_event(&mut self, ev: I::Record, ts: IT::InnerTime) -> Verdicts<V, VT::InnerTime> {
+    pub fn accept_event(&mut self, ev: Source::Record, ts: SourceTime::InnerTime) -> Verdicts<Verdict, VerdictTime> {
         let ev = self.source.get_event(ev);
         let ts = self.source_time.convert_from(ts);
 
         // Evaluate timed streams with due < ts
-        let mut timed: Vec<(Time, V)> = vec![];
+        let mut timed: Vec<(Time, Verdict)> = vec![];
         self.time_manager.accept_time_offline_with_callback(&mut self.eval, ts, |due, eval| {
-            timed.push((due, V::create(RawVerdict::from(eval))))
+            timed.push((due, Verdict::create(RawVerdict::from(eval))))
         });
 
         // Evaluate
         self.eval.eval_event(ev.as_slice(), ts);
-        let event_change = V::create(RawVerdict::from(&self.eval));
+        let event_change = Verdict::create(RawVerdict::from(&self.eval));
 
         let timed = timed.into_iter().map(|(t, v)| (self.output_time.convert_into(t), v)).collect();
 
-        Verdicts::<V, VT::InnerTime> { timed, event: event_change }
+        Verdicts::<Verdict, VerdictTime> { timed, event: event_change }
     }
 
     /**
     Computes all periodic streams up through and including the timestamp.
     */
-    pub fn accept_time(&mut self, ts: IT::InnerTime) -> Vec<(VT::InnerTime, V)> {
-        let mut timed_changes: Vec<(Time, V)> = vec![];
+    pub fn accept_time(&mut self, ts: SourceTime::InnerTime) -> Vec<(VerdictTime::InnerTime, Verdict)> {
+        let mut timed_changes: Vec<(Time, Verdict)> = vec![];
 
         let ts = self.source_time.convert_from(ts);
 
         // Eval all timed streams with due < ts
         self.time_manager.accept_time_offline_with_callback(&mut self.eval, ts, |due, eval| {
-            timed_changes.push((due, V::create(RawVerdict::from(eval))))
+            timed_changes.push((due, Verdict::create(RawVerdict::from(eval))))
         });
         // Eval all timed streams with due = ts
         self.time_manager.end_offline_with_callback(&mut self.eval, ts, |due, eval| {
-            timed_changes.push((due, V::create(RawVerdict::from(eval))))
+            timed_changes.push((due, Verdict::create(RawVerdict::from(eval))))
         });
 
         timed_changes.into_iter().map(|(t, v)| (self.output_time.convert_into(t), v)).collect()
@@ -488,7 +493,7 @@ where
     }
 
     /// Switch [VerdictRepresentation]s of the [Monitor].
-    pub fn with_verdict_representation<T: VerdictRepresentation>(self) -> Monitor<I, IT, T, VT> {
+    pub fn with_verdict_representation<T: VerdictRepresentation>(self) -> Monitor<Source, SourceTime, T, VerdictTime> {
         let Monitor { ir, eval, time_manager, source_time, source, output_time, phantom: _ } = self;
         Monitor { ir, eval, time_manager, source_time, source, output_time, phantom: PhantomData }
     }

@@ -1,6 +1,6 @@
 use super::WorkItem;
 use crate::basics::OutputHandler;
-use crate::configuration::time::{RealTime, TimeRepresentation};
+use crate::configuration::time::{OutputTimeRepresentation, RealTime, TimeRepresentation};
 use crate::coordination::dynamic_schedule::DynamicSchedule;
 use crate::evaluator::Evaluator;
 use crate::Time;
@@ -43,24 +43,24 @@ impl EvaluationTask {
 
 pub(crate) type TimeEvaluation = Vec<EvaluationTask>;
 
-pub(crate) struct TimeDrivenManager<OT: TimeRepresentation> {
+pub(crate) struct TimeDrivenManager<OutputTime: OutputTimeRepresentation> {
     ir: RtLolaMir,
     has_time_driven: bool,
     deadlines: Vec<Deadline>,
     dyn_schedule: Arc<(Mutex<DynamicSchedule>, Condvar)>,
-    handler: Arc<OutputHandler<OT>>,
+    handler: Arc<OutputHandler<OutputTime>>,
     cur_static_deadline_idx: usize,
     next_static_deadline: Option<Time>,
     static_due_streams: Vec<Task>,
 }
 
-impl<OT: TimeRepresentation> TimeDrivenManager<OT> {
+impl<OutputTime: OutputTimeRepresentation> TimeDrivenManager<OutputTime> {
     /// Creates a new TimeDrivenManager managing time-driven output streams.
     pub(crate) fn setup(
         ir: RtLolaMir,
-        handler: Arc<OutputHandler<OT>>,
+        handler: Arc<OutputHandler<OutputTime>>,
         dyn_schedule: Arc<(Mutex<DynamicSchedule>, Condvar)>,
-    ) -> Result<TimeDrivenManager<OT>, String> {
+    ) -> Result<TimeDrivenManager<OutputTime>, String> {
         let contains_time_driven = ir.has_time_driven_features();
         if !contains_time_driven {
             // return dummy
@@ -221,18 +221,18 @@ impl<OT: TimeRepresentation> TimeDrivenManager<OT> {
     }
 
     /// Evaluates all deadlines due before time `ts`
-    pub(crate) fn accept_time_offline(&mut self, evaluator: &mut Evaluator<OT>, ts: Time) {
+    pub(crate) fn accept_time_offline(&mut self, evaluator: &mut Evaluator<OutputTime>, ts: Time) {
         self.accept_time_offline_with_callback(evaluator, ts, |_, _| ());
     }
 
     /// Evaluates all deadlines due before time `ts` and calls the callback after the evaluation of each deadline
     pub(crate) fn accept_time_offline_with_callback<T>(
         &mut self,
-        evaluator: &mut Evaluator<OT>,
+        evaluator: &mut Evaluator<OutputTime>,
         ts: Time,
         mut callback: T,
     ) where
-        T: FnMut(Time, &Evaluator<OT>),
+        T: FnMut(Time, &Evaluator<OutputTime>),
     {
         if !self.has_time_driven {
             return;
@@ -253,14 +253,18 @@ impl<OT: TimeRepresentation> TimeDrivenManager<OT> {
     }
 
     /// Evaluates all deadlines due at time `ts`
-    pub(crate) fn end_offline(&mut self, evaluator: &mut Evaluator<OT>, ts: Time) {
+    pub(crate) fn end_offline(&mut self, evaluator: &mut Evaluator<OutputTime>, ts: Time) {
         self.end_offline_with_callback(evaluator, ts, |_, _| ());
     }
 
     /// Evaluates all deadlines due at time `ts` and calls the callback after the evaluation of each deadline
-    pub(crate) fn end_offline_with_callback<T>(&mut self, evaluator: &mut Evaluator<OT>, ts: Time, mut callback: T)
-    where
-        T: FnMut(Time, &Evaluator<OT>),
+    pub(crate) fn end_offline_with_callback<T>(
+        &mut self,
+        evaluator: &mut Evaluator<OutputTime>,
+        ts: Time,
+        mut callback: T,
+    ) where
+        T: FnMut(Time, &Evaluator<OutputTime>),
     {
         if !self.has_time_driven {
             return;
@@ -281,7 +285,12 @@ impl<OT: TimeRepresentation> TimeDrivenManager<OT> {
     }
 
     /// Evaluates the given deadline
-    pub(crate) fn eval_deadline(&mut self, evaluator: &mut Evaluator<OT>, deadline: Vec<EvaluationTask>, due: Time) {
+    pub(crate) fn eval_deadline(
+        &mut self,
+        evaluator: &mut Evaluator<OutputTime>,
+        deadline: Vec<EvaluationTask>,
+        due: Time,
+    ) {
         debug_assert!(
             !self.ir.time_driven.is_empty()
                 || self.ir.outputs.iter().any(|o| matches!(o.instance_template.spawn.pacing, PacingType::Periodic(_)))

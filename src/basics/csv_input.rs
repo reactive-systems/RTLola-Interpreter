@@ -99,21 +99,21 @@ impl ReaderWrapper {
 
 ///Parses events in CSV format.
 #[derive(Debug)]
-pub struct CsvEventSource<IT: TimeRepresentation> {
+pub struct CsvEventSource<InputTime: TimeRepresentation> {
     reader: ReaderWrapper,
     record: ByteRecord,
     mapping: CsvColumnMapping,
     in_types: Vec<Type>,
-    timer: IT,
+    timer: InputTime,
 }
 
-impl<IT: TimeRepresentation> CsvEventSource<IT> {
+impl<InputTime: TimeRepresentation> CsvEventSource<InputTime> {
     pub(crate) fn setup(
         src: &CsvInputSource,
-        timer: IT,
+        timer: InputTime,
         ir: &RtLolaMir,
         start_time: Option<SystemTime>,
-    ) -> Result<Box<dyn EventSource<IT>>, Box<dyn Error>> {
+    ) -> Result<Box<dyn EventSource<InputTime>>, Box<dyn Error>> {
         let CsvInputSource { time_col, kind } = src;
         let mut wrapper = match kind {
             CsvInputSourceKind::StdIn => ReaderWrapper::Std(CSVReader::from_reader(stdin())),
@@ -124,7 +124,7 @@ impl<IT: TimeRepresentation> CsvEventSource<IT> {
         let mapping = CsvColumnMapping::from_header(stream_names.as_slice(), wrapper.get_header()?, *time_col);
         let in_types: Vec<Type> = ir.inputs.iter().map(|i| i.ty.clone()).collect();
 
-        init_start_time::<IT>(start_time);
+        init_start_time::<InputTime>(start_time);
 
         Ok(Box::new(CsvEventSource { reader: wrapper, record: ByteRecord::new(), mapping, in_types, timer }))
     }
@@ -199,7 +199,7 @@ impl<IT: TimeRepresentation> CsvEventSource<IT> {
     }
 }
 
-impl<IT: TimeRepresentation> EventSource<IT> for CsvEventSource<IT> {
+impl<InputTime: TimeRepresentation> EventSource<InputTime> for CsvEventSource<InputTime> {
     fn has_event(&mut self) -> bool {
         self.read_blocking().unwrap_or_else(|e| {
             eprintln!("error: failed to read data. {}", e);

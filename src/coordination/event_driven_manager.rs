@@ -1,6 +1,6 @@
 use crate::basics::{create_event_source, EventSource, OutputHandler};
 use crate::config::Config;
-use crate::configuration::time::TimeRepresentation;
+use crate::configuration::time::{OutputTimeRepresentation, TimeRepresentation};
 use crate::coordination::{WorkItem, CAP_LOCAL_QUEUE};
 use crate::Value;
 use crossbeam_channel::Sender;
@@ -9,16 +9,19 @@ use std::sync::Arc;
 
 pub(crate) type EventEvaluation = Vec<Value>;
 
-pub(crate) struct EventDrivenManager<IT: TimeRepresentation, OT: TimeRepresentation> {
-    output_handler: Arc<OutputHandler<OT>>,
-    event_source: Box<dyn EventSource<IT>>,
+pub(crate) struct EventDrivenManager<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation> {
+    output_handler: Arc<OutputHandler<OutputTime>>,
+    event_source: Box<dyn EventSource<InputTime>>,
 }
 
-impl<IT: TimeRepresentation, OT: TimeRepresentation> EventDrivenManager<IT, OT> {
+impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation> EventDrivenManager<InputTime, OutputTime> {
     /// Creates a new EventDrivenManager managing event-driven output streams.
-    pub(crate) fn setup(config: Config<IT, OT>, output_handler: Arc<OutputHandler<OT>>) -> EventDrivenManager<IT, OT> {
+    pub(crate) fn setup(
+        config: Config<InputTime, OutputTime>,
+        output_handler: Arc<OutputHandler<OutputTime>>,
+    ) -> EventDrivenManager<InputTime, OutputTime> {
         let Config { ir, source, start_time, input_time_representation, .. } = config;
-        let event_source = match create_event_source::<IT>(source, &ir, start_time, input_time_representation) {
+        let event_source = match create_event_source::<InputTime>(source, &ir, start_time, input_time_representation) {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("Cannot create input reader: {}", e);

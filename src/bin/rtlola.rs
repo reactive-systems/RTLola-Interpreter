@@ -1,4 +1,4 @@
-use clap::{AppSettings, ArgEnum, ArgGroup, Args, IntoApp, Parser};
+use clap::{AppSettings, ArgEnum, ArgGroup, Args, CommandFactory, Parser};
 use lazy_static::lazy_static;
 use rtlola_interpreter::basics::{CsvInputSource, CsvInputSourceKind, OutputChannel};
 use rtlola_interpreter::config::{Config, EventSourceConfig, ExecutionMode, Verbosity};
@@ -39,7 +39,9 @@ macro_rules! enum_doc {
 lazy_static! {
     static ref VERBOSITY_HELP: String = enum_doc!(Verbosity, "Output Verbosity; one of the following keywords:");
     static ref OUTPUT_FORMAT_HELP: String =
-        enum_doc!(CliTimeRepresentation, "Output Time Format; one of the following keywords:");
+        enum_doc!(CliOutputTimeRepresentation, "Output Time Format; one of the following keywords:");
+    static ref INPUT_FORMAT_HELP: String =
+        enum_doc!(CliInputTimeRepresentation, "Input Time Format; one of the following keywords:");
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -83,9 +85,9 @@ enum Cli {
         /// Set the format in which time should be represented in the output
         #[clap(short='f', long, arg_enum,
             long_help=Some(OUTPUT_FORMAT_HELP.as_str()),
-            default_value_t=CliTimeRepresentation::RelativeFloatSecs
+            default_value_t=CliOutputTimeRepresentation::RelativeFloatSecs
         )]
-        output_time_format: CliTimeRepresentation,
+        output_time_format: CliOutputTimeRepresentation,
     },
 
     /// Start the monitor using the given specification
@@ -116,9 +118,9 @@ enum Cli {
         /// Set the format in which time should be represented in the output
         #[clap(short='f', long, arg_enum,
             long_help=Some(OUTPUT_FORMAT_HELP.as_str()),
-            default_value_t=CliTimeRepresentation::RelativeFloatSecs
+            default_value_t=CliOutputTimeRepresentation::RelativeFloatSecs
         )]
-        output_time_format: CliTimeRepresentation,
+        output_time_format: CliOutputTimeRepresentation,
     },
 
     /// Generate a SHELL completion script and print it to stdout
@@ -216,9 +218,8 @@ struct CliExecutionMode {
     online: bool,
 
     /// The time of input events is taken from the source in the given format.
-    /// For more details, refer to the help of 'output_time_format'
-    #[clap(long, arg_enum, value_name = "TIME FORMAT")]
-    offline: Option<CliTimeRepresentation>,
+    #[clap(long, arg_enum, value_name = "TIME FORMAT", long_help=Some(INPUT_FORMAT_HELP.as_str()))]
+    offline: Option<CliInputTimeRepresentation>,
 }
 
 #[derive(Clone, Debug, Args)]
@@ -236,7 +237,7 @@ struct CliOutputChannel {
 }
 
 #[derive(Clone, Copy, Debug, ArgEnum)]
-enum CliTimeRepresentation {
+enum CliInputTimeRepresentation {
     /// Short for relative-float-secs.
     Relative,
     /// Short for relative-uint-nanos.
@@ -258,6 +259,29 @@ enum CliTimeRepresentation {
     OffsetSecs,
     /// Time represented as a positive real number representing seconds and sub-seconds as the offset to the preceding event.
     OffsetFloatSecs,
+    /// Short for absolute-unix.
+    Absolute,
+    /// Time represented as wall clock time given as a positive real number representing seconds and sub-seconds since the start of the Unix Epoch.
+    AbsoluteUnix,
+    /// Short for absolute-rfc3339.
+    AbsoluteRfc,
+    /// Time represented as wall clock time in RFC3339 format.
+    AbsoluteRfc3339,
+}
+
+#[derive(Clone, Copy, Debug, ArgEnum)]
+enum CliOutputTimeRepresentation {
+    /// Short for relative-float-secs.
+    Relative,
+    /// Short for relative-uint-nanos.
+    RelativeNanos,
+    /// Time represented as the unsigned number of nanoseconds relative to a fixed start time.
+    RelativeUintNanos,
+    /// Short for relative-float-secs.
+    RelativeSecs,
+    /// Time represented as a positive real number representing seconds and sub-seconds relative to a fixed start time.
+    /// ie. 5.2
+    RelativeFloatSecs,
     /// Short for absolute-unix.
     Absolute,
     /// Time represented as wall clock time given as a positive real number representing seconds and sub-seconds since the start of the Unix Epoch.
@@ -342,7 +366,7 @@ impl From<CliStartTime> for Option<SystemTime> {
 macro_rules! run_config {
     ($it:expr, $ot: expr, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: expr, $start_time: expr) => {
         match $it {
-            CliTimeRepresentation::RelativeNanos | CliTimeRepresentation::RelativeUintNanos => {
+            CliInputTimeRepresentation::RelativeNanos | CliInputTimeRepresentation::RelativeUintNanos => {
                 run_config_it!(
                     RelativeNanos::default(),
                     $ot,
@@ -355,9 +379,9 @@ macro_rules! run_config {
                     $start_time
                 )
             }
-            CliTimeRepresentation::Relative
-            | CliTimeRepresentation::RelativeSecs
-            | CliTimeRepresentation::RelativeFloatSecs => {
+            CliInputTimeRepresentation::Relative
+            | CliInputTimeRepresentation::RelativeSecs
+            | CliInputTimeRepresentation::RelativeFloatSecs => {
                 run_config_it!(
                     RelativeFloat::default(),
                     $ot,
@@ -370,7 +394,7 @@ macro_rules! run_config {
                     $start_time
                 )
             }
-            CliTimeRepresentation::OffsetNanos | CliTimeRepresentation::OffsetUintNanos => {
+            CliInputTimeRepresentation::OffsetNanos | CliInputTimeRepresentation::OffsetUintNanos => {
                 run_config_it!(
                     OffsetNanos::default(),
                     $ot,
@@ -383,9 +407,9 @@ macro_rules! run_config {
                     $start_time
                 )
             }
-            CliTimeRepresentation::Offset
-            | CliTimeRepresentation::OffsetSecs
-            | CliTimeRepresentation::OffsetFloatSecs => {
+            CliInputTimeRepresentation::Offset
+            | CliInputTimeRepresentation::OffsetSecs
+            | CliInputTimeRepresentation::OffsetFloatSecs => {
                 run_config_it!(
                     OffsetFloat::default(),
                     $ot,
@@ -398,7 +422,7 @@ macro_rules! run_config {
                     $start_time
                 )
             }
-            CliTimeRepresentation::Absolute | CliTimeRepresentation::AbsoluteUnix => {
+            CliInputTimeRepresentation::Absolute | CliInputTimeRepresentation::AbsoluteUnix => {
                 run_config_it!(
                     AbsoluteFloat::default(),
                     $ot,
@@ -411,7 +435,7 @@ macro_rules! run_config {
                     $start_time
                 )
             }
-            CliTimeRepresentation::AbsoluteRfc | CliTimeRepresentation::AbsoluteRfc3339 => {
+            CliInputTimeRepresentation::AbsoluteRfc | CliInputTimeRepresentation::AbsoluteRfc3339 => {
                 run_config_it!(
                     AbsoluteRfc::default(),
                     $ot,
@@ -431,7 +455,7 @@ macro_rules! run_config {
 macro_rules! run_config_it {
     ($it:expr, $ot: expr, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: expr, $start_time: expr) => {
         match $ot {
-            CliTimeRepresentation::RelativeNanos | CliTimeRepresentation::RelativeUintNanos => {
+            CliOutputTimeRepresentation::RelativeNanos | CliOutputTimeRepresentation::RelativeUintNanos => {
                 run_config_it_ot!(
                     $it,
                     RelativeNanos,
@@ -444,9 +468,9 @@ macro_rules! run_config_it {
                     $start_time
                 )
             }
-            CliTimeRepresentation::Relative
-            | CliTimeRepresentation::RelativeSecs
-            | CliTimeRepresentation::RelativeFloatSecs => {
+            CliOutputTimeRepresentation::Relative
+            | CliOutputTimeRepresentation::RelativeSecs
+            | CliOutputTimeRepresentation::RelativeFloatSecs => {
                 run_config_it_ot!(
                     $it,
                     RelativeFloat,
@@ -459,15 +483,7 @@ macro_rules! run_config_it {
                     $start_time
                 )
             }
-            CliTimeRepresentation::OffsetNanos | CliTimeRepresentation::OffsetUintNanos => {
-                run_config_it_ot!($it, OffsetNanos, $ir, $source, $statistics, $verbosity, $output, $mode, $start_time)
-            }
-            CliTimeRepresentation::Offset
-            | CliTimeRepresentation::OffsetSecs
-            | CliTimeRepresentation::OffsetFloatSecs => {
-                run_config_it_ot!($it, OffsetFloat, $ir, $source, $statistics, $verbosity, $output, $mode, $start_time)
-            }
-            CliTimeRepresentation::Absolute | CliTimeRepresentation::AbsoluteUnix => {
+            CliOutputTimeRepresentation::Absolute | CliOutputTimeRepresentation::AbsoluteUnix => {
                 run_config_it_ot!(
                     $it,
                     AbsoluteFloat,
@@ -480,7 +496,7 @@ macro_rules! run_config_it {
                     $start_time
                 )
             }
-            CliTimeRepresentation::AbsoluteRfc | CliTimeRepresentation::AbsoluteRfc3339 => {
+            CliOutputTimeRepresentation::AbsoluteRfc | CliOutputTimeRepresentation::AbsoluteRfc3339 => {
                 run_config_it_ot!($it, AbsoluteRfc, $ir, $source, $statistics, $verbosity, $output, $mode, $start_time)
             }
         }

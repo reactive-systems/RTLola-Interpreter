@@ -2,13 +2,16 @@
 
 use crate::basics::OutputHandler;
 use crate::config::Verbosity;
-use crate::time::{RelativeFloat, TimeRepresentation};
+use crate::time::{OutputTimeRepresentation, RelativeFloat};
 use crate::ConfigBuilder;
 use std::io::Write;
 use std::sync::Arc;
 use tempfile::NamedTempFile;
 
-fn run(spec: &str, data: &str) -> Result<Arc<OutputHandler<impl TimeRepresentation>>, Box<dyn std::error::Error>> {
+fn run(
+    spec: &str,
+    data: &str,
+) -> Result<Arc<OutputHandler<impl OutputTimeRepresentation>>, Box<dyn std::error::Error>> {
     let mut file = NamedTempFile::new().expect("failed to create temporary file");
     write!(file, "{}", data).expect("writing tempfile failed");
     ConfigBuilder::runnable()

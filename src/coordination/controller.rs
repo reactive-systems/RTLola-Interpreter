@@ -3,7 +3,7 @@ use super::time_driven_manager::TimeDrivenManager;
 use super::{WorkItem, CAP_WORK_QUEUE};
 use crate::basics::OutputHandler;
 use crate::config::{Config, ExecutionMode::*};
-use crate::configuration::time::TimeRepresentation;
+use crate::configuration::time::{OutputTimeRepresentation, TimeRepresentation};
 use crate::coordination::dynamic_schedule::DynamicSchedule;
 use crate::coordination::TimeEvaluation;
 use crate::evaluator::{Evaluator, EvaluatorData};
@@ -14,25 +14,25 @@ use std::error::Error;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 
-pub(crate) struct Controller<IT: TimeRepresentation, OT: TimeRepresentation> {
-    config: Config<IT, OT>,
+pub(crate) struct Controller<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation> {
+    config: Config<InputTime, OutputTime>,
 
     /// Handles all kind of output behavior according to config.
-    pub(crate) output_handler: Arc<OutputHandler<OT>>,
+    pub(crate) output_handler: Arc<OutputHandler<OutputTime>>,
 
     /// Dynamic schedules handles dynamic deadlines; The condition is notified whenever the schedule changes
     dyn_schedule: Arc<(Mutex<DynamicSchedule>, Condvar)>,
 }
 
-impl<IT: TimeRepresentation, OT: TimeRepresentation> Controller<IT, OT> {
-    pub(crate) fn new(config: Config<IT, OT>) -> Self {
+impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation> Controller<InputTime, OutputTime> {
+    pub(crate) fn new(config: Config<InputTime, OutputTime>) -> Self {
         let output_handler = Arc::new(OutputHandler::new(&config, config.ir.triggers.len()));
         let dyn_schedule = Arc::new((Mutex::new(DynamicSchedule::new()), Condvar::new()));
 
         Self { config, output_handler, dyn_schedule }
     }
 
-    pub(crate) fn start(self) -> Result<Arc<OutputHandler<OT>>, Box<dyn Error>> {
+    pub(crate) fn start(self) -> Result<Arc<OutputHandler<OutputTime>>, Box<dyn Error>> {
         // TODO: Returning the Arc here makes no sense, fix asap.
         match self.config.mode {
             Offline => self.evaluate_offline().map(|_| self.output_handler),
@@ -62,7 +62,7 @@ impl<IT: TimeRepresentation, OT: TimeRepresentation> Controller<IT, OT> {
         let cfg_clone = self.config.clone();
         // TODO: Wait until all events have been read.
         let _event = thread::Builder::new().name("EventDrivenManager".into()).spawn(move || {
-            let event_manager = EventDrivenManager::<IT, OT>::setup(cfg_clone, copy_output_handler);
+            let event_manager = EventDrivenManager::<InputTime, OutputTime>::setup(cfg_clone, copy_output_handler);
             event_manager.start_online(work_tx);
         });
 
@@ -100,7 +100,7 @@ impl<IT: TimeRepresentation, OT: TimeRepresentation> Controller<IT, OT> {
         let edm_thread = thread::Builder::new()
             .name("EventDrivenManager".into())
             .spawn(move || {
-                let event_manager = EventDrivenManager::<IT, OT>::setup(cfg_clone, output_copy_handler);
+                let event_manager = EventDrivenManager::<InputTime, OutputTime>::setup(cfg_clone, output_copy_handler);
                 event_manager
                     .start_offline(work_tx)
                     .unwrap_or_else(|e| unreachable!("EventDrivenManager failed: {}", e));
@@ -145,13 +145,13 @@ impl<IT: TimeRepresentation, OT: TimeRepresentation> Controller<IT, OT> {
     }
 
     #[inline]
-    pub(crate) fn evaluate_timed_item(&self, evaluator: &mut Evaluator<OT>, t: TimeEvaluation, ts: Time) {
+    pub(crate) fn evaluate_timed_item(&self, evaluator: &mut Evaluator<OutputTime>, t: TimeEvaluation, ts: Time) {
         self.output_handler.new_event();
         evaluator.eval_time_driven_tasks(t, ts);
     }
 
     #[inline]
-    pub(crate) fn evaluate_event_item(&self, evaluator: &mut Evaluator<OT>, e: &[Value], ts: Time) {
+    pub(crate) fn evaluate_event_item(&self, evaluator: &mut Evaluator<OutputTime>, e: &[Value], ts: Time) {
         self.output_handler.new_event();
         evaluator.eval_event(e, ts)
     }

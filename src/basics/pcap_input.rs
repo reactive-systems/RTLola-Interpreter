@@ -440,21 +440,21 @@ pub enum PCAPInputSource {
 
 /// Parses events from network packets.
 #[allow(missing_debug_implementations)] // Capture -> PcapOnDemand does not implement Debug.
-pub struct PCAPEventSource<IT: TimeRepresentation> {
+pub struct PCAPEventSource<InputTime: TimeRepresentation> {
     capture_handle: Capture<dyn Activated>,
-    timer: IT,
+    timer: InputTime,
     mapping: Vec<Box<dyn Fn(&SlicedPacket) -> Value>>,
 
     event: Option<(Vec<Value>, Time)>,
 }
 
-impl<IT: TimeRepresentation> PCAPEventSource<IT> {
+impl<InputTime: TimeRepresentation> PCAPEventSource<InputTime> {
     pub(crate) fn setup(
         src: &PCAPInputSource,
-        timer: IT,
+        timer: InputTime,
         ir: &RtLolaMir,
         start_time: Option<SystemTime>,
-    ) -> Result<Box<dyn EventSource<IT>>, Box<dyn Error>> {
+    ) -> Result<Box<dyn EventSource<InputTime>>, Box<dyn Error>> {
         let capture_handle = match src {
             PCAPInputSource::Device { name, .. } => {
                 let all_devices = Device::list()?;
@@ -496,7 +496,7 @@ impl<IT: TimeRepresentation> PCAPEventSource<IT> {
             }
         };
 
-        init_start_time::<IT>(start_time);
+        init_start_time::<InputTime>(start_time);
         let input_names: Vec<String> = ir.inputs.iter().map(|i| i.name.clone()).collect();
 
         // Generate Mapping that given a parsed packet returns the value for the corresponding input stream
@@ -664,7 +664,7 @@ impl<IT: TimeRepresentation> PCAPEventSource<IT> {
             u64::try_from(raw_packet.header.ts.tv_sec).unwrap(),
             u32::try_from(raw_packet.header.ts.tv_usec * 1000).unwrap(),
         );
-        let time_str = format!("{}.{}", secs, nanos);
+        let time_str = format!("{}.{:09}", secs, nanos);
         let time = self.timer.parse(&time_str)?;
 
         let p = SlicedPacket::from_ethernet(raw_packet.data);
@@ -685,7 +685,7 @@ impl<IT: TimeRepresentation> PCAPEventSource<IT> {
     }
 }
 
-impl<IT: TimeRepresentation> EventSource<IT> for PCAPEventSource<IT> {
+impl<InputTime: TimeRepresentation> EventSource<InputTime> for PCAPEventSource<InputTime> {
     fn has_event(&mut self) -> bool {
         self.process_packet().unwrap_or_else(|e| {
             eprintln!("error: failed to process packet. {}", e);
