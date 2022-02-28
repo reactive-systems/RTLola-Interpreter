@@ -1,12 +1,16 @@
-use crate::basics::{OutputHandler, Time};
+use crate::basics::OutputHandler;
 use crate::closuregen::{CompiledExpr, Expr};
+use crate::configuration::time::OutputTimeRepresentation;
+use crate::coordination::monitor::{Change, Instance};
 use crate::coordination::{DynamicSchedule, EvaluationTask};
 use crate::storage::{GlobalStore, Value};
+use crate::Time;
 use bit_set::BitSet;
 use rtlola_frontend::mir::{
     ActivationCondition as Activation, InputReference, OutputReference, PacingType, RtLolaMir, Stream, StreamReference,
     Task, TimeDrivenStream, Trigger, WindowReference,
 };
+use std::ops::Not;
 use std::sync::{Arc, Condvar, Mutex};
 use string_template::Template;
 
@@ -19,7 +23,7 @@ pub(crate) enum ActivationConditionOp {
     General(Activation),
 }
 
-pub(crate) struct EvaluatorData {
+pub(crate) struct EvaluatorData<OutputTime: OutputTimeRepresentation> {
     // Evaluation order of output streams
     layers: Vec<Vec<Task>>,
     // Accessed by stream index
@@ -29,18 +33,20 @@ pub(crate) struct EvaluatorData {
     global_store: GlobalStore,
     fresh_inputs: BitSet,
     fresh_outputs: BitSet,
+    spawned_outputs: BitSet,
+    closed_outputs: BitSet,
     fresh_triggers: BitSet,
     triggers: Vec<Option<Trigger>>,
     time_driven_streams: Vec<Option<TimeDrivenStream>>,
     trigger_templates: Vec<Option<Template>>,
     closing_streams: Vec<OutputReference>,
     ir: RtLolaMir,
-    handler: Arc<OutputHandler>,
+    handler: Arc<OutputHandler<OutputTime>>,
     dyn_schedule: Arc<(Mutex<DynamicSchedule>, Condvar)>,
 }
 
 #[allow(missing_debug_implementations)]
-pub(crate) struct Evaluator {
+pub(crate) struct Evaluator<OutputTime: OutputTimeRepresentation> {
     // Evaluation order of output streams
     layers: &'static [Vec<Task>],
     // Indexed by stream reference.
@@ -61,6 +67,8 @@ pub(crate) struct Evaluator {
     global_store: &'static mut GlobalStore,
     fresh_inputs: &'static mut BitSet,
     fresh_outputs: &'static mut BitSet,
+    spawned_outputs: &'static mut BitSet,
+    closed_outputs: &'static mut BitSet,
     fresh_triggers: &'static mut BitSet,
     // Indexed by output reference
     triggers: &'static [Option<Trigger>],
@@ -70,9 +78,9 @@ pub(crate) struct Evaluator {
     trigger_templates: &'static [Option<Template>],
     closing_streams: &'static [OutputReference],
     ir: &'static RtLolaMir,
-    handler: &'static OutputHandler,
+    handler: &'static OutputHandler<OutputTime>,
     dyn_schedule: &'static (Mutex<DynamicSchedule>, Condvar),
-    raw_data: *mut EvaluatorData,
+    raw_data: *mut EvaluatorData<OutputTime>,
 }
 
 pub(crate) struct EvaluationContext<'e> {
@@ -83,10 +91,10 @@ pub(crate) struct EvaluationContext<'e> {
     pub(crate) parameter: Vec<Value>,
 }
 
-impl EvaluatorData {
+impl<OutputTime: OutputTimeRepresentation> EvaluatorData<OutputTime> {
     pub(crate) fn new(
         ir: RtLolaMir,
-        handler: Arc<OutputHandler>,
+        handler: Arc<OutputHandler<OutputTime>>,
         dyn_schedule: Arc<(Mutex<DynamicSchedule>, Condvar)>,
     ) -> Self {
         // Layers of event based output streams
@@ -131,6 +139,8 @@ impl EvaluatorData {
         let global_store = GlobalStore::new(&ir, Time::default());
         let fresh_inputs = BitSet::with_capacity(ir.inputs.len());
         let fresh_outputs = BitSet::with_capacity(ir.outputs.len());
+        let spawned_outputs = BitSet::with_capacity(ir.outputs.len());
+        let closed_outputs = BitSet::with_capacity(ir.outputs.len());
         let fresh_triggers = BitSet::with_capacity(ir.outputs.len()); //trigger use their outputreferences
         let mut triggers = vec![None; ir.outputs.len()];
         for t in &ir.triggers {
@@ -149,6 +159,8 @@ impl EvaluatorData {
             global_store,
             fresh_inputs,
             fresh_outputs,
+            spawned_outputs,
+            closed_outputs,
             fresh_triggers,
             triggers,
             time_driven_streams,
@@ -160,12 +172,12 @@ impl EvaluatorData {
         }
     }
 
-    pub(crate) fn into_evaluator(self) -> Evaluator {
+    pub(crate) fn into_evaluator(self) -> Evaluator<OutputTime> {
         let mut on_heap = Box::new(self);
         // Store pointer to data so we can delete it in implementation of Drop trait.
         // This is necessary since we leak the evaluator data.
-        let heap_ptr: *mut EvaluatorData = &mut *on_heap;
-        let leaked_data: &'static mut EvaluatorData = Box::leak(on_heap);
+        let heap_ptr: *mut EvaluatorData<OutputTime> = &mut *on_heap;
+        let leaked_data: &'static mut EvaluatorData<OutputTime> = Box::leak(on_heap);
 
         //Compile expressions
         let compiled_stream_exprs = leaked_data
@@ -219,6 +231,8 @@ impl EvaluatorData {
             global_store: &mut leaked_data.global_store,
             fresh_inputs: &mut leaked_data.fresh_inputs,
             fresh_outputs: &mut leaked_data.fresh_outputs,
+            spawned_outputs: &mut leaked_data.spawned_outputs,
+            closed_outputs: &mut leaked_data.closed_outputs,
             fresh_triggers: &mut leaked_data.fresh_triggers,
             triggers: &leaked_data.triggers,
             time_driven_streams: &leaked_data.time_driven_streams,
@@ -232,28 +246,63 @@ impl EvaluatorData {
     }
 }
 
-impl Drop for Evaluator {
+impl<OutputTime: OutputTimeRepresentation> Drop for Evaluator<OutputTime> {
     #[allow(unsafe_code)]
     fn drop(&mut self) {
         drop(unsafe { Box::from_raw(self.raw_data) });
     }
 }
 
-impl Evaluator {
+impl<OutputTime: OutputTimeRepresentation> Evaluator<OutputTime> {
     /// Values of event are expected in the order of the input streams
     /// Time should be relative to the starting time of the monitor
     pub(crate) fn eval_event(&mut self, event: &[Value], ts: Time) {
-        self.clear_freshness();
+        self.new_cycle();
         self.accept_inputs(event, ts);
         self.eval_event_driven(ts);
     }
 
     /// NOT for external use because the values are volatile
-    pub(crate) fn peek_fresh(&self) -> Vec<(OutputReference, Value)> {
-        self.fresh_outputs
+    pub(crate) fn peek_fresh(&self) -> Vec<(OutputReference, Vec<Change>)> {
+        self.ir
+            .outputs
             .iter()
-            .map(|elem| (elem, self.peek_value(StreamReference::Out(elem), &[], 0).expect("Marked as fresh.")))
-            .chain(self.fresh_triggers.iter().map(|ix| (ix, Value::Bool(true))))
+            .filter_map(|o| {
+                let stream = o.reference;
+                let out_ix = o.reference.out_ix();
+                let changes = if o.is_parameterized() {
+                    let instances = self.global_store.get_out_instance_collection(out_ix);
+                    instances
+                        .fresh()
+                        .map(|p| {
+                            Change::Value(Some(p.clone()), self.peek_value(stream, p, 0).expect("Marked as fresh"))
+                        })
+                        .chain(instances.spawned().map(|p| Change::Spawn(p.clone())))
+                        .chain(instances.closed().map(|p| Change::Close(p.clone())))
+                        .collect()
+                } else if o.is_spawned() {
+                    let mut res = Vec::new();
+                    if self.fresh_outputs.contains(out_ix) {
+                        res.push(Change::Value(
+                            Some(vec![]),
+                            self.peek_value(stream, &[], 0).expect("Marked as fresh"),
+                        ));
+                    }
+                    if self.spawned_outputs.contains(out_ix) {
+                        res.push(Change::Spawn(vec![]));
+                    }
+                    if self.closed_outputs.contains(out_ix) {
+                        res.push(Change::Close(vec![]));
+                    }
+                    res
+                } else if self.fresh_outputs.contains(out_ix) {
+                    vec![Change::Value(None, self.peek_value(stream, &[], 0).expect("Marked as fresh"))]
+                } else {
+                    vec![]
+                };
+                changes.is_empty().not().then(|| (o.reference.out_ix(), changes))
+            })
+            .chain(self.fresh_triggers.iter().map(|ix| (ix, vec![Change::Value(None, Value::Bool(true))])))
             .collect()
     }
 
@@ -268,8 +317,28 @@ impl Evaluator {
     }
 
     /// NOT for external use because the values are volatile
-    pub(crate) fn peek_outputs(&self) -> Vec<Option<Value>> {
-        self.ir.outputs.iter().map(|elem| self.peek_value(elem.reference, &[], 0)).collect()
+    pub(crate) fn peek_outputs(&self) -> Vec<Vec<Instance>> {
+        self.ir
+            .outputs
+            .iter()
+            .map(|elem| {
+                if elem.is_parameterized() {
+                    let ix = elem.reference.out_ix();
+                    let values: Vec<Instance> = self
+                        .global_store
+                        .get_out_instance_collection(ix)
+                        .all_instances()
+                        .iter()
+                        .map(|para| (Some(para.clone()), self.peek_value(elem.reference, para.as_ref(), 0)))
+                        .collect();
+                    values
+                } else if elem.is_spawned() {
+                    vec![(Some(vec![]), self.peek_value(elem.reference, &[], 0))]
+                } else {
+                    vec![(None, self.peek_value(elem.reference, &[], 0))]
+                }
+            })
+            .collect()
     }
 
     fn accept_inputs(&mut self, event: &[Value], ts: Time) {
@@ -299,10 +368,14 @@ impl Evaluator {
         for close in self.closing_streams {
             let ac = &self.close_activation_conditions[*close];
             if ac.is_eventdriven() && ac.eval(self.fresh_inputs) {
-                let stream_instances: Vec<Vec<Value>> =
-                    self.global_store.get_out_instance_collection(*close).all_instances();
-                for instance in stream_instances {
-                    self.eval_close(*close, instance.as_slice(), ts);
+                if self.ir.output(StreamReference::Out(*close)).is_parameterized() {
+                    let stream_instances: Vec<Vec<Value>> =
+                        self.global_store.get_out_instance_collection(*close).all_instances();
+                    for instance in stream_instances {
+                        self.eval_close(*close, instance.as_slice(), ts);
+                    }
+                } else {
+                    self.eval_close(*close, &[], ts);
                 }
             }
         }
@@ -332,6 +405,7 @@ impl Evaluator {
             x => vec![x],
         };
 
+        self.spawned_outputs.insert(output);
         if stream.is_parameterized() {
             debug_assert!(!parameter_values.is_empty());
             let instances = self.global_store.get_out_instance_collection_mut(output);
@@ -408,8 +482,8 @@ impl Evaluator {
             .debug(|| format!("Closing stream instance of {}: {} with parameter{:?}", output, stream.name, &parameter));
 
         if stream.is_parameterized() {
-            // close instance in store
-            self.global_store.get_out_instance_collection_mut(output).delete_instance(parameter);
+            // mark instance for closing
+            self.global_store.get_out_instance_collection_mut(output).mark_for_deletion(parameter);
 
             // close all windows referencing this instance
             for (_, win) in &stream.aggregated_by {
@@ -417,12 +491,13 @@ impl Evaluator {
                 self.global_store.get_window_collection_mut(*win).delete_window(parameter);
             }
         } else {
-            self.global_store.get_out_instance_mut(output).deactivate();
-            //close windows
+            // instance is marked for close below
+            // just close windows
             for (_, win) in &stream.aggregated_by {
                 self.global_store.get_window_mut(*win).deactivate();
             }
         }
+        self.closed_outputs.insert(output);
 
         // Remove instance evaluation from schedule if stream is periodic
         if let Some(tds) = self.time_driven_streams[output] {
@@ -432,6 +507,17 @@ impl Evaluator {
             // Remove close from schedule if it depends on current instance
             if stream.instance_template.close.has_self_reference {
                 schedule.remove_close(&self.dyn_schedule.1, output, parameter, tds.period_in_duration());
+            }
+        }
+    }
+
+    /// Closes all streams marked for deletion
+    fn close_streams(&mut self) {
+        for o in self.closed_outputs.iter() {
+            if self.ir.output(StreamReference::Out(o)).is_parameterized() {
+                self.global_store.get_out_instance_collection_mut(o).delete_instances();
+            } else {
+                self.global_store.get_out_instance_mut(o).deactivate();
             }
         }
     }
@@ -459,7 +545,7 @@ impl Evaluator {
         if tasks.is_empty() {
             return;
         }
-        self.clear_freshness();
+        self.new_cycle();
         self.prepare_evaluation(ts);
         for task in tasks {
             match task {
@@ -567,10 +653,16 @@ impl Evaluator {
         }
     }
 
-    fn clear_freshness(&mut self) {
+    /// Marks a new evaluation cycle
+    fn new_cycle(&mut self) {
+        self.close_streams();
         self.fresh_inputs.clear();
         self.fresh_outputs.clear();
         self.fresh_triggers.clear();
+
+        self.spawned_outputs.clear();
+        self.closed_outputs.clear();
+        self.global_store.new_cycle();
     }
 
     fn is_trigger(&self, ix: OutputReference) -> Option<&Trigger> {
@@ -736,19 +828,20 @@ impl ActivationConditionOp {
 mod tests {
 
     use super::*;
+    use crate::config::Config;
     use crate::coordination::dynamic_schedule::*;
     use crate::storage::Value::*;
-    use crate::EvalConfig;
     use ordered_float::NotNan;
     use rtlola_frontend::mir::RtLolaMir;
     use rtlola_frontend::ParserConfig;
     use std::time::{Duration, Instant};
 
-    fn setup(spec: &str) -> (RtLolaMir, EvaluatorData, Instant) {
+    fn setup(spec: &str) -> (RtLolaMir, EvaluatorData<impl OutputTimeRepresentation>, Instant) {
         let ir = rtlola_frontend::parse(ParserConfig::for_string(spec.to_string()))
             .unwrap_or_else(|e| panic!("spec is invalid: {:?}", e));
-        let mut config = EvalConfig::default();
-        config.verbosity = crate::basics::Verbosity::WarningsOnly;
+        let mut config = Config::debug(ir.clone());
+
+        config.verbosity = crate::config::Verbosity::WarningsOnly;
         let handler = Arc::new(OutputHandler::new(&config, ir.triggers.len()));
         let cond = Condvar::new();
         let dyn_schedule = Arc::new((Mutex::new(DynamicSchedule::new()), cond));
@@ -757,7 +850,7 @@ mod tests {
         (ir, eval, now)
     }
 
-    fn setup_time(spec: &str) -> (RtLolaMir, EvaluatorData, Time) {
+    fn setup_time(spec: &str) -> (RtLolaMir, EvaluatorData<impl OutputTimeRepresentation>, Time) {
         let (ir, eval, _) = setup(spec);
         (ir, eval, Time::default())
     }
@@ -795,12 +888,14 @@ mod tests {
     macro_rules! eval_close {
         ($eval:expr, $start:expr, $ix:expr, $parameter:expr) => {
             $eval.eval_close($ix.out_ix(), $parameter.as_slice(), $start.elapsed());
+            $eval.close_streams();
         };
     }
 
     macro_rules! eval_close_timed {
         ($eval:expr, $time:expr, $ix:expr, $parameter:expr) => {
             $eval.eval_close($ix.out_ix(), $parameter.as_slice(), $time);
+            $eval.close_streams();
         };
     }
 
@@ -1250,7 +1345,7 @@ mod tests {
     fn test_sum_window_discrete() {
         let (_, eval, mut time) =
             setup_time("input a: Int16\noutput b: Int16 @1Hz:= a.aggregate(over_discrete: 6, using: sum)");
-        let mut eval: Evaluator = eval.into_evaluator();
+        let mut eval = eval.into_evaluator();
         time += Duration::from_secs(45);
         let out_ref = StreamReference::Out(0);
         let in_ref = StreamReference::In(0);
@@ -1274,7 +1369,7 @@ mod tests {
         let (_, eval, mut time) = setup_time(
             "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over: 5s, using: last).defaults(to:0.0)",
         );
-        let mut eval: Evaluator = eval.into_evaluator();
+        let mut eval = eval.into_evaluator();
         time += Duration::from_secs(45);
         let out_ref = StreamReference::Out(0);
         let in_ref = StreamReference::In(0);
@@ -1295,7 +1390,7 @@ mod tests {
     fn test_last_window_signed() {
         let (_, eval, mut time) =
             setup_time("input a: Int32\noutput b: Int32 @1Hz:= a.aggregate(over: 20s, using: last).defaults(to:0)");
-        let mut eval: Evaluator = eval.into_evaluator();
+        let mut eval = eval.into_evaluator();
         time += Duration::from_secs(45);
         let out_ref = StreamReference::Out(0);
         let in_ref = StreamReference::In(0);
@@ -1316,7 +1411,7 @@ mod tests {
     fn test_last_window_unsigned() {
         let (_, eval, mut time) =
             setup_time("input a: UInt32\noutput b: UInt32 @1Hz:= a.aggregate(over: 20s, using: last).defaults(to:0)");
-        let mut eval: Evaluator = eval.into_evaluator();
+        let mut eval = eval.into_evaluator();
         time += Duration::from_secs(45);
         let out_ref = StreamReference::Out(0);
         let in_ref = StreamReference::In(0);
@@ -1347,7 +1442,7 @@ mod tests {
                 "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over: 10s, using: {}).defaults(to:0.0)",
                 pctl
             ));
-            let mut eval: Evaluator = eval.into_evaluator();
+            let mut eval = eval.into_evaluator();
             time += Duration::from_secs(45);
             let out_ref = StreamReference::Out(0);
             let in_ref = StreamReference::In(0);
@@ -1378,7 +1473,7 @@ mod tests {
                 "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over: 10s, using: {}).defaults(to:0.0)",
                 pctl
             ));
-            let mut eval: Evaluator = eval.into_evaluator();
+            let mut eval = eval.into_evaluator();
             time += Duration::from_secs(45);
             let out_ref = StreamReference::Out(0);
             let in_ref = StreamReference::In(0);
@@ -1410,7 +1505,7 @@ mod tests {
                 "input a: Int32\noutput b: Int32 @1Hz:= a.aggregate(over: 10s, using: {}).defaults(to:0)",
                 pctl
             ));
-            let mut eval: Evaluator = eval.into_evaluator();
+            let mut eval = eval.into_evaluator();
             time += Duration::from_secs(45);
             let out_ref = StreamReference::Out(0);
             let in_ref = StreamReference::In(0);
@@ -1440,7 +1535,7 @@ mod tests {
                 "input a: UInt32\noutput b: UInt32 @1Hz:= a.aggregate(over: 10s, using: {}).defaults(to:0)",
                 pctl
             ));
-            let mut eval: Evaluator = eval.into_evaluator();
+            let mut eval = eval.into_evaluator();
             time += Duration::from_secs(45);
             let out_ref = StreamReference::Out(0);
             let in_ref = StreamReference::In(0);
@@ -1470,7 +1565,7 @@ mod tests {
                 "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over_discrete: 10, using: {}).defaults(to:0.0)",
                 pctl
             ));
-            let mut eval: Evaluator = eval.into_evaluator();
+            let mut eval = eval.into_evaluator();
             time += Duration::from_secs(45);
             let out_ref = StreamReference::Out(0);
             let in_ref = StreamReference::In(0);
@@ -1492,7 +1587,7 @@ mod tests {
     fn test_var_equal_input() {
         let (_, eval, mut time) =
             setup_time("input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over: 5s, using: var).defaults(to:0.0)");
-        let mut eval: Evaluator = eval.into_evaluator();
+        let mut eval = eval.into_evaluator();
         time += Duration::from_secs(45);
         let out_ref = StreamReference::Out(0);
         let in_ref = StreamReference::In(0);
@@ -1527,7 +1622,7 @@ mod tests {
                 "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over: {}s, using: var).defaults(to:0.0)",
                 duration
             ));
-            let mut eval: Evaluator = eval.into_evaluator();
+            let mut eval = eval.into_evaluator();
             time += Duration::from_secs(45);
             let out_ref = StreamReference::Out(0);
             let in_ref = StreamReference::In(0);
@@ -1562,7 +1657,7 @@ mod tests {
                 "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over: {}s, using: sd).defaults(to:0.0)",
                 duration
             ));
-            let mut eval: Evaluator = eval.into_evaluator();
+            let mut eval = eval.into_evaluator();
             time += Duration::from_secs(45);
             let out_ref = StreamReference::Out(0);
             let in_ref = StreamReference::In(0);
@@ -1583,7 +1678,7 @@ mod tests {
     fn test_cov() {
         let (_, eval, mut time) =
             setup_time("input in: Float32\n input in2: Float32\noutput t@in&in2:= (in,in2)\n output out: Float32 @1Hz := t.aggregate(over: 6s, using: cov).defaults(to: 1337.0)");
-        let mut eval: Evaluator = eval.into_evaluator();
+        let mut eval = eval.into_evaluator();
         time += Duration::from_secs(45);
         let out_ref = StreamReference::Out(1);
         let in_ref = StreamReference::In(0);
@@ -1608,7 +1703,7 @@ mod tests {
     fn test_cov_2() {
         let (_, eval, mut time) =
             setup_time("input in: Float32\n input in2: Float32\noutput t@in&in2:= (in,in2)\n output out: Float32 @1Hz := t.aggregate(over: 5s, using: cov).defaults(to: 1337.0)");
-        let mut eval: Evaluator = eval.into_evaluator();
+        let mut eval = eval.into_evaluator();
         time += Duration::from_secs(45);
         let out_ref = StreamReference::Out(1);
         let in_ref = StreamReference::In(0);
@@ -1647,7 +1742,7 @@ mod tests {
                 "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over_discrete: {}, using: var).defaults(to:0.0)",
                 duration
             ));
-            let mut eval: Evaluator = eval.into_evaluator();
+            let mut eval = eval.into_evaluator();
             time += Duration::from_secs(45);
             let out_ref = StreamReference::Out(0);
             let in_ref = StreamReference::In(0);
@@ -1682,7 +1777,7 @@ mod tests {
                 "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over_discrete: {}, using: sd).defaults(to:0.0)",
                 duration
             ));
-            let mut eval: Evaluator = eval.into_evaluator();
+            let mut eval = eval.into_evaluator();
             time += Duration::from_secs(45);
             let out_ref = StreamReference::Out(0);
             let in_ref = StreamReference::In(0);
@@ -1718,7 +1813,7 @@ mod tests {
                 spec += ".defaults(to:1337.0)"
             }
             let (_, eval, mut time) = setup_time(&spec);
-            let mut eval: Evaluator = eval.into_evaluator();
+            let mut eval = eval.into_evaluator();
             time += Duration::from_secs(45);
             let out_ref = StreamReference::Out(0);
             let in_ref = StreamReference::In(0);
@@ -1755,7 +1850,7 @@ mod tests {
                 spec += ".defaults(to:1337)"
             }
             let (_, eval, mut time) = setup_time(&spec);
-            let mut eval: Evaluator = eval.into_evaluator();
+            let mut eval = eval.into_evaluator();
             time += Duration::from_secs(45);
             let out_ref = StreamReference::Out(0);
             let in_ref = StreamReference::In(0);
@@ -1792,7 +1887,7 @@ mod tests {
                 spec += ".defaults(to:1337)"
             }
             let (_, eval, mut time) = setup_time(&spec);
-            let mut eval: Evaluator = eval.into_evaluator();
+            let mut eval = eval.into_evaluator();
             time += Duration::from_secs(45);
             let out_ref = StreamReference::Out(0);
             let in_ref = StreamReference::In(0);

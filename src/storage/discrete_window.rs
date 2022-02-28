@@ -1,8 +1,8 @@
 use super::window::{WindowInstanceTrait, WindowIv};
 use super::Value;
-use crate::basics::Time;
 use crate::storage::window::{PercentileWindow, WindowGeneric};
 use crate::storage::window_aggregations::PercentileIv;
+use crate::Time;
 use std::collections::VecDeque;
 
 #[derive(Debug)]

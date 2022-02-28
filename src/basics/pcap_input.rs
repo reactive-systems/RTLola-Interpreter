@@ -1,8 +1,9 @@
 #![allow(clippy::mutex_atomic)]
 
 use crate::basics::io_handler::EventSource;
-use crate::basics::{RawTime, Time};
+use crate::configuration::time::{init_start_time, TimeRepresentation};
 use crate::storage::Value;
+use crate::Time;
 use etherparse::{
     Ethernet2Header, InternetSlice, Ipv4Header, Ipv6Header, LinkSlice, SlicedPacket, TcpHeader, TransportSlice,
     UdpHeader,
@@ -10,11 +11,12 @@ use etherparse::{
 use ip_network::IpNetwork;
 use pcap::{Activated, Capture, Device, Error as PCAPError};
 use rtlola_frontend::mir::RtLolaMir;
+use std::convert::TryFrom;
 use std::error::Error;
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 
 // ################################
 // Packet parsing functions
@@ -417,30 +419,42 @@ fn get_packet_protocol(packet: &SlicedPacket) -> Value {
 // ################################
 // Event Source Handling
 // ################################
+/// Determines the input source for network packets.
 #[derive(Debug, Clone)]
 pub enum PCAPInputSource {
-    Device { name: String, local_network: String },
-    File { path: PathBuf, delay: Option<Duration>, local_network: String },
+    /// Use the specified device for packet input.
+    Device {
+        /// The name of the device to use.
+        name: String,
+        /// The description of your local network IP address range in CIDR-Notation.
+        local_network: String,
+    },
+    /// Use the given file for packet input.
+    File {
+        /// The path to the PCAP file.
+        path: PathBuf,
+        /// The description of your local network IP address range in CIDR-Notation.
+        local_network: String,
+    },
 }
 
-enum TimeHandling {
-    RealTime,
-    FromFile,
-    Delayed { delay: Duration, time: Time },
-}
-
+/// Parses events from network packets.
 #[allow(missing_debug_implementations)] // Capture -> PcapOnDemand does not implement Debug.
-pub struct PCAPEventSource {
+pub struct PCAPEventSource<InputTime: TimeRepresentation> {
     capture_handle: Capture<dyn Activated>,
-    timer: TimeHandling,
+    timer: InputTime,
     mapping: Vec<Box<dyn Fn(&SlicedPacket) -> Value>>,
 
-    event: Option<(Vec<Value>, RawTime)>,
-    last_timestamp: Option<SystemTime>,
+    event: Option<(Vec<Value>, Time)>,
 }
 
-impl PCAPEventSource {
-    pub(crate) fn setup(src: &PCAPInputSource, ir: &RtLolaMir) -> Result<Box<dyn EventSource>, Box<dyn Error>> {
+impl<InputTime: TimeRepresentation> PCAPEventSource<InputTime> {
+    pub(crate) fn setup(
+        src: &PCAPInputSource,
+        timer: InputTime,
+        ir: &RtLolaMir,
+        start_time: Option<SystemTime>,
+    ) -> Result<Box<dyn EventSource<InputTime>>, Box<dyn Error>> {
         let capture_handle = match src {
             PCAPInputSource::Device { name, .. } => {
                 let all_devices = Device::list()?;
@@ -482,14 +496,7 @@ impl PCAPEventSource {
             }
         };
 
-        use TimeHandling::*;
-        let timer = match src {
-            PCAPInputSource::Device { .. } => RealTime,
-            PCAPInputSource::File { delay, .. } => match delay {
-                Some(d) => Delayed { delay: *d, time: Duration::default() },
-                None => FromFile,
-            },
-        };
+        init_start_time::<InputTime>(start_time);
         let input_names: Vec<String> = ir.inputs.iter().map(|i| i.name.clone()).collect();
 
         // Generate Mapping that given a parsed packet returns the value for the corresponding input stream
@@ -641,7 +648,7 @@ impl PCAPEventSource {
             mapping.push(val);
         }
 
-        Ok(Box::new(PCAPEventSource { capture_handle, timer, mapping, event: None, last_timestamp: None }))
+        Ok(Box::new(PCAPEventSource { capture_handle, timer, mapping, event: None }))
     }
 
     fn process_packet(&mut self) -> Result<bool, Box<dyn Error>> {
@@ -653,12 +660,12 @@ impl PCAPEventSource {
             },
         };
 
-        use std::convert::TryInto;
-        let d = Duration::new(
-            raw_packet.header.ts.tv_sec.try_into().unwrap(),
-            (raw_packet.header.ts.tv_usec * 1000).try_into().unwrap(),
+        let (secs, nanos) = (
+            u64::try_from(raw_packet.header.ts.tv_sec).unwrap(),
+            u32::try_from(raw_packet.header.ts.tv_usec * 1000).unwrap(),
         );
-        self.last_timestamp = Some(UNIX_EPOCH + d);
+        let time_str = format!("{}.{:09}", secs, nanos);
+        let time = self.timer.parse(&time_str)?;
 
         let p = SlicedPacket::from_ethernet(raw_packet.data);
         //Todo (Florian): Track underlying error
@@ -672,24 +679,13 @@ impl PCAPEventSource {
             event.push(parse_function(&packet));
         }
 
-        //compute duration since start
-        use TimeHandling::*;
-        let time: RawTime = match self.timer {
-            RealTime => RawTime::Absolute(SystemTime::now()),
-            FromFile => RawTime::Absolute(self.last_timestamp.unwrap()),
-            Delayed { delay, ref mut time } => {
-                *time += delay;
-                RawTime::Relative(*time)
-            }
-        };
-
         self.event = Some((event, time));
 
         Ok(true)
     }
 }
 
-impl EventSource for PCAPEventSource {
+impl<InputTime: TimeRepresentation> EventSource<InputTime> for PCAPEventSource<InputTime> {
     fn has_event(&mut self) -> bool {
         self.process_packet().unwrap_or_else(|e| {
             eprintln!("error: failed to process packet. {}", e);
@@ -697,7 +693,7 @@ impl EventSource for PCAPEventSource {
         })
     }
 
-    fn get_event(&mut self) -> (Vec<Value>, RawTime) {
+    fn get_event(&mut self) -> (Vec<Value>, Time) {
         if let Some((event, t)) = &self.event {
             (event.clone(), *t)
         } else {

@@ -1,7 +1,7 @@
 use super::discrete_window::DiscreteWindowInstance;
 use super::window_aggregations::*;
 use super::Value;
-use crate::basics::Time;
+use crate::Time;
 use ordered_float::NotNan;
 use rtlola_frontend::mir::{Type, WindowOperation as WinOp, WindowOperation};
 use std::cmp::Ordering;

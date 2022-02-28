@@ -1,62 +1,123 @@
-use crate::basics::{EvalConfig, OutputHandler, Time};
-use crate::coordination::{DynamicSchedule, EvaluationTask, Event};
+//! The API of the RTLola interpreter. It is used to evaluate input events on a given specification and output the results.
+//! The main structure is the [Monitor] which is parameterized over its input and output method.
+//! The preferred method to create a [Monitor] is using the [ConfigBuilder](crate::ConfigBuilder) and the [monitor](crate::ConfigBuilder::monitor) method.
+//!
+//! # Input Method
+//! An input method has to implement the [Input] trait. Out of the box two different methods are provided:
+//! * [EventInput]: Provides a basic input method for anything that already is an [Event] or that can be transformed into one using `Into<Event>`.
+//! * [RecordInput]: Is a more elaborate input method. It allows to provide a custom data structure to the monitor as an input, as long as it implements the [Record] trait.
+//!     If implemented this traits provides functionality to generate a new value for any input stream from the data structure.
+//!
+//! # Output Method
+//! The [Monitor] can provide output with a varying level of detail captured by the [VerdictRepresentation] trait. The different output formats are:
+//! * [Incremental]: For each processed event a condensed list of monitor state changes is provided.
+//! * [Total]: For each event a complete snapshot of the current monitor state is returned
+//! * [TriggerMessages]: For each event a list of violated triggers with their description is produced.
+//! * [TriggersWithInfoValues]: For each event a list of violated triggers with their specified corresponding values is returned.
+
+use crate::basics::OutputHandler;
+use crate::config::Config;
+use crate::configuration::time::{init_start_time, OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
+use crate::coordination::time_driven_manager::TimeDrivenManager;
+use crate::coordination::DynamicSchedule;
 use crate::evaluator::{Evaluator, EvaluatorData};
 use crate::storage::Value;
-use rtlola_frontend::mir::{Deadline, InputReference, OutputReference, RtLolaMir, Type};
+use crate::Time;
+use itertools::Itertools;
+use rtlola_frontend::mir::{InputReference, OutputReference, RtLolaMir, Type};
+use std::collections::HashMap;
+use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomData;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
+
+/// An event to be handled by the interpreter
+pub type Event = Vec<Value>;
 
 /**
     Provides the functionality to generate a snapshot of the streams values.
 */
 pub trait VerdictRepresentation {
     /// Creates a snapshot of the streams values.
-    fn create(mon: &Monitor<Self>) -> Self
+    fn create(data: RawVerdict<impl OutputTimeRepresentation>) -> Self
     where
         Self: Sized;
 }
 
-/**
-    Represents a snapshot of the monitor containing the value of all updated output stream.
-*/
-pub type Incremental = Vec<(OutputReference, Value)>;
+/// A type representing the parameters of a stream.
+/// If a stream is not dynamically created it defaults to `None`.
+/// If a stream is dynamically created but does not have parameters it defaults to `Some(vec![])`
+pub type Parameters = Option<Vec<Value>>;
 
-impl VerdictRepresentation for Incremental {
-    fn create(mon: &Monitor<Incremental>) -> Self {
-        mon.eval.peek_fresh()
+/// A stream instance. First element represents the parameter values of the instance, the second element the value of the instance.
+pub type Instance = (Parameters, Option<Value>);
+
+/// An enum representing a change in the monitor.
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub enum Change {
+    /// Indicates that a new instance of a stream was created with the given values as parameters.
+    Spawn(Vec<Value>),
+    /// Indicates that an instance got a new value. The instance is identified through the given [Parameters].
+    Value(Parameters, Value),
+    /// Indicates that an instance was closed. The given values are the parameters of the closed instance.
+    Close(Vec<Value>),
+}
+
+impl Display for Change {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Change::Spawn(para) => write!(f, "Spawn<{}>", para.iter().join(", ")),
+            Change::Close(para) => write!(f, "Close<{}>", para.iter().join(", ")),
+            Change::Value(para, value) => match para {
+                Some(para) => write!(f, "Instance<{}> = {}", para.iter().join(", "), value),
+                None => write!(f, "Value = {}", value),
+            },
+        }
     }
 }
 
 /**
-    Represents a snapshot of the monitor containing the current value of each output stream.
-
-    The ith value in the vector is the current value of the ith input or output stream.
+    Represents the changes of the monitor state. Each element represents a set of [Change]s of a specific output stream.
 */
-#[derive(Debug)]
+pub type Incremental = Vec<(OutputReference, Vec<Change>)>;
+
+impl VerdictRepresentation for Incremental {
+    fn create(data: RawVerdict<impl OutputTimeRepresentation>) -> Self {
+        data.eval.peek_fresh()
+    }
+}
+
+/**
+    Represents a snapshot of the monitor state containing the current value of each output and input stream.
+*/
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Total {
+    /// The ith value in this vector is the current value of the ith input stream.
     pub inputs: Vec<Option<Value>>,
-    pub outputs: Vec<Option<Value>>,
+
+    /// The ith value in this vector is the vector of instances of the ith output stream.
+    /// If the stream has no instance yet, this vector is empty. If a stream is not parameterized, the vector will always be of size 1.
+    pub outputs: Vec<Vec<Instance>>,
 }
 
 impl VerdictRepresentation for Total {
-    fn create(mon: &Monitor<Total>) -> Self {
-        Total { inputs: mon.eval.peek_inputs(), outputs: mon.eval.peek_outputs() }
+    fn create(data: RawVerdict<impl OutputTimeRepresentation>) -> Self {
+        Total { inputs: data.eval.peek_inputs(), outputs: data.eval.peek_outputs() }
     }
 }
 
 /**
-    Represents the index and the formated message of all violated triggers.
+    Represents the index and the formatted message of all violated triggers.
 */
 pub type TriggerMessages = Vec<(OutputReference, String)>;
 
 impl VerdictRepresentation for TriggerMessages {
-    fn create(mon: &Monitor<Self>) -> Self
+    fn create(data: RawVerdict<impl OutputTimeRepresentation>) -> Self
     where
         Self: Sized,
     {
-        let violated_trigger = mon.eval.peek_violated_triggers();
-        violated_trigger.into_iter().map(|sr| (sr, mon.eval.format_trigger_message(sr))).collect()
+        let violated_trigger = data.eval.peek_violated_triggers();
+        violated_trigger.into_iter().map(|sr| (sr, data.eval.format_trigger_message(sr))).collect()
     }
 }
 
@@ -66,12 +127,12 @@ impl VerdictRepresentation for TriggerMessages {
 pub type TriggersWithInfoValues = Vec<(OutputReference, Vec<Option<Value>>)>;
 
 impl VerdictRepresentation for TriggersWithInfoValues {
-    fn create(mon: &Monitor<Self>) -> Self
+    fn create(data: RawVerdict<impl OutputTimeRepresentation>) -> Self
     where
         Self: Sized,
     {
-        let violated_trigger = mon.eval.peek_violated_triggers();
-        violated_trigger.into_iter().map(|sr| (sr, mon.eval.peek_info_stream_values(sr))).collect()
+        let violated_trigger = data.eval.peek_violated_triggers();
+        violated_trigger.into_iter().map(|sr| (sr, data.eval.peek_info_stream_values(sr))).collect()
     }
 }
 
@@ -82,112 +143,267 @@ impl VerdictRepresentation for TriggersWithInfoValues {
     The field `timed` is a vector, containing all updates of periodic streams since the last event.
 */
 #[derive(Debug)]
-pub struct Verdicts<V: VerdictRepresentation> {
-    pub timed: Vec<(Time, V)>,
+pub struct Verdicts<V: VerdictRepresentation, VerdictTime: OutputTimeRepresentation> {
+    /// All verdicts caused by timed streams given at each deadline that occurred.
+    pub timed: Vec<(VerdictTime::InnerTime, V)>,
+    /// The verdict that resulted from evaluation the event.
     pub event: V,
 }
 
 /**
-The [Monitor] accepts new events and computes streams.
+The Monitor is the central object exposed by the API.
 
-The [Monitor] is the central object exposed by the API.
+The [Monitor] accepts new events and computes streams.
 It can compute event-based streams based on new events through `accept_event`.
 It can also simply advance periodic streams up to a given timestamp through `accept_time`.
-The generic argument `V` implements the [VerdictRepresentation] trait describing the outputformat of the API that is by default [Incremental].
-*/
+The generic argument `Source` implements the [Input] trait describing the input source of the API.
+The generic argument `SourceTime` implements the [TimeRepresentation] trait defining the input time format.
+The generic argument `Verdict` implements the [VerdictRepresentation] trait describing the output format of the API that is by default [Incremental].
+The generic argument `VerdictTime` implements the [TimeRepresentation] trait defining the output time format. It defaults to [RelativeFloat]
+ */
 #[allow(missing_debug_implementations)]
-pub struct Monitor<V: VerdictRepresentation = Incremental> {
-    pub ir: RtLolaMir,
-    eval: Evaluator,
-    pub(crate) output_handler: Arc<OutputHandler>,
-    deadlines: Vec<Deadline>,
-    next_dl: Option<Duration>,
-    dl_ix: usize,
-    phantom: PhantomData<V>,
+pub struct Monitor<Source, SourceTime, Verdict = Incremental, VerdictTime = RelativeFloat>
+where
+    Source: Input,
+    SourceTime: TimeRepresentation,
+    Verdict: VerdictRepresentation,
+    VerdictTime: OutputTimeRepresentation + 'static,
+{
+    ir: RtLolaMir,
+    eval: Evaluator<VerdictTime>,
+
+    time_manager: TimeDrivenManager<VerdictTime>,
+
+    source: Source,
+
+    source_time: SourceTime,
+    output_time: VerdictTime,
+
+    phantom: PhantomData<Verdict>,
 }
 
 /// Crate-public interface
-impl<V: VerdictRepresentation> Monitor<V> {
+impl<Source, SourceTime, Verdict, VerdictTime> Monitor<Source, SourceTime, Verdict, VerdictTime>
+where
+    Source: Input,
+    SourceTime: TimeRepresentation,
+    Verdict: VerdictRepresentation,
+    VerdictTime: OutputTimeRepresentation,
+{
     ///setup
-    pub(crate) fn setup(ir: RtLolaMir, config: EvalConfig) -> Monitor<V> {
-        let output_handler = Arc::new(OutputHandler::new(&config, ir.triggers.len()));
+    pub(crate) fn setup(
+        config: Config<SourceTime, VerdictTime>,
+        setup_data: Source::CreationData,
+    ) -> Monitor<Source, SourceTime, Verdict, VerdictTime> {
+        let output_handler = Arc::new(OutputHandler::new(&config, config.ir.triggers.len()));
         let dyn_schedule = Arc::new((Mutex::new(DynamicSchedule::new()), Condvar::new()));
+        let source_time = config.input_time_representation;
+        let output_time = VerdictTime::default();
 
-        // Note: start_time only accessed in online mode.
-        let eval_data = EvaluatorData::new(ir.clone(), output_handler.clone(), dyn_schedule);
+        init_start_time::<SourceTime>(config.start_time);
 
-        let deadlines: Vec<Deadline> = if ir.time_driven.is_empty() {
-            vec![]
-        } else {
-            ir.compute_schedule().expect("Creation of schedule failed.").deadlines
-        };
+        let input_map = config.ir.inputs.iter().map(|i| (i.name.clone(), i.reference.in_ix())).collect();
+
+        let eval_data = EvaluatorData::new(config.ir.clone(), output_handler.clone(), dyn_schedule.clone());
+
+        let time_manager = TimeDrivenManager::setup(config.ir.clone(), output_handler, dyn_schedule)
+            .expect("Error computing schedule for time-driven streams");
 
         Monitor {
-            ir,
+            ir: config.ir,
             eval: eval_data.into_evaluator(),
-            output_handler,
-            deadlines,
-            next_dl: None,
-            dl_ix: 0,
+            time_manager,
+
+            source: Source::new(input_map, setup_data),
+
+            source_time,
+            output_time,
+
             phantom: PhantomData,
         }
     }
 }
 
+/// A raw verdict that is transformed into the respective representation
+#[allow(missing_debug_implementations)]
+pub struct RawVerdict<'a, VerdictTime: OutputTimeRepresentation + 'static> {
+    eval: &'a Evaluator<VerdictTime>,
+}
+
+impl<'a, VerdictTime: OutputTimeRepresentation + 'static> From<&'a Evaluator<VerdictTime>>
+    for RawVerdict<'a, VerdictTime>
+{
+    fn from(eval: &'a Evaluator<VerdictTime>) -> Self {
+        RawVerdict { eval }
+    }
+}
+
+/// This trait provides the functionality to pass inputs to the monitor.
+/// You can either implement this trait for your own Datatype or use one of the predefined input methods.
+/// See [RecordInput] and [EventInput]
+pub trait Input {
+    /// The type from which an event is generated by the input source.
+    type Record;
+
+    /// Arbitrary type of the data provided to the input source at creation time.
+    type CreationData: Clone;
+
+    /// Creates a new input source from a HashMap mapping the names of the inputs in the specification to their position in the event.
+    fn new(map: HashMap<String, InputReference>, setup_data: Self::CreationData) -> Self;
+
+    /// This function converts a record to an event.
+    fn get_event(&self, rec: Self::Record) -> Event;
+}
+
+/// This trait provides functionality to parse a record into an event.
+/// It is only used in combination with the [RecordInput].
+pub trait Record {
+    /// Arbitrary type of the data provided at creation time to help initializing the input method.
+    type CreationData: Clone;
+    /// Given the name of an input this function returns a function that given a record returns the value for that input.
+    fn func_for_input(name: &str, data: Self::CreationData) -> Box<dyn Fn(&Self) -> Value>;
+}
+
+/// An input method for types that implement the [Record] trait. Useful if you do not want to bother with the order of the input streams in an event.
+/// Assuming the specification has 3 inputs: 'a', 'b' and 'c'. You could implement this trait for your custom 'MyType' as follows:
+/// ```
+/// use rtlola_interpreter::Value;
+/// use rtlola_interpreter::monitor::Record;
+///
+/// struct MyType {
+///     a: u64,
+///     b: Option<bool>,
+///     c: String,
+/// }
+///
+/// impl MyType {
+///     // Generate a new value for input stream 'a'
+///     fn a(rec: &Self) -> Value {
+///         Value::from(rec.a)
+///     }
+///
+///     // Generate a new value for input stream 'b'
+///     fn b(rec: &Self) -> Value {
+///         rec.b.map(|b| Value::from(b)).unwrap_or(Value::None)
+///     }
+///
+///     // Generate a new value for input stream 'c'
+///     fn c(rec: &Self) -> Value {
+///         Value::Str(rec.c.clone().into_boxed_str())
+///     }
+/// }
+///
+/// impl Record for MyType {
+///     type CreationData = ();
+///
+///     fn func_for_input(name: &str, _data: Self::CreationData) -> Box<dyn (Fn(&MyType) -> Value)> {
+///        Box::new(match name {
+///             "a" => Self::a,
+///             "b" => Self::b,
+///             "c" => Self::c,
+///             x => panic!("Unexpected input stream {} in specification.", x),
+///         })
+///     }
+/// }
+/// ```
+#[allow(missing_debug_implementations)]
+pub struct RecordInput<Inner: Record> {
+    translators: Vec<Box<dyn (Fn(&Inner) -> Value)>>,
+}
+
+impl<Inner: Record> Input for RecordInput<Inner> {
+    type Record = Inner;
+    type CreationData = Inner::CreationData;
+
+    fn new(map: HashMap<String, InputReference>, setup_data: Self::CreationData) -> Self {
+        let mut translators: Vec<Option<_>> = (0..map.len()).map(|_| None).collect();
+        map.iter().for_each(|(input_name, index)| {
+            translators[*index] = Some(Inner::func_for_input(input_name.as_str(), setup_data.clone()))
+        });
+        let translators = translators.into_iter().map(Option::unwrap).collect();
+        Self { translators }
+    }
+
+    fn get_event(&self, rec: Inner) -> Event {
+        self.translators.iter().map(|f| f(&rec)).collect()
+    }
+}
+
+/// The simplest input method to the monitor. It accepts any type that implements `Into<Event>`.
+/// The conversion to values and the order of inputs must be handled externally.
+#[derive(Debug, Clone)]
+pub struct EventInput<E: Into<Event>> {
+    phantom: PhantomData<E>,
+}
+
+impl<E: Into<Event>> Input for EventInput<E> {
+    type Record = E;
+    type CreationData = ();
+
+    fn new(_map: HashMap<String, InputReference>, _setup_data: Self::CreationData) -> Self {
+        EventInput { phantom: PhantomData }
+    }
+
+    fn get_event(&self, rec: Self::Record) -> Event {
+        rec.into()
+    }
+}
+
 /// Public interface
-impl<V: VerdictRepresentation> Monitor<V> {
+impl<Source, SourceTime, Verdict, VerdictTime> Monitor<Source, SourceTime, Verdict, VerdictTime>
+where
+    Source: Input,
+    SourceTime: TimeRepresentation,
+    Verdict: VerdictRepresentation,
+    VerdictTime: OutputTimeRepresentation,
+{
     /**
     Computes all periodic streams up through the new timestamp and then handles the input event.
 
-    The new event is therefore not seen by periodic streams up through the new timestamp.
+    The new event is therefore not seen by periodic streams up through a new timestamp.
     */
-    pub fn accept_event<E: Into<Event>>(&mut self, ev: E, ts: Time) -> Verdicts<V> {
-        let ev = ev.into();
-        self.output_handler.debug(|| format!("Accepted {:?}.", ev));
+    pub fn accept_event(&mut self, ev: Source::Record, ts: SourceTime::InnerTime) -> Verdicts<Verdict, VerdictTime> {
+        let ev = self.source.get_event(ev);
+        let ts = self.source_time.convert_from(ts);
 
-        let timed = self.accept_time(ts);
+        // Evaluate timed streams with due < ts
+        let mut timed: Vec<(Time, Verdict)> = vec![];
+        self.time_manager.accept_time_offline_with_callback(&mut self.eval, ts, |due, eval| {
+            timed.push((due, Verdict::create(RawVerdict::from(eval))))
+        });
 
         // Evaluate
-        self.output_handler.new_event();
         self.eval.eval_event(ev.as_slice(), ts);
-        let event_change = V::create(self);
+        let event_change = Verdict::create(RawVerdict::from(&self.eval));
 
-        Verdicts::<V> { timed, event: event_change }
+        let timed = timed.into_iter().map(|(t, v)| (self.output_time.convert_into(t), v)).collect();
+
+        Verdicts::<Verdict, VerdictTime> { timed, event: event_change }
     }
 
     /**
-    Computes all periodic streams up through the new timestamp.
-
+    Computes all periodic streams up through and including the timestamp.
     */
-    pub fn accept_time(&mut self, ts: Time) -> Vec<(Time, V)> {
-        if self.deadlines.is_empty() {
-            return vec![];
-        }
-        assert!(!self.deadlines.is_empty());
+    pub fn accept_time(&mut self, ts: SourceTime::InnerTime) -> Vec<(VerdictTime::InnerTime, Verdict)> {
+        let mut timed_changes: Vec<(Time, Verdict)> = vec![];
 
-        if self.next_dl.is_none() {
-            assert_eq!(self.dl_ix, 0);
-            self.next_dl = Some(ts + self.deadlines[0].pause);
-        }
+        let ts = self.source_time.convert_from(ts);
 
-        let mut next_deadline = self.next_dl.expect("monitor lacks start time");
-        let mut timed_changes: Vec<(Time, V)> = vec![];
+        // Eval all timed streams with due < ts
+        self.time_manager.accept_time_offline_with_callback(&mut self.eval, ts, |due, eval| {
+            timed_changes.push((due, Verdict::create(RawVerdict::from(eval))))
+        });
+        // Eval all timed streams with due = ts
+        self.time_manager.end_offline_with_callback(&mut self.eval, ts, |due, eval| {
+            timed_changes.push((due, Verdict::create(RawVerdict::from(eval))))
+        });
 
-        while ts > next_deadline {
-            // Go back in time and evaluate,...
-            let dl = &self.deadlines[self.dl_ix];
-            self.output_handler.debug(|| format!("Schedule Timed-Event {:?}.", (&dl.due, next_deadline)));
-            self.output_handler.new_event();
-            let eval_tasks: Vec<EvaluationTask> = dl.due.iter().map(|t| (*t).into()).collect();
-            self.eval.eval_time_driven_tasks(eval_tasks, next_deadline);
-            self.dl_ix = (self.dl_ix + 1) % self.deadlines.len();
-            timed_changes.push((next_deadline, V::create(self)));
-            let dl = &self.deadlines[self.dl_ix];
-            assert!(dl.pause > Duration::from_secs(0));
-            next_deadline += dl.pause;
-        }
-        self.next_dl = Some(next_deadline);
-        timed_changes
+        timed_changes.into_iter().map(|(t, v)| (self.output_time.convert_into(t), v)).collect()
+    }
+
+    /// Returns the underlying representation of the specification as an [RtLolaMir]
+    pub fn ir(&self) -> &RtLolaMir {
+        &self.ir
     }
 
     /**
@@ -277,8 +493,162 @@ impl<V: VerdictRepresentation> Monitor<V> {
     }
 
     /// Switch [VerdictRepresentation]s of the [Monitor].
-    pub fn with_verdict_representation<T: VerdictRepresentation>(self) -> Monitor<T> {
-        let Monitor { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: _ } = self;
-        Monitor::<T> { ir, eval, output_handler, deadlines, next_dl, dl_ix, phantom: PhantomData }
+    pub fn with_verdict_representation<T: VerdictRepresentation>(self) -> Monitor<Source, SourceTime, T, VerdictTime> {
+        let Monitor { ir, eval, time_manager, source_time, source, output_time, phantom: _ } = self;
+        Monitor { ir, eval, time_manager, source_time, source, output_time, phantom: PhantomData }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::coordination::monitor::Change;
+    use crate::monitor::{Event, EventInput, Incremental, Monitor, Total, Value, VerdictRepresentation};
+    use crate::time::RelativeFloat;
+    use crate::ConfigBuilder;
+    use std::time::{Duration, Instant};
+
+    fn setup<V: VerdictRepresentation>(
+        spec: &str,
+    ) -> (Instant, Monitor<EventInput<Event>, RelativeFloat, V, RelativeFloat>) {
+        // Init Monitor API
+        let monitor = ConfigBuilder::api()
+            .spec_str(spec)
+            .input_time::<RelativeFloat>()
+            .event_input::<Event>()
+            .with_verdict::<V>()
+            .monitor();
+        (Instant::now(), monitor)
+    }
+
+    fn sort_total(res: Total) -> Total {
+        let Total { inputs, mut outputs } = res;
+        outputs.iter_mut().for_each(|s| s.sort());
+        Total { inputs, outputs }
+    }
+
+    fn sort_incremental(mut res: Incremental) -> Incremental {
+        res.iter_mut().for_each(|(_, changes)| changes.sort());
+        res
+    }
+
+    #[test]
+    fn test_const_output_literals() {
+        let (start, mut monitor) = setup::<Total>(
+            r#"
+        input i_0: UInt8
+
+        output o_0: Bool @i_0 := true
+        output o_1: UInt8 @i_0 := 3
+        output o_2: Int8 @i_0 := -5
+        output o_3: Float32 @i_0 := -123.456
+        output o_4: String @i_0 := "foobar"
+        "#,
+        );
+        let v = Value::Unsigned(3);
+        let res = monitor.accept_event(vec![v.clone()], start.elapsed());
+        assert!(res.timed.is_empty());
+        let res = res.event;
+        assert_eq!(res.inputs[0], Some(v));
+        assert_eq!(res.outputs[0][0], (None, Some(Value::Bool(true))));
+        assert_eq!(res.outputs[1][0], (None, Some(Value::Unsigned(3))));
+        assert_eq!(res.outputs[2][0], (None, Some(Value::Signed(-5))));
+        assert_eq!(res.outputs[3][0], (None, Some(Value::new_float(-123.456))));
+        assert_eq!(res.outputs[4][0], (None, Some(Value::Str("foobar".into()))));
+    }
+
+    #[test]
+    fn test_count_window() {
+        let (_, mut monitor) =
+            setup::<Incremental>("input a: UInt16\noutput b: UInt16 @0.25Hz := a.aggregate(over: 40s, using: #)");
+
+        let n = 25;
+        let mut time = Duration::from_secs(45);
+        let res = monitor.accept_event(vec![Value::Unsigned(1)], time);
+        assert!(res.event.is_empty());
+        assert_eq!(res.timed.len(), 11);
+        assert!(res.timed.iter().all(|(time, change)| time.as_secs() % 4 == 0
+            && change[0].0 == 0
+            && change[0].1[0] == Change::Value(None, Value::Unsigned(0))));
+        for v in 2..=n {
+            time += Duration::from_secs(1);
+            let res = monitor.accept_event(vec![Value::Unsigned(v)], time);
+
+            assert_eq!(res.event.len(), 0);
+            if (v - 1) % 4 == 0 {
+                assert_eq!(res.timed.len(), 1);
+                assert_eq!(res.timed[0].1[0].1[0], Change::Value(None, Value::Unsigned(v - 1)));
+            } else {
+                assert_eq!(res.timed.len(), 0);
+            }
+        }
+    }
+
+    #[test]
+    fn test_spawn_eventbased() {
+        let (_, mut monitor) = setup::<Total>(
+            "input a: Int32\n\
+                  input b: Int32\n\
+                  output c(x: Int32) spawn with a := x + a\n\
+                  output d := b",
+        );
+
+        let res = monitor.accept_event(vec![Value::Signed(15), Value::None], Duration::from_secs(1));
+        let expected = Total {
+            inputs: vec![Some(Value::Signed(15)), None],
+            outputs: vec![vec![(Some(vec![Value::Signed(15)]), Some(Value::Signed(30)))], vec![(None, None)]],
+        };
+        assert_eq!(res.event, expected);
+        assert_eq!(res.timed.len(), 0);
+
+        let res = monitor.accept_event(vec![Value::Signed(20), Value::Signed(7)], Duration::from_secs(2));
+        let expected = Total {
+            inputs: vec![Some(Value::Signed(20)), Some(Value::Signed(7))],
+            outputs: vec![
+                vec![
+                    (Some(vec![Value::Signed(15)]), Some(Value::Signed(35))),
+                    (Some(vec![Value::Signed(20)]), Some(Value::Signed(40))),
+                ],
+                vec![(None, Some(Value::Signed(7)))],
+            ],
+        };
+        assert_eq!(sort_total(res.event), sort_total(expected));
+        assert_eq!(res.timed.len(), 0);
+
+        let res = monitor.accept_event(vec![Value::None, Value::Signed(42)], Duration::from_secs(3));
+        let expected = Total {
+            inputs: vec![Some(Value::Signed(20)), Some(Value::Signed(42))],
+            outputs: vec![
+                vec![
+                    (Some(vec![Value::Signed(15)]), Some(Value::Signed(35))),
+                    (Some(vec![Value::Signed(20)]), Some(Value::Signed(40))),
+                ],
+                vec![(None, Some(Value::Signed(42)))],
+            ],
+        };
+        assert_eq!(sort_total(res.event), sort_total(expected));
+        assert_eq!(res.timed.len(), 0);
+    }
+
+    #[test]
+    fn test_eval_close() {
+        let (_, mut monitor) = setup::<Incremental>(
+            "input a: Int32\n\
+                  output c(x: Int32)\n\
+                    spawn with a \n\
+                    close @a true\n\
+                  := x + a",
+        );
+
+        let res = monitor.accept_event(vec![Value::Signed(15)], Duration::from_secs(1));
+        let mut expected = vec![
+            Change::Spawn(vec![Value::Signed(15)]),
+            Change::Value(Some(vec![Value::Signed(15)]), Value::Signed(30)),
+            Change::Close(vec![Value::Signed(15)]),
+        ];
+        expected.sort();
+        assert!(res.timed.is_empty());
+        assert_eq!(res.event[0].0, 0);
+
+        assert_eq!(sort_incremental(res.event)[0].1, expected);
     }
 }

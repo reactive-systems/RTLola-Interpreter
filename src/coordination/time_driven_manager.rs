@@ -1,14 +1,15 @@
 use super::WorkItem;
-use crate::basics::{OutputHandler, Time};
-
+use crate::basics::OutputHandler;
+use crate::configuration::time::{OutputTimeRepresentation, RealTime, TimeRepresentation};
 use crate::coordination::dynamic_schedule::DynamicSchedule;
 use crate::evaluator::Evaluator;
+use crate::Time;
 use crate::Value;
 use crossbeam_channel::Sender;
 use rtlola_frontend::mir::{Deadline, OutputReference, PacingType, RtLolaMir, Stream, Task};
 use std::cmp::Ordering;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum EvaluationTask {
@@ -42,24 +43,24 @@ impl EvaluationTask {
 
 pub(crate) type TimeEvaluation = Vec<EvaluationTask>;
 
-pub(crate) struct TimeDrivenManager {
+pub(crate) struct TimeDrivenManager<OutputTime: OutputTimeRepresentation> {
     ir: RtLolaMir,
     has_time_driven: bool,
     deadlines: Vec<Deadline>,
     dyn_schedule: Arc<(Mutex<DynamicSchedule>, Condvar)>,
-    handler: Arc<OutputHandler>,
+    handler: Arc<OutputHandler<OutputTime>>,
     cur_static_deadline_idx: usize,
     next_static_deadline: Option<Time>,
     static_due_streams: Vec<Task>,
 }
 
-impl TimeDrivenManager {
+impl<OutputTime: OutputTimeRepresentation> TimeDrivenManager<OutputTime> {
     /// Creates a new TimeDrivenManager managing time-driven output streams.
     pub(crate) fn setup(
         ir: RtLolaMir,
-        handler: Arc<OutputHandler>,
+        handler: Arc<OutputHandler<OutputTime>>,
         dyn_schedule: Arc<(Mutex<DynamicSchedule>, Condvar)>,
-    ) -> Result<TimeDrivenManager, String> {
+    ) -> Result<TimeDrivenManager<OutputTime>, String> {
         let contains_time_driven = ir.has_time_driven_features();
         if !contains_time_driven {
             // return dummy
@@ -165,12 +166,12 @@ impl TimeDrivenManager {
         }
     }
 
-    pub(crate) fn start_online(mut self, start_time: SystemTime, work_chan: Sender<WorkItem>) -> ! {
+    pub(crate) fn start_online(mut self, work_chan: Sender<WorkItem>) -> ! {
         debug_assert!(self.has_time_driven);
-        let now = SystemTime::now();
+        let mut timer = RealTime::default();
 
         // Shift next static deadline relative to start time
-        let time = now.duration_since(start_time).expect("System Time did not behave monotonically");
+        let time = timer.convert_from(());
         self.next_static_deadline = self.next_static_deadline.map(|d| d + time);
 
         let schedule_copy = self.dyn_schedule.clone();
@@ -186,8 +187,7 @@ impl TimeDrivenManager {
             }
             let mut due_time = opt_due_time.unwrap();
 
-            let now = SystemTime::now();
-            let mut time = now.duration_since(start_time).expect("System Time did not behave monotonically");
+            let mut time = timer.convert_from(());
 
             // Wait for next deadline or until schedule changes
             while time < due_time {
@@ -199,8 +199,7 @@ impl TimeDrivenManager {
                 schedule = new_schedule;
                 //Note: spurious wake-ups should not be a problem
 
-                let now = SystemTime::now();
-                time = now.duration_since(start_time).expect("System Time did not behave monotonically");
+                time = timer.convert_from(());
 
                 let mut opt_due_time = self.get_next_due_locked(&schedule);
 
@@ -222,7 +221,19 @@ impl TimeDrivenManager {
     }
 
     /// Evaluates all deadlines due before time `ts`
-    pub(crate) fn accept_time_offline(&mut self, evaluator: &mut Evaluator, ts: Time) {
+    pub(crate) fn accept_time_offline(&mut self, evaluator: &mut Evaluator<OutputTime>, ts: Time) {
+        self.accept_time_offline_with_callback(evaluator, ts, |_, _| ());
+    }
+
+    /// Evaluates all deadlines due before time `ts` and calls the callback after the evaluation of each deadline
+    pub(crate) fn accept_time_offline_with_callback<T>(
+        &mut self,
+        evaluator: &mut Evaluator<OutputTime>,
+        ts: Time,
+        mut callback: T,
+    ) where
+        T: FnMut(Time, &Evaluator<OutputTime>),
+    {
         if !self.has_time_driven {
             return;
         }
@@ -236,12 +247,25 @@ impl TimeDrivenManager {
             let deadline = self.get_next_deadline_locked(ts, &mut schedule);
             drop(schedule);
             self.eval_deadline(evaluator, deadline, due);
+            callback(due, evaluator);
             schedule = schedule_copy.0.lock().unwrap();
         }
     }
 
     /// Evaluates all deadlines due at time `ts`
-    pub(crate) fn end_offline(&mut self, evaluator: &mut Evaluator, ts: Time) {
+    pub(crate) fn end_offline(&mut self, evaluator: &mut Evaluator<OutputTime>, ts: Time) {
+        self.end_offline_with_callback(evaluator, ts, |_, _| ());
+    }
+
+    /// Evaluates all deadlines due at time `ts` and calls the callback after the evaluation of each deadline
+    pub(crate) fn end_offline_with_callback<T>(
+        &mut self,
+        evaluator: &mut Evaluator<OutputTime>,
+        ts: Time,
+        mut callback: T,
+    ) where
+        T: FnMut(Time, &Evaluator<OutputTime>),
+    {
         if !self.has_time_driven {
             return;
         }
@@ -255,12 +279,18 @@ impl TimeDrivenManager {
             let deadline = self.get_next_deadline_locked(ts, &mut schedule);
             drop(schedule);
             self.eval_deadline(evaluator, deadline, due);
+            callback(due, evaluator);
             schedule = schedule_copy.0.lock().unwrap();
         }
     }
 
     /// Evaluates the given deadline
-    pub(crate) fn eval_deadline(&mut self, evaluator: &mut Evaluator, deadline: Vec<EvaluationTask>, due: Time) {
+    pub(crate) fn eval_deadline(
+        &mut self,
+        evaluator: &mut Evaluator<OutputTime>,
+        deadline: Vec<EvaluationTask>,
+        due: Time,
+    ) {
         debug_assert!(
             !self.ir.time_driven.is_empty()
                 || self.ir.outputs.iter().any(|o| matches!(o.instance_template.spawn.pacing, PacingType::Periodic(_)))

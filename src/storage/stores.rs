@@ -1,19 +1,25 @@
 use super::Value;
 
-use crate::basics::Time;
 use crate::storage::SlidingWindow;
+use crate::Time;
 use either::Either;
 use rtlola_frontend::mir::{
     InputReference, MemorizationBound, OutputReference, OutputStream, RtLolaMir, Stream, StreamReference, Type,
     WindowOperation, WindowReference,
 };
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
 
 /// The collection of all instances of a parameterized stream
 pub(crate) struct InstanceCollection {
     /// The instances accessed by parameter values
     instances: HashMap<Vec<Value>, InstanceStore>,
+    /// A set of instances that got a new value in the last evaluation cycle
+    fresh: HashSet<Vec<Value>>,
+    /// A set of instances that spawned in the last evaluation cycle
+    spawned: HashSet<Vec<Value>>,
+    /// A set of instances that closed in the last evaluation cycle
+    closed: HashSet<Vec<Value>>,
     /// The value type of data that should be stored
     value_type: Type,
     /// The memorization bound of the instance
@@ -23,7 +29,14 @@ pub(crate) struct InstanceCollection {
 impl InstanceCollection {
     /// Creates a new instance
     pub(crate) fn new(ty: &Type, bound: MemorizationBound) -> Self {
-        InstanceCollection { instances: HashMap::new(), value_type: ty.clone(), bound }
+        InstanceCollection {
+            instances: HashMap::new(),
+            fresh: HashSet::new(),
+            spawned: HashSet::new(),
+            closed: HashSet::new(),
+            value_type: ty.clone(),
+            bound,
+        }
     }
 
     /// Returns a reference to the instance store of the instance corresponding to the parameters
@@ -33,12 +46,14 @@ impl InstanceCollection {
 
     /// Returns a mutable reference to the instance store of the instance corresponding to the parameters
     pub(crate) fn instance_mut(&mut self, parameter: &[Value]) -> Option<&mut InstanceStore> {
+        self.fresh.insert(parameter.to_vec());
         self.instances.get_mut(parameter)
     }
 
     /// Creates a new instance if not existing and returns a reference to the *new* instance if created
     pub(crate) fn create_instance(&mut self, parameter: &[Value]) -> Option<&InstanceStore> {
         if !self.instances.contains_key(parameter) {
+            self.spawned.insert(parameter.to_vec());
             self.instances.insert(parameter.to_vec(), InstanceStore::new(&self.value_type, self.bound, true));
             self.instances.get(parameter)
         } else {
@@ -47,14 +62,43 @@ impl InstanceCollection {
     }
 
     /// Deletes the instance corresponding to the parameters
-    pub(crate) fn delete_instance(&mut self, parameter: &[Value]) {
+    pub(crate) fn mark_for_deletion(&mut self, parameter: &[Value]) {
         debug_assert!(self.instances.contains_key(parameter));
-        self.instances.remove(parameter);
+        self.closed.insert(parameter.to_vec());
+    }
+
+    pub(crate) fn delete_instances(&mut self) {
+        for inst in self.closed.iter() {
+            self.instances.remove(inst);
+        }
     }
 
     /// Returns a vector of all parameters for which an instance exists
     pub(crate) fn all_instances(&self) -> Vec<Vec<Value>> {
         self.instances.keys().cloned().collect()
+    }
+
+    /// Returns an iterator over all instances that got a new value
+    pub(crate) fn fresh(&self) -> impl Iterator<Item = &Vec<Value>> {
+        self.fresh.iter()
+    }
+
+    /// Returns an iterator over newly created instances
+    pub(crate) fn spawned(&self) -> impl Iterator<Item = &Vec<Value>> {
+        self.spawned.iter()
+    }
+
+    /// Returns an iterator over closed instances
+    pub(crate) fn closed(&self) -> impl Iterator<Item = &Vec<Value>> {
+        self.closed.iter()
+    }
+
+    /// Marks all instances as not fresh
+    /// Clears spawned and closed instances
+    pub(crate) fn new_cycle(&mut self) {
+        self.fresh.clear();
+        self.spawned.clear();
+        self.closed.clear();
     }
 
     /// Returns true if the instance exists in the instance store
@@ -328,6 +372,11 @@ impl GlobalStore {
             WindowReference::Sliding(x) => &mut self.p_windows[self.window_index_map[x]],
             WindowReference::Discrete(x) => &mut self.p_discrete_windows[self.discrete_window_index_map[x]],
         }
+    }
+
+    /// Marks all instances in the store as not fresh
+    pub(crate) fn new_cycle(&mut self) {
+        self.p_outputs.iter_mut().for_each(|is| is.new_cycle())
     }
 }
 

@@ -74,26 +74,26 @@ The RTLola interpreter supports multiple representations of time in its input an
 If run in offline mode, meaning the time for an event is parsed from the input source, 
 the format in which the time is present in the input has to be set. The following options are supported:
 
-#### Relative
-Time is considered relative to a fixed point in time. Call this point in time `x` then in the example above
+#### Relative Timestamps
+Time is considered as timestamps relative to a fixed point in time. Call this point in time `x` then in the example above
 the first event gets the timestamp `x + 0.1`, the second one `x + 0.2` and so forth.
 
-#### Incremental
-Time is considered relative to the preceding event. This induces the following timestamps for the above example:
+#### Absolute Timestamps
+Time is parsed as absolute wall clock timestamps.
+
+**Note**: The evaluation of periodic streams depends on the time passed between events.
+Depending on the representation, determining the time that passed before the first event is not obvious.
+While the relative and offset representations do not strictly need a point of reference to determine
+the time passed, the absolute representation requires such a point of reference.
+This point of time can either be directly supplied by the command line arguments: `--start-time-unix` and `--start-time-rfc3339`
+or inferred as the time of the first event.
+The latter consequently assumes that no time has passed before the first event in the input.
+
+#### Offset
+Time is considered as an offset to the preceding event. This induces the following *timestamps* for the above example:
 ```
 a,b, time
 0,1, x + 0.1
 2,3, x + 0.3
 4,5, x + 0.6
 ```
-
-#### Absolute
-Time is parsed as absolute timestamps. 
-
-**Note**: The evaluation of periodic streams depends on the time passed between events.
-Depending on the representation, determining the time that passed before the first event is not obvious.
-While the relative and incremental representations do not strictly need a point of reference to determine 
-the time passed, the absolute representation requires such a point of reference. 
-This point of time can either be directly supplied by the command line arguments: `--start-time-unix` and `--start-time-rfc3339`
-or inferred as the time of the first event.
-The latter consequently assumes that no time has passed before the first event in the input.

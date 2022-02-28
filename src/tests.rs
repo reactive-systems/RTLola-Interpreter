@@ -1,27 +1,28 @@
 //! End-to-end tests of the RTLola evaluator
 
-use super::*;
-use crate::basics::{AbsoluteTimeFormat, RelativeTimeFormat};
+use crate::basics::OutputHandler;
+use crate::config::Verbosity;
+use crate::time::{OutputTimeRepresentation, RelativeFloat};
+use crate::ConfigBuilder;
 use std::io::Write;
+use std::sync::Arc;
 use tempfile::NamedTempFile;
 
-fn run(spec: &str, data: &str) -> Result<Arc<OutputHandler>, Box<dyn std::error::Error>> {
-    let ir = rtlola_frontend::parse(rtlola_frontend::ParserConfig::for_string(spec.to_string()))
-        .unwrap_or_else(|e| panic!("spec is invalid: {:?}", e));
+fn run(
+    spec: &str,
+    data: &str,
+) -> Result<Arc<OutputHandler<impl OutputTimeRepresentation>>, Box<dyn std::error::Error>> {
     let mut file = NamedTempFile::new().expect("failed to create temporary file");
     write!(file, "{}", data).expect("writing tempfile failed");
-    let mode = ExecutionMode::Offline(TimeRepresentation::Relative(RelativeTimeFormat::FloatSecs));
-    let cfg = EvalConfig::new(
-        EventSourceConfig::Csv { src: CsvInputSource::file(file.path().to_path_buf(), None, None, mode) },
-        Statistics::Debug,
-        Verbosity::Silent,
-        OutputChannel::StdErr,
-        mode,
-        TimeRepresentation::Absolute(AbsoluteTimeFormat::Rfc3339),
-        None,
-    );
-    let config = Config { cfg, ir };
-    config.run()
+    ConfigBuilder::runnable()
+        .spec_str(spec)
+        .input_time::<RelativeFloat>()
+        .offline()
+        .csv_file_input(file.path().to_path_buf(), None)
+        .verbosity(Verbosity::Silent)
+        .enable_statistics()
+        .output_to_stderr()
+        .run()
 }
 
 #[test]
