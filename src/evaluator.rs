@@ -374,7 +374,7 @@ impl<OutputTime: OutputTimeRepresentation> Evaluator<OutputTime> {
                     for instance in stream_instances {
                         self.eval_close(*close, instance.as_slice(), ts);
                     }
-                } else {
+                } else if self.global_store.get_out_instance(*close).is_active() {
                     self.eval_close(*close, &[], ts);
                 }
             }

@@ -45,3 +45,6 @@ use std::time::Duration;
 
 /// The internal time representation.
 pub type Time = Duration;
+
+// Reexport Frontend
+pub use rtlola_frontend::mir as rtlola_mir;
