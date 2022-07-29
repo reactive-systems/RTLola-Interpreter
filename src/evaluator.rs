@@ -99,12 +99,8 @@ impl<OutputTime: OutputTimeRepresentation> EvaluatorData<OutputTime> {
     ) -> Self {
         // Layers of event based output streams
         let layers: Vec<Vec<Task>> = ir.get_event_driven_layers();
-        let closing_streams = ir
-            .outputs
-            .iter()
-            .filter(|s| s.instance_template.close.target.is_some())
-            .map(|s| s.reference.out_ix())
-            .collect();
+        let closing_streams =
+            ir.outputs.iter().filter(|s| s.close.condition.is_some()).map(|s| s.reference.out_ix()).collect();
         handler.debug(|| format!("Evaluation layers: {:?}", layers));
         let stream_acs = ir
             .outputs
@@ -120,7 +116,7 @@ impl<OutputTime: OutputTimeRepresentation> EvaluatorData<OutputTime> {
         let spawn_acs = ir
             .outputs
             .iter()
-            .map(|o| match &o.instance_template.spawn.pacing {
+            .map(|o| match &o.spawn.pacing {
                 PacingType::Periodic(_) => ActivationConditionOp::TimeDriven,
                 PacingType::Event(ac) => ActivationConditionOp::new(ac, ir.inputs.len()),
                 PacingType::Constant => ActivationConditionOp::True,
@@ -129,7 +125,7 @@ impl<OutputTime: OutputTimeRepresentation> EvaluatorData<OutputTime> {
         let close_acs = ir
             .outputs
             .iter()
-            .map(|o| match &o.instance_template.close.pacing {
+            .map(|o| match &o.close.pacing {
                 PacingType::Periodic(_) => ActivationConditionOp::TimeDriven,
                 PacingType::Event(ac) => ActivationConditionOp::new(ac, ir.inputs.len()),
                 PacingType::Constant => ActivationConditionOp::True,
@@ -184,9 +180,11 @@ impl<OutputTime: OutputTimeRepresentation> EvaluatorData<OutputTime> {
             .ir
             .outputs
             .iter()
-            .map(|o| match o.instance_template.filter.target.as_ref() {
-                None => o.expr.clone().compile(),
-                Some(filter_exp) => CompiledExpr::create_filter(filter_exp.clone().compile(), o.expr.clone().compile()),
+            .map(|o| match o.eval.condition.as_ref() {
+                None => o.eval.expression.clone().compile(),
+                Some(filter_exp) => {
+                    CompiledExpr::create_filter(filter_exp.clone().compile(), o.eval.expression.clone().compile())
+                }
             })
             .collect();
 
@@ -194,7 +192,7 @@ impl<OutputTime: OutputTimeRepresentation> EvaluatorData<OutputTime> {
             .ir
             .outputs
             .iter()
-            .map(|o| match (o.instance_template.spawn.target.as_ref(), o.instance_template.spawn.condition.as_ref()) {
+            .map(|o| match (o.spawn.expression.as_ref(), o.spawn.condition.as_ref()) {
                 (None, None) => CompiledExpr::new(|_| Value::None),
                 (Some(target), None) => target.clone().compile(),
                 (None, Some(condition)) => CompiledExpr::create_filter(
@@ -211,13 +209,7 @@ impl<OutputTime: OutputTimeRepresentation> EvaluatorData<OutputTime> {
             .ir
             .outputs
             .iter()
-            .map(|o| {
-                o.instance_template
-                    .close
-                    .target
-                    .as_ref()
-                    .map_or(CompiledExpr::new(|_| Value::None), |e| e.clone().compile())
-            })
+            .map(|o| o.close.condition.as_ref().map_or(CompiledExpr::new(|_| Value::None), |e| e.clone().compile()))
             .collect();
 
         Evaluator {
@@ -452,11 +444,9 @@ impl<OutputTime: OutputTimeRepresentation> Evaluator<OutputTime> {
             );
 
             // Schedule close if it depends on current instance
-            if stream.instance_template.close.has_self_reference {
+            if stream.close.has_self_reference {
                 // we have a synchronous access to self -> period of close should be the same as og self
-                debug_assert!(
-                    matches!(&stream.instance_template.close.pacing, PacingType::Periodic(f) if *f == tds.frequency)
-                );
+                debug_assert!(matches!(&stream.close.pacing, PacingType::Periodic(f) if *f == tds.frequency));
                 schedule.schedule_close(
                     &self.dyn_schedule.1,
                     output,
@@ -505,7 +495,7 @@ impl<OutputTime: OutputTimeRepresentation> Evaluator<OutputTime> {
             schedule.remove_evaluation(&self.dyn_schedule.1, output, parameter, tds.period_in_duration());
 
             // Remove close from schedule if it depends on current instance
-            if stream.instance_template.close.has_self_reference {
+            if stream.close.has_self_reference {
                 schedule.remove_close(&self.dyn_schedule.1, output, parameter, tds.period_in_duration());
             }
         }
@@ -1908,7 +1898,7 @@ mod tests {
     fn test_filter() {
         let (_, eval, start) = setup(
             "input a: Int32\n\
-                   output b filter a == 42 := a + 8",
+                   output b eval when a == 42 with a + 8",
         );
         let mut eval = eval.into_evaluator();
         let out_ref = StreamReference::Out(0);
@@ -1926,7 +1916,7 @@ mod tests {
     fn test_spawn_eventbased() {
         let (_, eval, start) = setup(
             "input a: Int32\n\
-                  output b(x: Int32) spawn with a := x + a",
+                  output b(x: Int32) spawn with a eval with x + a",
         );
         let mut eval = eval.into_evaluator();
         let out_ref = StreamReference::Out(0);
@@ -1944,7 +1934,7 @@ mod tests {
     fn test_spawn_timedriven() {
         let (_, eval, mut time) = setup_time(
             "input a: Int32\n\
-                  output b(x: Int32) @1Hz spawn with a := x + a.hold(or: 42)",
+                  output b(x: Int32) spawn with a eval @1Hz with x + a.hold(or: 42)",
         );
         let mut eval = eval.into_evaluator();
         let out_ref = StreamReference::Out(0);
@@ -1976,7 +1966,7 @@ mod tests {
     fn test_spawn_eventbased_unit() {
         let (_, eval, start) = setup(
             "input a: Int32\n\
-                  output b spawn if a == 42 := a",
+                  output b spawn when a == 42 eval with a",
         );
         let mut eval = eval.into_evaluator();
         let out_ref = StreamReference::Out(0);
@@ -1999,7 +1989,7 @@ mod tests {
     fn test_spawn_timedriven_unit() {
         let (_, eval, mut time) = setup_time(
             "input a: Int32\n\
-                  output b @1Hz spawn if a == 42 := a.hold(or: 42)",
+                  output b spawn when a == 42 eval @1Hz with a.hold(or: 42)",
         );
         let mut eval = eval.into_evaluator();
         let out_ref = StreamReference::Out(0);
@@ -2037,7 +2027,7 @@ mod tests {
     fn test_spawn_window_unit() {
         let (_, eval, mut time) = setup_time(
             "input a: Int32\n\
-                  output b spawn if a == 42 := a\n\
+                  output b spawn when a == 42 eval with a\n\
                   output c @1Hz := b.aggregate(over: 1s, using: sum)",
         );
         let mut eval = eval.into_evaluator();
@@ -2087,7 +2077,7 @@ mod tests {
     fn test_spawn_window_unit2() {
         let (_, eval, mut time) = setup_time(
             "input a: Int32\n\
-                  output b spawn if a == 42 := a\n\
+                  output b spawn when a == 42 eval with a\n\
                   output c @1Hz := b.aggregate(over: 1s, using: sum)",
         );
         let mut eval = eval.into_evaluator();
@@ -2130,7 +2120,7 @@ mod tests {
     fn test_spawn_window_parameterized() {
         let (_, eval, mut time) = setup_time(
             "input a: Int32\n\
-                  output b(p: Bool) spawn with a == 42 filter !p || a == 42 := a\n\
+                  output b(p: Bool) spawn with a == 42 eval when !p || a == 42 with a\n\
                   output c @1Hz := b(false).aggregate(over: 1s, using: sum)\n\
                   output d @1Hz := b(true).aggregate(over: 1s, using: sum)",
         );
@@ -2183,7 +2173,7 @@ mod tests {
         let (_, eval, start) = setup(
             "input a: Int32\n\
                   input b: Bool\n\
-                  output c(x: Int32) spawn with a close b && (x % 2 == 0) := x + a",
+                  output c(x: Int32) spawn with a close when b && (x % 2 == 0) eval with x + a",
         );
         let mut eval = eval.into_evaluator();
         let out_ref = StreamReference::Out(0);
@@ -2228,7 +2218,7 @@ mod tests {
         let (_, eval, start) = setup(
             "input a: Int32\n\
                   input b: Bool\n\
-                  output c spawn if a = 42 close b := a",
+                  output c spawn when a = 42 close when b eval with a",
         );
         let mut eval = eval.into_evaluator();
         let out_ref = StreamReference::Out(0);
@@ -2263,7 +2253,7 @@ mod tests {
     fn test_close_selfref_unit() {
         let (_, eval, start) = setup(
             "input a: Int32\n\
-                  output c spawn if a = 42 close c = 1337 := a",
+                  output c spawn when a = 42 close when c = 1337 eval with a",
         );
         let mut eval = eval.into_evaluator();
         let out_ref = StreamReference::Out(0);
@@ -2290,7 +2280,7 @@ mod tests {
     fn test_close_selfref_parameter() {
         let (_, eval, start) = setup(
             "input a: Int32\n\
-                  output c(p: Int32) spawn with a close c(p) = 1337 := p+a",
+                  output c(p: Int32) spawn with a close when c(p) = 1337 eval with p+a",
         );
         let mut eval = eval.into_evaluator();
         let out_ref = StreamReference::Out(0);
@@ -2324,7 +2314,7 @@ mod tests {
     fn test_close_window_parameterized() {
         let (_, eval, mut time) = setup_time(
             "input a: Int32\n\
-                  output b(p: Bool) spawn with a == 42 filter !p || a == 42 close b(p) == 1337:= a\n\
+                  output b(p: Bool) spawn with a == 42  close when b(p) == 1337 eval when !p || a == 42 with a\n\
                   output c @1Hz := b(false).aggregate(over: 1s, using: sum)\n\
                   output d @1Hz := b(true).aggregate(over: 1s, using: sum)",
         );
@@ -2389,7 +2379,7 @@ mod tests {
     fn test_close_window_unit() {
         let (_, eval, mut time) = setup_time(
             "input a: Int32\n\
-                  output b spawn if a == 42 close a = 1337 := a\n\
+                  output b spawn when a == 42 close when a = 1337 eval with a\n\
                   output c @1Hz := b.aggregate(over: 1s, using: sum)",
         );
         let mut eval = eval.into_evaluator();

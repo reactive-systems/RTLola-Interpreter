@@ -4,6 +4,7 @@ version = "0.8.0"
 authors = [
     "Jan Baumeister <jbaumeister@react.uni-saarland.de>",
     "Florian Kohn <kohn@react.uni-saarland.de>",
+    "Stefan Oswald <stefano97@gmx.de>",
     "Malte Schledjewski <schledjewski@react.uni-saarland.de>",
     "Maximilian Schwenger <schwenger@react.uni-saarland.de>",
     "Marvin Stenger <stenger@react.uni-saarland.de>",

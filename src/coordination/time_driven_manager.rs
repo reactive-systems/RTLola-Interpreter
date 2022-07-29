@@ -293,7 +293,7 @@ impl<OutputTime: OutputTimeRepresentation> TimeDrivenManager<OutputTime> {
     ) {
         debug_assert!(
             !self.ir.time_driven.is_empty()
-                || self.ir.outputs.iter().any(|o| matches!(o.instance_template.spawn.pacing, PacingType::Periodic(_)))
+                || self.ir.outputs.iter().any(|o| matches!(o.spawn.pacing, PacingType::Periodic(_)))
         );
 
         self.handler.debug(|| format!("Schedule Timed-Event {:?}.", (&deadline, due)));

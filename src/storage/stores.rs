@@ -414,7 +414,7 @@ impl InstanceStore {
         if offset == 0 {
             self.buffer.front().cloned()
         } else {
-            let offset = offset.abs() as usize;
+            let offset = offset.unsigned_abs() as usize;
             self.buffer.get(offset).cloned()
         }
     }

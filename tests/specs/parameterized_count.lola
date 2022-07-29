@@ -1,6 +1,6 @@
 input a: Int64
 
-output b(p: Int64) spawn with a filter p = a close b(p) = 5 := b(p).offset(by: -1).defaults(to: 0) + 1
+output b(p: Int64) spawn with a close when b(p) = 5 eval when p = a with b(p).offset(by: -1).defaults(to: 0) + 1
 
 trigger @a b(1).hold(or: 0) = 1 "Saw 1 one time"
 trigger @a b(1).hold(or: 0) = 2 "Saw 1 two times"

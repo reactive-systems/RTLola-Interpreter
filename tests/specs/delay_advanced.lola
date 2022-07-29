@@ -2,7 +2,7 @@ input a: UInt64
 
 output a_counter: UInt64 @a := a_counter.offset(by: -1).defaults(to: 0) + 1
 
-output b(p: UInt64) @1Hz spawn with a_counter if a = 1 close if true then true else b(p) := a.hold(or: 0) == 2
+output b(p: UInt64) spawn with a_counter when a = 1 close when if true then true else b(p) eval @1Hz with a.hold(or: 0) == 2
 
 trigger @2Hz b(1).hold(or: false) "delay 1 fired"
 trigger @2Hz b(2).hold(or: false) "delay 2 fired"
