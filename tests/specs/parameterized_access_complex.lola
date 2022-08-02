@@ -1,7 +1,7 @@
 input a:Int8
 
-output b(p) @1Hz spawn with a if a % 2 == 0 filter a.hold(or: p) = p close a = 1 := a.aggregate(over: 1s, using: sum)
-output c(p) spawn with a if a % 2 == 0 filter a.hold(or: p) = p close a = 1 := b(p)
+output b(p) spawn with a when a % 2 == 0 close when a = 1 eval @1Hz when a.hold(or: p) = p with a.aggregate(over: 1s, using: sum)
+output c(p) spawn with a when a % 2 == 0 close when a = 1  eval when a.hold(or: p) = p with b(p)
 
 trigger @a b(2).hold(or: 42) = 42 "b does not exist"
 trigger @a c(2).hold(or: 42) = 42 "c does not exist"

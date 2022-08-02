@@ -588,7 +588,7 @@ mod tests {
         let (_, mut monitor) = setup::<Total>(
             "input a: Int32\n\
                   input b: Int32\n\
-                  output c(x: Int32) spawn with a := x + a\n\
+                  output c(x: Int32) spawn with a eval with x + a\n\
                   output d := b",
         );
 
@@ -635,8 +635,8 @@ mod tests {
             "input a: Int32\n\
                   output c(x: Int32)\n\
                     spawn with a \n\
-                    close @a true\n\
-                  := x + a",
+                    close @a when true\n\
+                    eval with x + a",
         );
 
         let res = monitor.accept_event(vec![Value::Signed(15)], Duration::from_secs(1));

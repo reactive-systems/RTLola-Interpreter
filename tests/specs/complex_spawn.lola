@@ -1,8 +1,7 @@
 input a: UInt8
-output x(p) @1Hz
-    spawn @1Hz with a.aggregate(over: 1s, using: sum) if a.aggregate(over: 1s, using: count) = 2
-    filter a.aggregate(over: 1s, using: count) = 2
-  := a.hold(or: 5)
+output x(p)
+    spawn @1Hz with a.aggregate(over: 1s, using: sum) when a.aggregate(over: 1s, using: count) = 2
+    eval @1Hz when a.aggregate(over: 1s, using: count) = 2 with a.hold(or: 5)
 
  trigger @1Hz x(2).hold(or:5) = 1 "x(2) = 1"
  trigger @1Hz x(3).hold(or:5) = 1 "x(3) = 1"

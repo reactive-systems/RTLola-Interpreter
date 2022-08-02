@@ -1,5 +1,5 @@
 input a: UInt64
 
-output b @1Hz spawn if a = 1 close if true then true else b := a.hold(or: 0) == 2
+output b spawn when a = 1 close when if true then true else b eval @1Hz with a.hold(or: 0) == 2
 
 trigger @1Hz b.hold(or: false) "delay fired"

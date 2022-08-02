@@ -2,6 +2,6 @@ input a: UInt64
 
 output c @2Hz := a.hold(or: 2) % 2 = 1
 
-output b @a spawn @1Hz if a.hold(or: 1) % 2 = 0 close c := true
+output b spawn @1Hz when a.hold(or: 1) % 2 = 0 close when c eval @a with  true
 
 trigger @2Hz b.hold(or: false) "b exists"
