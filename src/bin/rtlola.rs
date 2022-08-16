@@ -25,7 +25,7 @@ macro_rules! enum_doc {
     ($enum: ty, $heading: expr) => {{
         let pv_iter = <$enum>::value_variants().iter().filter_map(|v| v.to_possible_value());
 
-        let max_width = pv_iter.clone().filter_map(|pv| pv.get_visible_name()).map(str::len).max().unwrap_or(0);
+        let max_width = pv_iter.clone().map(|pv| pv.get_name()).map(str::len).max().unwrap_or(0);
 
         let mut text: String = String::from($heading) + "\n";
         for pv in pv_iter {

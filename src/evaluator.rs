@@ -3,6 +3,7 @@ use crate::closuregen::{CompiledExpr, Expr};
 use crate::configuration::time::OutputTimeRepresentation;
 use crate::coordination::monitor::{Change, Instance};
 use crate::coordination::{DynamicSchedule, EvaluationTask};
+use crate::storage::InstanceStore;
 use crate::storage::{GlobalStore, Value};
 use crate::Time;
 use bit_set::BitSet;
@@ -727,25 +728,45 @@ impl<'e> EvaluationContext<'e> {
         inst.get_value(0).unwrap_or(Value::None)
     }
 
-    pub(crate) fn lookup_with_offset(&self, stream_ref: StreamReference, parameter: &[Value], offset: i16) -> Value {
-        let (inst, fresh) = match stream_ref {
-            StreamReference::In(ix) => (self.global_store.get_in_instance(ix), self.fresh_inputs.contains(ix)),
-            StreamReference::Out(ix) => (
+    fn get_instance_and_fresh(
+        &self,
+        stream_ref: StreamReference,
+        parameter: &[Value],
+    ) -> (Option<&InstanceStore>, bool) {
+        match stream_ref {
+            StreamReference::In(ix) => (Some(self.global_store.get_in_instance(ix)), self.fresh_inputs.contains(ix)),
+            StreamReference::Out(ix) => {
                 if parameter.is_empty() {
-                    self.global_store.get_out_instance(ix)
+                    (Some(self.global_store.get_out_instance(ix)), self.fresh_outputs.contains(ix))
                 } else {
-                    self.global_store
-                        .get_out_instance_collection(ix)
-                        .instance(parameter)
-                        .expect("tried to sync access non existing instance")
-                },
-                self.fresh_outputs.contains(ix),
-            ),
-        };
+                    let collection = self.global_store.get_out_instance_collection(ix);
+                    (collection.instance(parameter), collection.is_fresh(parameter))
+                }
+            }
+        }
+    }
+
+    pub(crate) fn lookup_fresh(&self, stream_ref: StreamReference, parameter: &[Value]) -> Value {
+        let (_, fresh) = self.get_instance_and_fresh(stream_ref, parameter);
+        Value::Bool(fresh)
+    }
+
+    pub(crate) fn lookup_with_offset(&self, stream_ref: StreamReference, parameter: &[Value], offset: i16) -> Value {
+        let (inst, fresh) = self.get_instance_and_fresh(stream_ref, parameter);
+        let inst = inst.expect("target stream instance to exist for sync access");
         if fresh {
             inst.get_value(offset).unwrap_or(Value::None)
         } else {
             inst.get_value(offset + 1).unwrap_or(Value::None)
+        }
+    }
+
+    pub(crate) fn lookup_current(&self, stream_ref: StreamReference, parameter: &[Value]) -> Value {
+        let (inst, fresh) = self.get_instance_and_fresh(stream_ref, parameter);
+        if fresh {
+            inst.expect("fresh instance to exist").get_value(0).expect("fresh stream to have a value.")
+        } else {
+            Value::None
         }
     }
 
@@ -1068,7 +1089,11 @@ mod tests {
     #[test]
     fn test_output_lookup() {
         let (_, eval, start) = setup(
-            "input a: UInt8\noutput mirror: UInt8 := a\noutput mirror_offset := mirror.offset(by: -1).defaults(to: 5)\noutput c: UInt8 @5Hz := mirror.hold().defaults(to: 8)\noutput d: UInt8 @5Hz := mirror_offset.hold().defaults(to: 3)",
+            "input a: UInt8\n\
+                    output mirror: UInt8 := a\n\
+                    output mirror_offset := mirror.offset(by: -1).defaults(to: 5)\n\
+                    output c: UInt8 @5Hz := mirror.hold().defaults(to: 8)\n\
+                    output d: UInt8 @5Hz := mirror_offset.hold().defaults(to: 3)",
         );
         let mut eval = eval.into_evaluator();
         let out_ref = StreamReference::Out(2);
@@ -1085,6 +1110,87 @@ mod tests {
         assert_eq!(eval.peek_value(StreamReference::Out(0), &Vec::new(), 0).unwrap(), v2);
         assert_eq!(eval.peek_value(StreamReference::Out(1), &Vec::new(), 0).unwrap(), v1);
         assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), v2);
+    }
+
+    #[test]
+    fn test_get_fresh_lookup() {
+        let (_, eval, start) = setup(
+            "input a: UInt8\n\
+                    input b: UInt8\n\
+                    output mirror: UInt8 := a\n\
+                    output mirror_parameter (p)\n
+                        spawn with a\n\
+                        eval with a
+                    output g1: UInt8 @a := mirror.get().defaults(to: 8)\n\
+                    output g2: UInt8 @a := mirror_parameter(a).get().defaults(to: 8)\n\
+                    output f1: Bool @a := mirror.is_fresh()\n\
+                    output f2: Bool @a := mirror_parameter(a).is_fresh()",
+        );
+        let mut eval = eval.into_evaluator();
+        let a = StreamReference::In(0);
+        let mirror_p = StreamReference::Out(1);
+        let g1 = StreamReference::Out(2);
+        let g2 = StreamReference::Out(3);
+        let f1 = StreamReference::Out(4);
+        let f2 = StreamReference::Out(5);
+
+        let v1 = Unsigned(1);
+        let t = Bool(true);
+
+        accept_input!(eval, start, a, v1.clone());
+        eval_stream!(eval, start, 0, vec![]);
+        spawn_stream!(eval, start, mirror_p);
+        eval_stream_instances!(eval, start, mirror_p);
+
+        eval_stream!(eval, start, 2, vec![]);
+        eval_stream!(eval, start, 3, vec![]);
+        eval_stream!(eval, start, 4, vec![]);
+        eval_stream!(eval, start, 5, vec![]);
+
+        assert_eq!(eval.peek_value(g1, &Vec::new(), 0).unwrap(), v1);
+        assert_eq!(eval.peek_value(g2, &Vec::new(), 0).unwrap(), v1);
+
+        assert_eq!(eval.peek_value(f1, &Vec::new(), 0).unwrap(), t);
+        assert_eq!(eval.peek_value(f2, &Vec::new(), 0).unwrap(), t);
+    }
+
+    #[test]
+    fn test_get_fresh_lookup_fail() {
+        let (_, eval, start) = setup(
+            "input a: UInt8\n\
+                    input b: UInt8\n\
+                    output mirror: UInt8 := a\n\
+                    output mirror_parameter (p)\n
+                        spawn with a\n\
+                        eval with a
+                    output g1: UInt8 @b := mirror.get().defaults(to: 8)\n\
+                    output g2: UInt8 @b := mirror_parameter(b).get().defaults(to: 8)\n\
+                    output f1: Bool @b := mirror.is_fresh()\n\
+                    output f2: Bool @b := mirror_parameter(b).is_fresh()",
+        );
+        let mut eval = eval.into_evaluator();
+        let b = StreamReference::In(1);
+        let g1 = StreamReference::Out(2);
+        let g2 = StreamReference::Out(3);
+        let f1 = StreamReference::Out(4);
+        let f2 = StreamReference::Out(5);
+
+        let v2 = Unsigned(2);
+        let d = Unsigned(8);
+        let f = Bool(false);
+
+        accept_input!(eval, start, b, v2);
+
+        eval_stream!(eval, start, 2, vec![]);
+        eval_stream!(eval, start, 3, vec![]);
+        eval_stream!(eval, start, 4, vec![]);
+        eval_stream!(eval, start, 5, vec![]);
+
+        assert_eq!(eval.peek_value(g1, &Vec::new(), 0).unwrap(), d);
+        assert_eq!(eval.peek_value(g2, &Vec::new(), 0).unwrap(), d);
+
+        assert_eq!(eval.peek_value(f1, &Vec::new(), 0).unwrap(), f);
+        assert_eq!(eval.peek_value(f2, &Vec::new(), 0).unwrap(), f);
     }
 
     #[test]

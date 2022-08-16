@@ -83,6 +83,11 @@ impl InstanceCollection {
         self.fresh.iter()
     }
 
+    /// Returns an iterator over all instances that got a new value
+    pub(crate) fn is_fresh(&self, parameter: &[Value]) -> bool {
+        self.fresh.contains(parameter)
+    }
+
     /// Returns an iterator over newly created instances
     pub(crate) fn spawned(&self) -> impl Iterator<Item = &Vec<Value>> {
         self.spawned.iter()
