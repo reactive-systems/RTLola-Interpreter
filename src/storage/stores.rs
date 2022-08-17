@@ -83,7 +83,7 @@ impl InstanceCollection {
         self.fresh.iter()
     }
 
-    /// Returns an iterator over all instances that got a new value
+    /// Returns a bool representing whether the instance identified by the parameter got a fresh value.
     pub(crate) fn is_fresh(&self, parameter: &[Value]) -> bool {
         self.fresh.contains(parameter)
     }
