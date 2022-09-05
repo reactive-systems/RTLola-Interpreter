@@ -122,6 +122,9 @@ impl<InputTime: TimeRepresentation> CsvEventSource<InputTime> {
 
         let stream_names: Vec<&str> = ir.inputs.iter().map(|i| i.name.as_str()).collect();
         let mapping = CsvColumnMapping::from_header(stream_names.as_slice(), wrapper.get_header()?, *time_col);
+        if InputTime::requires_timestamp() && mapping.time_ix.is_none() {
+            return Err(Box::from("Missing 'time' column in CSV input file."));
+        }
         let in_types: Vec<Type> = ir.inputs.iter().map(|i| i.ty.clone()).collect();
 
         init_start_time::<InputTime>(start_time);
@@ -167,7 +170,7 @@ impl<InputTime: TimeRepresentation> CsvEventSource<InputTime> {
     }
 
     fn get_time(&mut self) -> Time {
-        let str = self.str_for_time().unwrap().to_string();
+        let str = self.str_for_time().unwrap_or("").to_string();
         self.timer.parse(&str).unwrap()
     }
 

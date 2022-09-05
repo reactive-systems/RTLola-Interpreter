@@ -70,7 +70,7 @@ pub fn parse_float_time(s: &str) -> Result<Duration, String> {
 }
 
 /// The functionality a time format has to provide.
-pub trait TimeRepresentation: Default + Clone + Send + Sync + 'static {
+pub trait TimeRepresentation: TimeMode + Default + Clone + Send + Sync + 'static {
     /// The internal representation of the time format.
     type InnerTime: Clone;
 
@@ -87,6 +87,14 @@ pub trait TimeRepresentation: Default + Clone + Send + Sync + 'static {
     /// Returns a default start time if applicable for the time representation.
     fn default_start_time() -> Option<SystemTime> {
         Some(SystemTime::now())
+    }
+}
+
+/// This trait captures whether the time is given explicitly through a timestamp or is indirectly obtained through measurements.
+pub trait TimeMode {
+    /// Returns whether the time [TimeRepresentation] require an explicit timestamp
+    fn requires_timestamp() -> bool {
+        true
     }
 }
 
@@ -117,6 +125,7 @@ impl TimeRepresentation for RelativeNanos {
     }
 }
 impl OutputTimeRepresentation for RelativeNanos {}
+impl TimeMode for RelativeNanos {}
 
 /// Time represented as a positive real number representing seconds and sub-seconds relative to a fixed start time.
 /// ie. 5.2
@@ -144,6 +153,7 @@ impl TimeRepresentation for RelativeFloat {
     }
 }
 impl OutputTimeRepresentation for RelativeFloat {}
+impl TimeMode for RelativeFloat {}
 
 /// Time represented as the unsigned number in nanoseconds as the offset to the preceding event.
 #[derive(Debug, Copy, Clone, Default)]
@@ -173,6 +183,7 @@ impl TimeRepresentation for OffsetNanos {
         u64::from_str(s).map(|n| self.convert_from(n)).map_err(|e| e.to_string())
     }
 }
+impl TimeMode for OffsetNanos {}
 
 /// Time represented as a positive real number representing seconds and sub-seconds as the offset to the preceding event.
 #[derive(Debug, Copy, Clone, Default)]
@@ -204,6 +215,8 @@ impl TimeRepresentation for OffsetFloat {
         Ok(self.convert_from(dur))
     }
 }
+
+impl TimeMode for OffsetFloat {}
 
 /// Time represented as wall clock time given as a positive real number representing seconds and sub-seconds since the start of the Unix Epoch.
 #[derive(Debug, Copy, Clone, Default)]
@@ -243,6 +256,7 @@ impl TimeRepresentation for AbsoluteFloat {
     }
 }
 impl OutputTimeRepresentation for AbsoluteFloat {}
+impl TimeMode for AbsoluteFloat {}
 
 /// Time represented as wall clock time in RFC3339 format.
 #[derive(Debug, Copy, Clone, Default)]
@@ -282,6 +296,7 @@ impl TimeRepresentation for AbsoluteRfc {
     }
 }
 impl OutputTimeRepresentation for AbsoluteRfc {}
+impl TimeMode for AbsoluteRfc {}
 
 /// Time is set to be a fixed delay between input events.
 /// The time given is ignored, and the fixed delay is applied.
@@ -317,6 +332,12 @@ impl TimeRepresentation for DelayTime {
     }
 }
 
+impl TimeMode for DelayTime {
+    fn requires_timestamp() -> bool {
+        false
+    }
+}
+
 /// Time is set to be real-time. I.e. the input time is ignored and the current timestamp in rfc3339 format is taken instead.
 #[derive(Debug, Copy, Clone, Default)]
 pub struct RealTime {}
@@ -343,5 +364,11 @@ impl TimeRepresentation for RealTime {
 
     fn parse(&mut self, _s: &str) -> Result<Time, String> {
         Ok(self.convert_from(()))
+    }
+}
+
+impl TimeMode for RealTime {
+    fn requires_timestamp() -> bool {
+        false
     }
 }
