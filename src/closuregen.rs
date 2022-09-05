@@ -149,6 +149,8 @@ impl Expr for Expression {
                         };
                         create_access!(lookup_with_offset, target, offset)
                     }
+                    StreamAccessKind::Get => create_access!(lookup_current, target),
+                    StreamAccessKind::Fresh => create_access!(lookup_fresh, target),
                 }
             }
 
@@ -173,7 +175,6 @@ impl Expr for Expression {
             }
 
             Function(name, args) => {
-                //TODO(marvin): handle type
                 assert!(!args.is_empty());
                 let f_arg = args[0].clone().compile();
 
