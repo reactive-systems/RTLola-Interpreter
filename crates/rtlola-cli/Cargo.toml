@@ -1,0 +1,38 @@
+[package]
+name = "rtlola-cli"
+version = "0.1.0"
+edition = "2021"
+description = "A CLI interface for the RTLola interpreter."
+readme = "../README.md"
+homepage = "http://rtlola.org"
+repository = "https://github.com/reactive-systems/RTLola-Interpreter"
+license = "Apache-2.0"
+keywords = ["verification", "interpreter", "monitoring"]
+
+authors = [
+    "Jan Baumeister <jbaumeister@react.uni-saarland.de>",
+    "Florian Kohn <kohn@react.uni-saarland.de>",
+    "Stefan Oswald <stefano97@gmx.de>",
+    "Malte Schledjewski <schledjewski@react.uni-saarland.de>",
+    "Maximilian Schwenger <schwenger@react.uni-saarland.de>",
+    "Marvin Stenger <stenger@react.uni-saarland.de>",
+    "Leander Tentrup <tentrup@react.uni-saarland.de>"
+]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rtlola-interpreter = {path="../rtlola-interpreter"}
+csv = "1.1.6" # For CSV Parsing
+pcap = { version = "0.8.1", optional = true } # pcap file parsing
+etherparse = "0.9.0" # Network Packet parser
+ip_network = "0.3.4" # IP Address handling
+clap = { version = "3.0.13", features = ["derive", "cargo"] } # command line parsing
+clap_complete = "3.0.5"
+lazy_static = "1.4.0" # static allocation at runtime
+crossterm = "0.20.0"  # terminal output
+human-panic = { version = "1.0.1", optional = true }
+
+[features]
+public = ["human-panic"]
+pcap_interface = ["pcap"]
