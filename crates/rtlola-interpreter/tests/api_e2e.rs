@@ -270,8 +270,7 @@ impl Test {
         // Init Monitor API
         let config = ConfigBuilder::new()
             .spec_file(self.spec_file.clone())
-            .input_time::<RelativeFloat>()
-            .offline()
+            .offline::<RelativeFloat>()
             .record_input::<CsvRecord>()
             .with_verdict::<TriggerMessages>()
             .build();

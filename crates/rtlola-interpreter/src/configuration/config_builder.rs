@@ -7,12 +7,10 @@ use rtlola_frontend::mir::RtLolaMir;
 use crate::api::monitor::{Event, EventInput, Input, Record, RecordInput, VerdictRepresentation};
 use crate::config::{Config, ExecutionMode, MonitorConfig};
 use crate::configuration::time::{OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
-#[cfg(feature = "pcap_interface")]
-use crate::io::PCAPInputSource;
-#[cfg(feature = "pcap_interface")]
-use crate::time::AbsoluteFloat;
-use crate::{Monitor, QueuedMonitor};
 use crate::time::RealTime;
+use crate::Monitor;
+#[cfg(feature = "queued-api")]
+use crate::QueuedMonitor;
 
 /* Type state of shared config */
 /// Represents a state of the [ConfigBuilder]
@@ -30,14 +28,6 @@ pub struct IrConfigured {
     ir: RtLolaMir,
 }
 impl ConfigState for IrConfigured {}
-
-/// The config state in which the specification is configured
-#[derive(Debug, Clone)]
-pub struct TimeConfigured<InputTime: TimeRepresentation> {
-    ir: RtLolaMir,
-    input_time_representation: InputTime,
-}
-impl<InputTime: TimeRepresentation> ConfigState for TimeConfigured<InputTime> {}
 
 /// The config state in which the specification is configured
 #[derive(Debug, Clone)]
@@ -83,8 +73,7 @@ impl<Source: Input, Verdict: VerdictRepresentation, InputTime: TimeRepresentatio
 ///
 /// let monitor: Monitor<_, _, Incremental, _> = ConfigBuilder::new()
 ///     .spec_str("input i: Int64")
-///     .input_time::<RelativeFloat>()
-///     .offline()
+///     .offline::<RelativeFloat>()
 ///     .event_input::<Vec<Value>>()
 ///     .with_verdict::<Incremental>()
 ///     .monitor();
@@ -200,38 +189,12 @@ impl<OutputTime: OutputTimeRepresentation> ConfigBuilder<ConfigureIR, OutputTime
 }
 
 impl<OutputTime: OutputTimeRepresentation> ConfigBuilder<IrConfigured, OutputTime> {
-    /// Sets the time representation for the input timestamps.
-    /// See the README for further details.
-    /// For possible [TimeRepresentation]s see the [Time](crate::time) Module.
-    pub fn input_time<InputTime: TimeRepresentation>(self) -> ConfigBuilder<TimeConfigured<InputTime>, OutputTime> {
-        let ConfigBuilder {
-            output_time_representation,
-            start_time,
-            state: IrConfigured { ir },
-        } = self;
-        ConfigBuilder {
-            output_time_representation,
-            start_time,
-            state: TimeConfigured {
-                ir,
-                input_time_representation: InputTime::default(),
-            },
-        }
-    }
-}
-
-impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation>
-ConfigBuilder<TimeConfigured<InputTime>, OutputTime>
-{
-    /// Sets the execute mode to be offline, i.e. takes the time of events from the input source.
+    /// Sets the execute mode to be online, i.e. the time of events is taken by the interpreter.
     pub fn online(self) -> ConfigBuilder<ModeConfigured<RealTime>, OutputTime> {
         let ConfigBuilder {
             output_time_representation,
             start_time,
-            state: TimeConfigured {
-                ir,
-                input_time_representation:_,
-            },
+            state: IrConfigured { ir },
         } = self;
 
         ConfigBuilder {
@@ -245,15 +208,15 @@ ConfigBuilder<TimeConfigured<InputTime>, OutputTime>
         }
     }
 
-    /// Sets the execute mode to be online, i.e. the time of events is taken by the interpreter.
-    pub fn offline(self) -> ConfigBuilder<ModeConfigured<InputTime>, OutputTime> {
+    /// Sets the execute mode to be offline, i.e. takes the time of events from the input source.
+    /// How the input timestamps are interpreted is defined by the type parameter.
+    /// See the README for further details on timestamp representations.
+    /// For possible [TimeRepresentation]s see the [Time](crate::time) Module.
+    pub fn offline<InputTime: TimeRepresentation>(self) -> ConfigBuilder<ModeConfigured<InputTime>, OutputTime> {
         let ConfigBuilder {
             output_time_representation,
             start_time,
-            state: TimeConfigured {
-                ir,
-                input_time_representation,
-            },
+            state: IrConfigured { ir },
         } = self;
 
         ConfigBuilder {
@@ -261,27 +224,27 @@ ConfigBuilder<TimeConfigured<InputTime>, OutputTime>
             start_time,
             state: ModeConfigured {
                 ir,
-                input_time_representation,
+                input_time_representation: InputTime::default(),
                 mode: ExecutionMode::Offline,
             },
         }
     }
 }
 
-
 impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation>
     ConfigBuilder<ModeConfigured<InputTime>, OutputTime>
 {
     /// Use the predefined [EventInput] method to provide inputs to the API.
-    pub fn event_input<E: Into<Event>>(self) -> ConfigBuilder<InputConfigured<InputTime, EventInput<E>>, OutputTime> {
+    pub fn event_input<E: Into<Event> + Send>(self) -> ConfigBuilder<InputConfigured<InputTime, EventInput<E>>, OutputTime> {
         let ConfigBuilder {
             output_time_representation,
             start_time,
-            state: ModeConfigured {
-                ir,
-                input_time_representation,
-                mode,
-            },
+            state:
+                ModeConfigured {
+                    ir,
+                    input_time_representation,
+                    mode,
+                },
         } = self;
 
         ConfigBuilder {
@@ -303,11 +266,12 @@ impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation>
         let ConfigBuilder {
             output_time_representation,
             start_time,
-            state: ModeConfigured {
-                ir,
-                input_time_representation,
-                mode,
-            },
+            state:
+                ModeConfigured {
+                    ir,
+                    input_time_representation,
+                    mode,
+                },
         } = self;
 
         ConfigBuilder {
@@ -327,11 +291,12 @@ impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation>
         let ConfigBuilder {
             output_time_representation,
             start_time,
-            state: ModeConfigured {
-                ir,
-                input_time_representation,
-                mode
-            },
+            state:
+                ModeConfigured {
+                    ir,
+                    input_time_representation,
+                    mode,
+                },
         } = self;
 
         ConfigBuilder {
@@ -380,7 +345,7 @@ impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation, Source
 }
 
 impl<
-        Source: Input,
+        Source: Input + 'static,
         InputTime: TimeRepresentation,
         Verdict: VerdictRepresentation,
         OutputTime: OutputTimeRepresentation,
@@ -417,20 +382,25 @@ impl<
     /// Create a [Monitor] from the configuration. The entrypoint of the API.
     pub fn monitor(self) -> Monitor<Source, InputTime, Verdict, OutputTime>
     where
-        Source: Input<CreationData = ()>,
+        Source: Input<CreationData = ()> + 'static,
     {
         self.build().monitor()
     }
 
+    #[cfg(feature = "queued-api")]
     /// Create a [QueuedMonitor] from the configuration. The entrypoint of the API. The data is provided to the [Input](crate::monitor::Input) source at creation.
-    pub fn queued_monitor_with_data(self, data: Source::CreationData) -> QueuedMonitor<Source, InputTime, Verdict, OutputTime> {
+    pub fn queued_monitor_with_data(
+        self,
+        data: Source::CreationData,
+    ) -> QueuedMonitor<Source, InputTime, Verdict, OutputTime> {
         self.build().queued_monitor_with_data(data)
     }
 
+    #[cfg(feature = "queued-api")]
     /// Create a [QueuedMonitor] from the configuration. The entrypoint of the API.
     pub fn queued_monitor(self) -> QueuedMonitor<Source, InputTime, Verdict, OutputTime>
-        where
-            Source: Input<CreationData = ()>,
+    where
+        Source: Input<CreationData = ()> + 'static,
     {
         self.build().queued_monitor()
     }

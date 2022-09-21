@@ -7,7 +7,9 @@ use rtlola_frontend::RtLolaMir;
 
 use crate::api::monitor::{Incremental, Input, VerdictRepresentation};
 use crate::time::{OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
-use crate::{Monitor, QueuedMonitor};
+use crate::Monitor;
+#[cfg(feature = "queued-api")]
+use crate::QueuedMonitor;
 
 /**
 `Config` combines an RTLola specification in [RtLolaMir] form with various configuration parameters for the interpreter.
@@ -44,7 +46,7 @@ where
 }
 
 impl<
-        Source: Input,
+        Source: Input + 'static,
         SourceTime: TimeRepresentation,
         Verdict: VerdictRepresentation,
         VerdictTime: OutputTimeRepresentation,
@@ -77,15 +79,20 @@ impl<
         Monitor::setup(self.config, ())
     }
 
+    #[cfg(feature = "queued-api")]
     /// Transforms the configuration into a [QueuedMonitor] using the provided data to setup the input source.
-    pub fn queued_monitor_with_data(self, data: Source::CreationData) -> QueuedMonitor<Source, SourceTime, Verdict, VerdictTime> {
+    pub fn queued_monitor_with_data(
+        self,
+        data: Source::CreationData,
+    ) -> QueuedMonitor<Source, SourceTime, Verdict, VerdictTime> {
         QueuedMonitor::setup(self.config, data)
     }
 
+    #[cfg(feature = "queued-api")]
     /// Transforms the configuration into a [QueuedMonitor]
     pub fn queued_monitor(self) -> QueuedMonitor<Source, SourceTime, Verdict, VerdictTime>
-        where
-            Source: Input<CreationData = ()>,
+    where
+        Source: Input<CreationData = ()>,
     {
         QueuedMonitor::setup(self.config, ())
     }

@@ -26,4 +26,6 @@
 //! * [TriggersWithInfoValues]: For each event a list of violated triggers with their specified corresponding values is returned.
 
 pub mod monitor;
+
+#[cfg(feature = "queued-api")]
 pub mod queued;

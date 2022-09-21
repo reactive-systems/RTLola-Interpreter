@@ -36,7 +36,9 @@ use std::time::Duration;
 
 pub use crate::api::monitor;
 pub use crate::api::monitor::Monitor;
+#[cfg(feature = "queued-api")]
 pub use crate::api::queued;
+#[cfg(feature = "queued-api")]
 pub use crate::api::queued::QueuedMonitor;
 pub use crate::configuration::config_builder::ConfigBuilder;
 pub use crate::configuration::{config, time};
