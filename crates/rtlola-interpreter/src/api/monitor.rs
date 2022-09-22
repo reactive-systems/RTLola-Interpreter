@@ -420,10 +420,22 @@ where
         self.last_event = Some(ts);
 
         // Evaluate timed streams with due < ts
-        let mut timed: Vec<(Time, Verdict)> = vec![];
-        self.schedule_manager.advance_time(&mut self.eval, ts, |due, eval| {
-            timed.push((due, Verdict::create(RawVerdict::from(eval))))
-        });
+        let timed = if self.ir.has_time_driven_features() {
+            let mut timed: Vec<(Time, Verdict)> = vec![];
+            while self.schedule_manager.get_next_due().is_some() {
+                let due = self.schedule_manager.get_next_due().unwrap();
+                if due >= ts {
+                    break;
+                }
+                let deadline = self.schedule_manager.get_next_deadline(ts);
+
+                self.eval.eval_time_driven_tasks(deadline, due);
+                timed.push((due, Verdict::create(RawVerdict::from(&self.eval))))
+            }
+            timed
+        } else {
+            vec![]
+        };
 
         // Evaluate
         self.eval.eval_event(ev.as_slice(), ts);
@@ -444,21 +456,27 @@ where
     Computes all periodic streams up through and including the timestamp.
     */
     pub fn accept_time(&mut self, ts: SourceTime::InnerTime) -> Vec<(VerdictTime::InnerTime, Verdict)> {
-        let mut timed_changes: Vec<(Time, Verdict)> = vec![];
-
         let ts = self.source_time.convert_from(ts);
         self.last_event = Some(ts);
 
-        // Eval all timed streams with due < ts
-        self.schedule_manager.advance_time(&mut self.eval, ts, |due, eval| {
-            timed_changes.push((due, Verdict::create(RawVerdict::from(eval))))
-        });
-        // Eval all timed streams with due = ts
-        self.schedule_manager.end_evaluation(&mut self.eval, ts, |due, eval| {
-            timed_changes.push((due, Verdict::create(RawVerdict::from(eval))))
-        });
+        let timed = if self.ir.has_time_driven_features() {
+            let mut timed: Vec<(Time, Verdict)> = vec![];
+            while self.schedule_manager.get_next_due().is_some() {
+                let due = self.schedule_manager.get_next_due().unwrap();
+                if due > ts {
+                    break;
+                }
+                let deadline = self.schedule_manager.get_next_deadline(ts);
 
-        timed_changes
+                self.eval.eval_time_driven_tasks(deadline, due);
+                timed.push((due, Verdict::create(RawVerdict::from(&self.eval))))
+            }
+            timed
+        } else {
+            vec![]
+        };
+
+        timed
             .into_iter()
             .map(|(t, v)| (self.output_time.convert_into(t), v))
             .collect()

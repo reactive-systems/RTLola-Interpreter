@@ -3,9 +3,8 @@ use std::cmp::Ordering;
 use std::rc::Rc;
 use std::time::Duration;
 
-use rtlola_frontend::mir::{Deadline, OutputReference, PacingType, RtLolaMir, Stream, Task};
+use rtlola_frontend::mir::{Deadline, OutputReference, RtLolaMir, Stream, Task};
 
-use crate::evaluator::Evaluator;
 use crate::schedule::dynamic_schedule::DynamicSchedule;
 use crate::{Time, Value};
 
@@ -39,6 +38,7 @@ impl EvaluationTask {
     }
 }
 
+/// A structure to combine the static and dynamic schedule.
 pub(crate) struct ScheduleManager {
     ir: RtLolaMir,
     has_time_driven: bool,
@@ -145,61 +145,5 @@ impl ScheduleManager {
                 }
             },
         }
-    }
-
-    /// Evaluates all deadlines due before time `ts` and calls the callback after the evaluation of each deadline
-    pub(crate) fn advance_time<T>(&mut self, evaluator: &mut Evaluator, ts: Time, mut callback: T)
-    where
-        T: FnMut(Time, &Evaluator),
-    {
-        if !self.has_time_driven {
-            return;
-        }
-
-        while self.get_next_due().is_some() {
-            let due = self.get_next_due().unwrap();
-            if due >= ts {
-                break;
-            }
-            let deadline = self.get_next_deadline(ts);
-
-            self.eval_deadline(evaluator, deadline, due);
-            callback(due, evaluator);
-        }
-    }
-
-    /// Evaluates all deadlines due at time `ts` and calls the callback after the evaluation of each deadline
-    pub(crate) fn end_evaluation<T>(&mut self, evaluator: &mut Evaluator, ts: Time, mut callback: T)
-    where
-        T: FnMut(Time, &Evaluator),
-    {
-        if !self.has_time_driven {
-            return;
-        }
-
-        while self.get_next_due().is_some() {
-            let due = self.get_next_due().unwrap();
-            if due != ts {
-                break;
-            }
-            let deadline = self.get_next_deadline(ts);
-
-            self.eval_deadline(evaluator, deadline, due);
-            callback(due, evaluator);
-        }
-    }
-
-    /// Evaluates the given deadline
-    pub(crate) fn eval_deadline(&mut self, evaluator: &mut Evaluator, deadline: Vec<EvaluationTask>, due: Time) {
-        debug_assert!(
-            !self.ir.time_driven.is_empty()
-                || self
-                    .ir
-                    .outputs
-                    .iter()
-                    .any(|o| matches!(o.spawn.pacing, PacingType::Periodic(_)))
-        );
-
-        evaluator.eval_time_driven_tasks(deadline, due);
     }
 }

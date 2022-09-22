@@ -24,7 +24,7 @@ use std::fmt::Debug;
 use std::ops::Not;
 use std::rc::Rc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use crossbeam_channel::{unbounded, Sender, TrySendError};
 pub use crossbeam_channel::{Receiver, RecvError, RecvTimeoutError, TryRecvError};
@@ -32,16 +32,11 @@ use rtlola_frontend::mir::{InputReference, OutputReference, RtLolaMir, Type};
 
 use crate::config::{Config, ExecutionMode};
 use crate::configuration::time::{init_start_time, OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
-use crate::evaluator::EvaluatorData;
+use crate::evaluator::{Evaluator, EvaluatorData};
 use crate::monitor::{Incremental, Input, RawVerdict, VerdictRepresentation};
 use crate::schedule::schedule::ScheduleManager;
 use crate::schedule::DynamicSchedule;
 use crate::Monitor;
-
-enum WorkItem<Source: Input, SourceTime: TimeRepresentation> {
-    Start,
-    Event(Source::Record, SourceTime::InnerTime),
-}
 
 /// Represents the kind of the verdict. I.e. whether the evaluation was triggered by an event, or by a deadline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -118,8 +113,28 @@ where
         let (output_send, output_rcv) = unbounded();
 
         match config.mode {
-            ExecutionMode::Offline => thread::spawn(move || Self::offline_worker(config_clone, setup_data, input_rcv, output_send)),
-            ExecutionMode::Online => thread::spawn(move || Self::online_worker(config_clone, input_map, setup_data,input_rcv, output_send)),
+            ExecutionMode::Offline => {
+                thread::spawn(move || {
+                    Self::runner::<OfflineWorker<Source, SourceTime, Verdict, VerdictTime>>(
+                        config_clone,
+                        input_map,
+                        setup_data,
+                        input_rcv,
+                        output_send,
+                    )
+                })
+            },
+            ExecutionMode::Online => {
+                thread::spawn(move || {
+                    Self::runner::<OnlineWorker<Source, SourceTime, Verdict, VerdictTime>>(
+                        config_clone,
+                        input_map,
+                        setup_data,
+                        input_rcv,
+                        output_send,
+                    )
+                })
+            },
         };
 
         QueuedMonitor {
@@ -130,153 +145,18 @@ where
         }
     }
 
-    fn try_send(output: &Sender<QueuedVerdict<Verdict, VerdictTime>>, verdict: Option<QueuedVerdict<Verdict, VerdictTime>>) {
-        if let Some(verdict) = verdict {
-            if let Err(e) = output.try_send(verdict) {
-                match e {
-                    TrySendError::Full(_) => println!("Output queue overloaded! Verdict lost..."),
-                    TrySendError::Disconnected(_) => println!("Output queue disconnected! Verdict lost..."),
-                }
-            }
-        }
-    }
-
-    fn online_worker(
+    fn runner<W: Worker<Source, SourceTime, Verdict, VerdictTime>>(
         config: Config<SourceTime, VerdictTime>,
         input_names: HashMap<String, InputReference>,
         setup_data: Source::CreationData,
         input: Receiver<WorkItem<Source, SourceTime>>,
         output: Sender<QueuedVerdict<Verdict, VerdictTime>>,
     ) -> () {
-        // setup monitor
-        let mut source_time = config.input_time_representation;
-        let source = Source::new(input_names, setup_data);
-
-        // Setup evaluator
-        let dyn_schedule = Rc::new(RefCell::new(DynamicSchedule::new()));
-        let eval_data = EvaluatorData::new(config.ir.clone(), dyn_schedule.clone());
-        let mut schedule_manager = ScheduleManager::setup(config.ir.clone(), dyn_schedule)
-            .expect("Error computing schedule for time-driven streams");
-        let mut eval = eval_data.into_evaluator();
-
-        // Wait for Start command
-        loop {
-            match input.recv() {
-                Ok(WorkItem::Start) => break,
-                Ok(WorkItem::Event(_, _)) => panic!("Received Event before 'start' was called"),
-                Err(_) => return,
-            }
-        }
-
-        init_start_time::<SourceTime>(config.start_time);
-        let output_time = VerdictTime::default();
-
-        loop {
-            let next_deadline = schedule_manager.get_next_due();
-            let item = if let Some(due) = next_deadline {
-                input.recv_timeout(due)
-            } else {
-                input.recv().map_err(|_| RecvTimeoutError::Disconnected)
-            };
-            let verdict = match item {
-                Ok(WorkItem::Event(e, ts)) => {
-                    // Received Event before deadline
-                    let e = source.get_event(e);
-                    let ts = source_time.convert_from(ts);
-
-                    eval.eval_event(&e, ts);
-                    let verdict = Verdict::create(RawVerdict::from(&eval));
-                    verdict.is_empty().not().then_some(
-                    QueuedVerdict {
-                        kind: VerdictKind::Event,
-                        ts: output_time.convert_into(ts),
-                        verdict,
-                    })
-                },
-                Err(RecvTimeoutError::Timeout) => {
-                    // Deadline occurred before event
-                    let due = next_deadline.expect("timeout to only happen for a deadline.");
-                    let deadline = schedule_manager.get_next_deadline(due);
-                    schedule_manager.eval_deadline(&mut eval, deadline, due);
-
-                    let verdict = Verdict::create(RawVerdict::from(&eval));
-                    verdict.is_empty().not().then_some(
-                    QueuedVerdict {
-                        kind: VerdictKind::Timed,
-                        ts: output_time.convert_into(due),
-                        verdict,
-                    })
-                },
-                Err(RecvTimeoutError::Disconnected) => {
-                    // Channel closed, we are done here
-                    return;
-                },
-                Ok(WorkItem::Start) => {
-                    // Received second start command -> abort
-                    panic!("Received second start command.")
-                },
-            };
-
-            Self::try_send(&output, verdict);
-
-        }
-    }
-
-    fn offline_worker(
-        config: Config<SourceTime, VerdictTime>,
-        setup_data: Source::CreationData,
-        input: Receiver<WorkItem<Source, SourceTime>>,
-        output: Sender<QueuedVerdict<Verdict, VerdictTime>>,
-    ) -> () {
-        // Wait for Start command
-        loop {
-            match input.recv() {
-                Ok(WorkItem::Start) => break,
-                Ok(WorkItem::Event(_, _)) => panic!("Received Event before 'start' was called"),
-                Err(_) => return,
-            }
-        }
-
-        // Setup evaluator
-        let mut monitor: Monitor<Source, SourceTime, Verdict, VerdictTime> =
-            Monitor::setup(config, setup_data);
-
-        loop {
-            let (verdict, ts) = match input.recv() {
-                Ok(WorkItem::Event(e, ts)) => {
-                    // Received Event
-                    let v = monitor.accept_event(e, ts);
-                    let ts = monitor.last_event().expect("the event to be recorded");
-                    (v, ts)
-                },
-                Err(_) => {
-                    // Channel closed, we are done here
-                    return;
-                },
-                Ok(WorkItem::Start) => {
-                    // Received second start command -> abort
-                    panic!("Received second start command.")
-                },
-            };
-            for (ts, v) in verdict.timed {
-                let verdict = QueuedVerdict {
-                    kind: VerdictKind::Timed,
-                    ts,
-                    verdict: v,
-                };
-                Self::try_send(&output, Some(verdict));
-            }
-            if !verdict.event.is_empty() {
-                let ts = monitor.verdict_time().convert_into(ts);
-                let verdict = QueuedVerdict {
-                    kind: VerdictKind::Event,
-                    ts,
-                    verdict: verdict.event,
-                };
-                Self::try_send(&output, Some(verdict));
-            }
-
-        }
+        let mut worker = W::setup(config, input_names, setup_data, input.clone(), output);
+        worker.wait_for_start(&input);
+        drop(input);
+        worker.init();
+        worker.process();
     }
 }
 
@@ -291,7 +171,6 @@ where
     /// Starts the evaluation process. This method has to be called before any event is accepted.
     pub fn start(&self) {
         self.input.send(WorkItem::Start).expect("Worker thread hung up!");
-
     }
 
     /// This method returns the queue through which the verdicts can be received.
@@ -300,7 +179,7 @@ where
     }
 
     /**
-    Schedules a new event for evaluation. The verdict can be received through the Queue return by the [QueuedMonitor::start].
+    Schedules a new event for evaluation. The verdict can be received through the Queue return by the [QueuedMonitor::output_queue].
     */
     pub fn accept_event(&mut self, ev: Source::Record, ts: SourceTime::InnerTime) {
         self.input
@@ -400,6 +279,252 @@ where
     }
 }
 
+enum WorkItem<Source: Input, SourceTime: TimeRepresentation> {
+    Start,
+    Event(Source::Record, SourceTime::InnerTime),
+}
+
+trait Worker<Source, SourceTime, Verdict, VerdictTime>
+where
+    Source: Input,
+    SourceTime: TimeRepresentation,
+    Verdict: VerdictRepresentation,
+    VerdictTime: OutputTimeRepresentation + 'static,
+{
+    fn setup(
+        config: Config<SourceTime, VerdictTime>,
+        input_names: HashMap<String, InputReference>,
+        setup_data: Source::CreationData,
+        input: Receiver<WorkItem<Source, SourceTime>>,
+        output: Sender<QueuedVerdict<Verdict, VerdictTime>>,
+    ) -> Self;
+
+    fn wait_for_start(&mut self, input: &Receiver<WorkItem<Source, SourceTime>>) {
+        // Wait for Start command
+        loop {
+            match input.recv() {
+                Ok(WorkItem::Start) => break,
+                Ok(WorkItem::Event(_, _)) => panic!("Received Event before 'start' was called"),
+                Err(_) => return,
+            }
+        }
+    }
+
+    fn init(&mut self);
+
+    fn process(&mut self);
+
+    fn try_send(
+        output: &Sender<QueuedVerdict<Verdict, VerdictTime>>,
+        verdict: Option<QueuedVerdict<Verdict, VerdictTime>>,
+    ) {
+        if let Some(verdict) = verdict {
+            if let Err(e) = output.try_send(verdict) {
+                match e {
+                    TrySendError::Full(_) => println!("Output queue overloaded! Verdict lost..."),
+                    TrySendError::Disconnected(_) => println!("Output queue disconnected! Verdict lost..."),
+                }
+            }
+        }
+    }
+}
+
+struct OnlineWorker<Source, SourceTime, Verdict, VerdictTime>
+where
+    Source: Input,
+    SourceTime: TimeRepresentation,
+    Verdict: VerdictRepresentation,
+    VerdictTime: OutputTimeRepresentation + 'static,
+{
+    source: Source,
+    source_time: SourceTime,
+    output_time: Option<VerdictTime>,
+    start_time: Option<SystemTime>,
+
+    schedule_manager: ScheduleManager,
+    evaluator: Evaluator,
+    input: Receiver<WorkItem<Source, SourceTime>>,
+    output: Sender<QueuedVerdict<Verdict, VerdictTime>>,
+}
+
+impl<
+        Source: Input,
+        SourceTime: TimeRepresentation,
+        Verdict: VerdictRepresentation,
+        VerdictTime: OutputTimeRepresentation,
+    > Worker<Source, SourceTime, Verdict, VerdictTime> for OnlineWorker<Source, SourceTime, Verdict, VerdictTime>
+{
+    fn setup(
+        config: Config<SourceTime, VerdictTime>,
+        input_names: HashMap<String, InputReference>,
+        setup_data: Source::CreationData,
+        input: Receiver<WorkItem<Source, SourceTime>>,
+        output: Sender<QueuedVerdict<Verdict, VerdictTime>>,
+    ) -> Self {
+        // setup monitor
+        let source_time = config.input_time_representation;
+        let source = Source::new(input_names, setup_data);
+
+        // Setup evaluator
+        let dyn_schedule = Rc::new(RefCell::new(DynamicSchedule::new()));
+        let eval_data = EvaluatorData::new(config.ir.clone(), dyn_schedule.clone());
+        let schedule_manager = ScheduleManager::setup(config.ir.clone(), dyn_schedule)
+            .expect("Error computing schedule for time-driven streams");
+        let evaluator = eval_data.into_evaluator();
+
+        OnlineWorker {
+            source,
+            source_time,
+            output_time: None,
+            start_time: config.start_time,
+            schedule_manager,
+            evaluator,
+            input,
+            output,
+        }
+    }
+
+    fn init(&mut self) {
+        init_start_time::<SourceTime>(self.start_time);
+        self.output_time.replace(VerdictTime::default());
+    }
+
+    fn process(&mut self) {
+        let output_time = self.output_time.as_mut().expect("Init to be executed before process");
+        loop {
+            let next_deadline = self.schedule_manager.get_next_due();
+            let item = if let Some(due) = next_deadline {
+                self.input.recv_timeout(due)
+            } else {
+                self.input.recv().map_err(|_| RecvTimeoutError::Disconnected)
+            };
+            let verdict = match item {
+                Ok(WorkItem::Event(e, ts)) => {
+                    // Received Event before deadline
+                    let e = self.source.get_event(e);
+                    let ts = self.source_time.convert_from(ts);
+
+                    self.evaluator.eval_event(&e, ts);
+                    let verdict = Verdict::create(RawVerdict::from(&self.evaluator));
+                    verdict.is_empty().not().then_some(QueuedVerdict {
+                        kind: VerdictKind::Event,
+                        ts: output_time.convert_into(ts),
+                        verdict,
+                    })
+                },
+                Err(RecvTimeoutError::Timeout) => {
+                    // Deadline occurred before event
+                    let due = next_deadline.expect("timeout to only happen for a deadline.");
+                    let deadline = self.schedule_manager.get_next_deadline(due);
+                    self.evaluator.eval_time_driven_tasks(deadline, due);
+
+                    let verdict = Verdict::create(RawVerdict::from(&self.evaluator));
+                    verdict.is_empty().not().then_some(QueuedVerdict {
+                        kind: VerdictKind::Timed,
+                        ts: output_time.convert_into(due),
+                        verdict,
+                    })
+                },
+                Err(RecvTimeoutError::Disconnected) => {
+                    // Channel closed, we are done here
+                    return;
+                },
+                Ok(WorkItem::Start) => {
+                    // Received second start command -> abort
+                    panic!("Received second start command.")
+                },
+            };
+
+            Self::try_send(&self.output, verdict);
+        }
+    }
+}
+
+struct OfflineWorker<Source, SourceTime, Verdict, VerdictTime>
+where
+    Source: Input,
+    SourceTime: TimeRepresentation,
+    Verdict: VerdictRepresentation,
+    VerdictTime: OutputTimeRepresentation + 'static,
+{
+    config: Config<SourceTime, VerdictTime>,
+    setup_data: Source::CreationData,
+
+    monitor: Option<Monitor<Source, SourceTime, Verdict, VerdictTime>>,
+    input: Receiver<WorkItem<Source, SourceTime>>,
+    output: Sender<QueuedVerdict<Verdict, VerdictTime>>,
+}
+
+impl<
+        Source: Input,
+        SourceTime: TimeRepresentation,
+        Verdict: VerdictRepresentation,
+        VerdictTime: OutputTimeRepresentation,
+    > Worker<Source, SourceTime, Verdict, VerdictTime> for OfflineWorker<Source, SourceTime, Verdict, VerdictTime>
+{
+    fn setup(
+        config: Config<SourceTime, VerdictTime>,
+        _input_names: HashMap<String, InputReference>,
+        setup_data: Source::CreationData,
+        input: Receiver<WorkItem<Source, SourceTime>>,
+        output: Sender<QueuedVerdict<Verdict, VerdictTime>>,
+    ) -> Self {
+        OfflineWorker {
+            config,
+            setup_data,
+            monitor: None,
+            input,
+            output,
+        }
+    }
+
+    fn init(&mut self) {
+        // Setup evaluator
+        let monitor: Monitor<Source, SourceTime, Verdict, VerdictTime> =
+            Monitor::setup(self.config.clone(), self.setup_data.clone());
+        self.monitor.replace(monitor);
+    }
+
+    fn process(&mut self) {
+        let monitor = self.monitor.as_mut().expect("Init to be called before process");
+        loop {
+            let (verdict, ts) = match self.input.recv() {
+                Ok(WorkItem::Event(e, ts)) => {
+                    // Received Event
+                    let v = monitor.accept_event(e, ts);
+                    let ts = monitor.last_event().expect("the event to be recorded");
+                    (v, ts)
+                },
+                Err(_) => {
+                    // Channel closed, we are done here
+                    return;
+                },
+                Ok(WorkItem::Start) => {
+                    // Received second start command -> abort
+                    panic!("Received second start command.")
+                },
+            };
+            for (ts, v) in verdict.timed {
+                let verdict = QueuedVerdict {
+                    kind: VerdictKind::Timed,
+                    ts,
+                    verdict: v,
+                };
+                Self::try_send(&self.output, Some(verdict));
+            }
+            if !verdict.event.is_empty() {
+                let ts = monitor.verdict_time().convert_into(ts);
+                let verdict = QueuedVerdict {
+                    kind: VerdictKind::Event,
+                    ts,
+                    verdict: verdict.event,
+                };
+                Self::try_send(&self.output, Some(verdict));
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::{Duration, Instant};
@@ -480,13 +605,11 @@ mod tests {
         let mut time = Duration::from_secs(45);
         monitor.accept_event(vec![Value::Unsigned(1)], time);
 
-        let res: Vec<_> = (0..11).map(|_| {
-            output.recv_timeout(timeout).unwrap()
-        }).collect();
+        let res: Vec<_> = (0..11).map(|_| output.recv_timeout(timeout).unwrap()).collect();
         assert!(output.is_empty());
 
         assert!(res.iter().all(|v| v.kind == VerdictKind::Timed));
-        assert!(res.iter().all(|QueuedVerdict{ts, verdict, ..}| {
+        assert!(res.iter().all(|QueuedVerdict { ts, verdict, .. }| {
             ts.as_secs() % 4 == 0 && verdict[0].0 == 0 && verdict[0].1[0] == Change::Value(None, Value::Unsigned(0))
         }));
         for v in 2..=n {
@@ -558,7 +681,6 @@ mod tests {
         };
         assert_eq!(res.kind, VerdictKind::Event);
         assert_eq!(sort_total(res.verdict), sort_total(expected));
-
     }
 
     #[test]

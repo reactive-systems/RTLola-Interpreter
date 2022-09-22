@@ -235,7 +235,9 @@ impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation>
     ConfigBuilder<ModeConfigured<InputTime>, OutputTime>
 {
     /// Use the predefined [EventInput] method to provide inputs to the API.
-    pub fn event_input<E: Into<Event> + Send>(self) -> ConfigBuilder<InputConfigured<InputTime, EventInput<E>>, OutputTime> {
+    pub fn event_input<E: Into<Event> + Send>(
+        self,
+    ) -> ConfigBuilder<InputConfigured<InputTime, EventInput<E>>, OutputTime> {
         let ConfigBuilder {
             output_time_representation,
             start_time,
