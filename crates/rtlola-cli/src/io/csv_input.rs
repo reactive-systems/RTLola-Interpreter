@@ -1,18 +1,19 @@
 #![allow(clippy::mutex_atomic)]
 
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
 use std::io::stdin;
+use std::marker::PhantomData;
 use std::path::PathBuf;
-use std::time::SystemTime;
 
 use csv::{ByteRecord, Reader as CSVReader, Result as ReaderResult, StringRecord};
-use rtlola_frontend::mir::{RtLolaMir, Type};
+use rtlola_interpreter::monitor::Record;
+use rtlola_interpreter::rtlola_mir::{RtLolaMir, Type};
+use rtlola_interpreter::time::TimeRepresentation;
+use rtlola_interpreter::Value;
 
-use crate::configuration::time::{init_start_time, TimeRepresentation};
 use crate::io::EventSource;
-use crate::storage::Value;
-use crate::Time;
 
 /// Configures the input source for the [CsvEventSource].
 #[derive(Debug, Clone)]
@@ -35,29 +36,61 @@ pub enum CsvInputSourceKind {
 
 #[derive(Debug, Clone)]
 pub(crate) struct CsvColumnMapping {
-    /// Mapping from column index to input stream index/reference
-    pub(crate) col2str: Vec<Option<usize>>,
+    /// Maps input streams to csv columns
+    name2col: HashMap<String, usize>,
+
+    /// Maps input streams to their type
+    name2type: HashMap<String, Type>,
 
     /// Column index of time (if existent)
     time_ix: Option<usize>,
 }
 
+pub(crate) struct CsvRecord(ByteRecord);
+
+impl From<ByteRecord> for CsvRecord {
+    fn from(rec: ByteRecord) -> Self {
+        CsvRecord(rec)
+    }
+}
+
+impl Record for CsvRecord {
+    type CreationData = CsvColumnMapping;
+
+    fn func_for_input(name: &str, data: Self::CreationData) -> Box<dyn Fn(&Self) -> Value> {
+        let col_idx = data.name2col[name];
+        let ty = data.name2type[name].clone();
+        let name = name.to_string();
+
+        Box::new(move |rec| {
+            let bytes = rec.0.get(col_idx).expect("column mapping to be correct");
+            match Value::try_from(bytes, &ty) {
+                Some(v) => v,
+                None => {
+                    panic!(
+                        "Could not parse csv item into value. Tried to parse: {:?} for input stream {}",
+                        bytes, name
+                    )
+                },
+            }
+        })
+    }
+}
+
 impl CsvColumnMapping {
-    fn from_header(names: &[&str], header: &StringRecord, time_col: Option<usize>) -> CsvColumnMapping {
-        let str2col: Vec<usize> = names
+    fn from_header(names: &[&str], types: &[Type], header: &StringRecord, time_col: Option<usize>) -> CsvColumnMapping {
+        let name2col: HashMap<String, usize> = names
             .iter()
             .map(|name| {
-                header.iter().position(|entry| &entry == name).unwrap_or_else(|| {
+                let pos = header.iter().position(|entry| &entry == name).unwrap_or_else(|| {
                     eprintln!("error: CSV header does not contain an entry for stream `{}`.", name);
                     std::process::exit(1)
-                })
+                });
+                (name.to_string(), pos)
             })
             .collect();
 
-        let mut col2str: Vec<Option<usize>> = vec![None; header.len()];
-        for (str_ix, header_ix) in str2col.iter().enumerate() {
-            col2str[*header_ix] = Some(str_ix);
-        }
+        let name2type: HashMap<String, Type> = names.iter().map(|s| s.to_string()).zip(types.iter().cloned()).collect();
 
         let time_ix = time_col.map(|col| col - 1).or_else(|| {
             header.iter().position(|name| {
@@ -65,15 +98,11 @@ impl CsvColumnMapping {
                 name == "time" || name == "ts" || name == "timestamp"
             })
         });
-        CsvColumnMapping { col2str, time_ix }
-    }
-
-    fn input_to_stream(&self, input_ix: usize) -> Option<usize> {
-        self.col2str[input_ix]
-    }
-
-    fn num_inputs(&self) -> usize {
-        self.col2str.len()
+        CsvColumnMapping {
+            name2col,
+            name2type,
+            time_ix,
+        }
     }
 }
 
@@ -91,7 +120,7 @@ impl ReaderWrapper {
         }
     }
 
-    fn get_header(&mut self) -> ReaderResult<&StringRecord> {
+    fn header(&mut self) -> ReaderResult<&StringRecord> {
         match self {
             ReaderWrapper::Std(r) => r.headers(),
             ReaderWrapper::File(r) => r.headers(),
@@ -100,129 +129,82 @@ impl ReaderWrapper {
 }
 
 ///Parses events in CSV format.
-#[derive(Debug)]
 pub struct CsvEventSource<InputTime: TimeRepresentation> {
     reader: ReaderWrapper,
-    record: ByteRecord,
-    mapping: CsvColumnMapping,
-    in_types: Vec<Type>,
-    timer: InputTime,
+    csv_column_mapping: CsvColumnMapping,
+    get_time: Box<dyn Fn(&CsvRecord) -> InputTime::InnerTime>,
+    timer: PhantomData<InputTime>,
 }
 
 impl<InputTime: TimeRepresentation> CsvEventSource<InputTime> {
     pub(crate) fn setup(
-        src: &CsvInputSource,
-        timer: InputTime,
+        time_col: Option<usize>,
+        kind: CsvInputSourceKind,
         ir: &RtLolaMir,
-        start_time: Option<SystemTime>,
-    ) -> Result<Box<dyn EventSource<InputTime>>, Box<dyn Error>> {
-        let CsvInputSource { time_col, kind } = src;
+    ) -> Result<CsvEventSource<InputTime>, Box<dyn Error>> {
         let mut wrapper = match kind {
             CsvInputSourceKind::StdIn => ReaderWrapper::Std(CSVReader::from_reader(stdin())),
             CsvInputSourceKind::File(path) => ReaderWrapper::File(CSVReader::from_path(path)?),
         };
 
         let stream_names: Vec<&str> = ir.inputs.iter().map(|i| i.name.as_str()).collect();
-        let mapping = CsvColumnMapping::from_header(stream_names.as_slice(), wrapper.get_header()?, *time_col);
-        if InputTime::requires_timestamp() && mapping.time_ix.is_none() {
+        let in_types: Vec<Type> = ir.inputs.iter().map(|i| i.ty.clone()).collect();
+        let csv_column_mapping = CsvColumnMapping::from_header(
+            stream_names.as_slice(),
+            in_types.as_slice(),
+            wrapper.header()?,
+            time_col,
+        );
+
+        if InputTime::requires_timestamp() && csv_column_mapping.time_ix.is_none() {
             return Err(Box::from("Missing 'time' column in CSV input file."));
         }
-        let in_types: Vec<Type> = ir.inputs.iter().map(|i| i.ty.clone()).collect();
 
-        init_start_time::<InputTime>(start_time);
-
-        Ok(Box::new(CsvEventSource {
-            reader: wrapper,
-            record: ByteRecord::new(),
-            mapping,
-            in_types,
-            timer,
-        }))
-    }
-
-    fn read_blocking(&mut self) -> Result<bool, Box<dyn Error>> {
-        if cfg!(debug_assertion) {
-            // Reset record.
-            self.record.clear();
-        }
-        let read_res = match self.reader.read_record(&mut self.record) {
-            Ok(v) => v,
-            Err(e) => {
-                return Err(e.into());
-            },
-        };
-        if !read_res {
-            return Ok(false);
-        }
-        assert_eq!(self.record.len(), self.mapping.num_inputs());
-
-        //TODO(marvin): this assertion seems wrong, empty strings could be valid values
-        if cfg!(debug_assertion) {
-            assert!(self
-                .record
-                .iter()
-                .enumerate()
-                .filter(|(ix, _)| self.mapping.input_to_stream(*ix).is_some())
-                .all(|(_, str)| !str.is_empty()));
-        }
-
-        Ok(true)
-    }
-
-    pub(crate) fn str_for_time(&self) -> Option<&str> {
-        self.time_index()
-            .map(|ix| &self.record[ix])
-            .and_then(|bytes| std::str::from_utf8(bytes).ok())
-    }
-
-    fn time_index(&self) -> Option<usize> {
-        self.mapping.time_ix
-    }
-
-    fn get_time(&mut self) -> Time {
-        let str = self.str_for_time().unwrap_or("").to_string();
-        self.timer.parse(&str).unwrap()
-    }
-
-    fn read_event(&self) -> Vec<Value> {
-        let mut buffer = vec![Value::None; self.in_types.len()];
-        for (col_ix, s) in self.record.iter().enumerate() {
-            if let Some(str_ix) = self.mapping.col2str[col_ix] {
-                // utf8-encoding (as [u8]) of string "#"
-                if s != [35] {
-                    let t = &self.in_types[str_ix];
-                    buffer[str_ix] = Value::try_from(s, t).unwrap_or_else(|| {
-                        if let Ok(s) = std::str::from_utf8(s) {
-                            eprintln!(
-                                "error: problem with data source; failed to parse {} as value of type {:?}.",
-                                s, t
-                            );
-                        } else {
-                            eprintln!(
-                                "error: problem with data source; failed to parse non-utf8 {:?} as value of type {:?}.",
-                                s, t
-                            );
-                        }
-                        std::process::exit(1)
-                    })
+        if let Some(time_ix) = csv_column_mapping.time_ix {
+            let get_time = Box::new(move |rec: &CsvRecord| {
+                let ts = rec.0.get(time_ix).expect("time index to exist.");
+                let ts_str = match std::str::from_utf8(ts) {
+                    Ok(s) => s,
+                    Err(e) => panic!("Could not parse timestamp: {:?}. Utf8 error: {}", ts, e),
+                };
+                match InputTime::parse(ts_str) {
+                    Ok(t) => t,
+                    Err(e) => panic!("Could not parse timestamp {} into input format: {}", ts_str, e),
                 }
-            }
+            });
+            Ok(CsvEventSource {
+                reader: wrapper,
+                csv_column_mapping,
+                get_time,
+                timer: PhantomData::default(),
+            })
+        } else {
+            let get_time = Box::new(move |_: &CsvRecord| InputTime::parse("").expect("timestamp to not matter"));
+            Ok(CsvEventSource {
+                reader: wrapper,
+                csv_column_mapping,
+                get_time,
+                timer: PhantomData::default(),
+            })
         }
-        buffer
     }
 }
 
-impl<InputTime: TimeRepresentation> EventSource<InputTime> for CsvEventSource<InputTime> {
-    fn has_event(&mut self) -> bool {
-        self.read_blocking().unwrap_or_else(|e| {
-            eprintln!("error: failed to read data. {}", e);
-            std::process::exit(1)
-        })
+impl<InputTime: TimeRepresentation> EventSource<CsvRecord, InputTime> for CsvEventSource<InputTime> {
+    fn init_data(&self) -> <CsvRecord as Record>::CreationData {
+        self.csv_column_mapping.clone()
     }
 
-    fn get_event(&mut self) -> (Vec<Value>, Time) {
-        let event = self.read_event();
-        let time = self.get_time();
-        (event, time)
+    fn next_event(&mut self) -> Option<(CsvRecord, InputTime::InnerTime)> {
+        let mut res = ByteRecord::new();
+        match self.reader.read_record(&mut res) {
+            Ok(true) => {
+                let record = CsvRecord::from(res);
+                let ts = (*self.get_time)(&record);
+                Some((record, ts))
+            },
+            Ok(false) => return None,
+            Err(e) => panic!("Error reading csv file: {}", e),
+        }
     }
 }

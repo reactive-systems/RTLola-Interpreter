@@ -92,11 +92,55 @@ pub type Incremental = Vec<(OutputReference, Vec<Change>)>;
 
 impl VerdictRepresentation for Incremental {
     fn create(data: RawVerdict) -> Self {
-        data.eval.peek_fresh()
+        data.eval
+            .peek_fresh_outputs()
+            .into_iter()
+            .chain(
+                data.eval
+                    .peek_violated_triggers()
+                    .into_iter()
+                    .map(|t| (t, vec![Change::Value(None, Value::Bool(true))])),
+            )
+            .collect()
     }
 
     fn is_empty(&self) -> bool {
         Vec::is_empty(self)
+    }
+}
+
+/**
+Represents the changes of the monitor state divided into inputs, outputs and trigger.
+Changes of output streams are represented by a set of [Change]s.
+A change of an input is represented by its new [Value].
+A change of a trigger is represented by its formatted message.
+
+Note: Only streams that actually changed are included in the collections.
+ */
+#[derive(Debug, Clone)]
+pub struct TotalIncremental {
+    /// The set of changed inputs.
+    pub inputs: Vec<(InputReference, Value)>,
+    /// The set of changed outputs.
+    pub outputs: Vec<(OutputReference, Vec<Change>)>,
+    /// The set of changed triggers. I.e. all triggers that were activated.
+    pub trigger: Vec<(OutputReference, String)>,
+}
+
+impl VerdictRepresentation for TotalIncremental {
+    fn create(data: RawVerdict) -> Self {
+        let inputs = data.eval.peek_fresh_input();
+        let outputs = data.eval.peek_fresh_outputs();
+        let trigger = data.eval.peek_violated_triggers().into_iter().map(|t| (t, data.eval.format_trigger_message(t))).collect();
+        Self{
+            inputs,
+            outputs,
+            trigger
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.inputs.is_empty() && self.outputs.is_empty() && self.trigger.is_empty()
     }
 }
 
@@ -206,7 +250,7 @@ where
     ir: RtLolaMir,
     eval: Evaluator,
 
-    last_event: Option<Time>,
+    last_event: Option<VerdictTime::InnerTime>,
 
     schedule_manager: ScheduleManager,
 
@@ -265,17 +309,14 @@ where
         }
     }
 
-    pub(crate) fn verdict_time(&self) -> &VerdictTime {
-        &self.output_time
-    }
-
-    pub(crate) fn last_event(&self) -> Option<Time> {
-        self.last_event
+    pub(crate) fn last_event(&self) -> Option<VerdictTime::InnerTime> {
+        self.last_event.clone()
     }
 }
 
 /// A raw verdict that is transformed into the respective representation
 #[allow(missing_debug_implementations)]
+#[derive(Copy, Clone)]
 pub struct RawVerdict<'a> {
     eval: &'a Evaluator,
 }
@@ -416,8 +457,7 @@ where
     pub fn accept_event(&mut self, ev: Source::Record, ts: SourceTime::InnerTime) -> Verdicts<Verdict, VerdictTime> {
         let ev = self.source.get_event(ev);
         let ts = self.source_time.convert_from(ts);
-
-        self.last_event = Some(ts);
+        self.last_event = Some(self.output_time.convert_into(ts));
 
         // Evaluate timed streams with due < ts
         let timed = if self.ir.has_time_driven_features() {
@@ -457,7 +497,7 @@ where
     */
     pub fn accept_time(&mut self, ts: SourceTime::InnerTime) -> Vec<(VerdictTime::InnerTime, Verdict)> {
         let ts = self.source_time.convert_from(ts);
-        self.last_event = Some(ts);
+        self.last_event = Some(self.output_time.convert_into(ts));
 
         let timed = if self.ir.has_time_driven_features() {
             let mut timed: Vec<(Time, Verdict)> = vec![];

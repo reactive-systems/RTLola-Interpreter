@@ -92,6 +92,9 @@ impl Value {
             return Some(Bytes(source.into()));
         }
         if let Ok(source) = std::str::from_utf8(source) {
+            if source == "#" {
+                return Some(Value::None);
+            }
             match ty {
                 Type::Bool => source.parse::<bool>().map(Bool).ok(),
                 Type::Int(_) => source.parse::<i64>().map(Signed).ok(),

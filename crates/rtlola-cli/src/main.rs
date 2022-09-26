@@ -1,3 +1,4 @@
+mod config;
 mod io;
 
 use std::error::Error;
@@ -12,14 +13,16 @@ use clap_complete::shells::*;
 #[cfg(feature = "public")]
 use human_panic::setup_panic;
 use lazy_static::lazy_static;
-use rtlola_interpreter::config::{Config, EventSourceConfig, ExecutionMode, Verbosity};
-#[cfg(feature = "pcap_interface")]
-use rtlola_interpreter::io::PCAPInputSource;
-use rtlola_interpreter::io::{CsvInputSource, CsvInputSourceKind, OutputChannel};
+use rtlola_interpreter::config::ExecutionMode;
 use rtlola_interpreter::time::{
     parse_float_time, AbsoluteFloat, AbsoluteRfc, DelayTime, OffsetFloat, OffsetNanos, RealTime, RelativeFloat,
     RelativeNanos,
 };
+
+use crate::config::{Config, EventSourceConfig, Verbosity};
+#[cfg(feature = "pcap_interface")]
+use crate::io::PCAPInputSource;
+use crate::io::{CsvEventSource, CsvInputSourceKind, OutputChannel};
 
 macro_rules! enum_doc {
     ($enum: ty, $heading: expr) => {{
@@ -305,17 +308,13 @@ impl From<MonitorInput> for EventSourceConfig {
     fn from(input: MonitorInput) -> Self {
         if input.stdin {
             EventSourceConfig::Csv {
-                src: CsvInputSource {
-                    time_col: input.csv_time_column,
-                    kind: CsvInputSourceKind::StdIn,
-                },
+                time_col: input.csv_time_column,
+                kind: CsvInputSourceKind::StdIn,
             }
         } else {
             EventSourceConfig::Csv {
-                src: CsvInputSource {
-                    time_col: input.csv_time_column,
-                    kind: CsvInputSourceKind::File(input.csv_in.unwrap()),
-                },
+                time_col: input.csv_time_column,
+                kind: CsvInputSourceKind::File(input.csv_in.unwrap()),
             }
         }
     }
@@ -325,19 +324,15 @@ impl From<MonitorInput> for EventSourceConfig {
 impl IdsInput {
     fn into_event_source(self, local_net: String) -> EventSourceConfig {
         if let Some(pcap) = self.pcap_in {
-            EventSourceConfig::PCAP {
-                src: PCAPInputSource::File {
-                    path: pcap,
-                    local_network: local_net,
-                },
-            }
+            EventSourceConfig::PCAP(PCAPInputSource::File {
+                path: pcap,
+                local_network: local_net,
+            })
         } else {
-            EventSourceConfig::PCAP {
-                src: PCAPInputSource::Device {
-                    name: self.interface.unwrap(),
-                    local_network: local_net,
-                },
-            }
+            EventSourceConfig::PCAP(PCAPInputSource::Device {
+                name: self.interface.unwrap(),
+                local_network: local_net,
+            })
         }
     }
 }
@@ -535,6 +530,31 @@ macro_rules! run_config_it {
 
 macro_rules! run_config_it_ot {
     ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: expr, $start_time: expr) => {
+        match $source {
+            EventSourceConfig::Csv { time_col, kind } => {
+                let src: CsvEventSource<_> = CsvEventSource::setup(time_col, kind, &$ir)?;
+                run_config_it_ot_src!(
+                    $it,
+                    $ot,
+                    $ir,
+                    Box::new(src),
+                    $statistics,
+                    $verbosity,
+                    $output,
+                    $mode,
+                    $start_time
+                )
+            },
+            #[cfg(feature = "pcap_interface")]
+            EventSourceConfig::PCAP(_) => {
+                todo!()
+            },
+        }
+    };
+}
+
+macro_rules! run_config_it_ot_src {
+    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: expr, $start_time: expr) => {
         Config {
             ir: $ir,
             source: $source,
@@ -597,6 +617,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 handler.emit_error(&e);
                 std::process::exit(1);
             });
+            let source = EventSourceConfig::from(input.clone());
 
             match mode {
                 CliExecutionMode { online: true, .. } => {
@@ -604,7 +625,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         RealTime::default(),
                         output_time_format,
                         ir,
-                        input.into(),
+                        source,
                         verbosity.into(),
                         verbosity,
                         output.into(),
@@ -618,7 +639,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                             DelayTime::new(Duration::from_millis(d)),
                             output_time_format,
                             ir,
-                            input.into(),
+                            source,
                             verbosity.into(),
                             verbosity,
                             output.into(),
@@ -630,7 +651,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                             it,
                             output_time_format,
                             ir,
-                            input.into(),
+                            source,
                             verbosity.into(),
                             verbosity,
                             output.into(),

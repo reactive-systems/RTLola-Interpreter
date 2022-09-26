@@ -269,7 +269,7 @@ impl Evaluator {
     }
 
     /// NOT for external use because the values are volatile
-    pub(crate) fn peek_fresh(&self) -> Vec<(OutputReference, Vec<Change>)> {
+    pub(crate) fn peek_fresh_outputs(&self) -> Vec<(OutputReference, Vec<Change>)> {
         self.ir
             .outputs
             .iter()
@@ -311,17 +311,17 @@ impl Evaluator {
                 };
                 changes.is_empty().not().then(|| (o.reference.out_ix(), changes))
             })
-            .chain(
-                self.fresh_triggers
-                    .iter()
-                    .map(|ix| (ix, vec![Change::Value(None, Value::Bool(true))])),
-            )
             .collect()
     }
 
     /// NOT for external use because the values are volatile
     pub(crate) fn peek_violated_triggers(&self) -> Vec<OutputReference> {
         self.fresh_triggers.iter().collect()
+    }
+
+    /// NOT for external use because the values are volatile
+    pub(crate) fn peek_fresh_input(&self) -> Vec<(InputReference, Value)> {
+        self.fresh_inputs.iter().map(|i| (i, self.peek_value(StreamReference::In(i), &[], 0).expect("Marked as fresh"))).collect()
     }
 
     /// NOT for external use because the values are volatile

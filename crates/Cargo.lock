@@ -884,9 +884,11 @@ dependencies = [
  "csv",
  "etherparse",
  "human-panic",
+ "humantime",
  "ip_network",
  "lazy_static",
  "pcap",
+ "rtlola-frontend",
  "rtlola-interpreter",
 ]
 

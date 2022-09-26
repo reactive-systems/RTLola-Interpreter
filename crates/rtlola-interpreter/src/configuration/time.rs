@@ -83,10 +83,10 @@ pub trait TimeRepresentation: TimeMode + Default + Clone + Send + 'static {
     /// Convert from monitor time to the internal representation.
     fn convert_into(&self, ts: Time) -> Self::InnerTime;
 
-    /// Convert monitor time into the internal representation and then into a string.
-    fn convert_into_string(&self, ts: Time) -> String;
+    /// Convert the internal representation into a string.
+    fn to_string(&self, ts: Self::InnerTime) -> String;
     /// Parse the internal representation from a string and convert it into monitor time.
-    fn parse(&mut self, s: &'_ str) -> Result<Time, String>;
+    fn parse(s: &'_ str) -> Result<Self::InnerTime, String>;
 
     /// Returns a default start time if applicable for the time representation.
     fn default_start_time() -> Option<SystemTime> {
@@ -120,14 +120,12 @@ impl TimeRepresentation for RelativeNanos {
         ts.as_nanos() as u64
     }
 
-    fn convert_into_string(&self, ts: Time) -> String {
-        self.convert_into(ts).to_string()
+    fn to_string(&self, ts: Self::InnerTime) -> String {
+        ts.to_string()
     }
 
-    fn parse(&mut self, s: &'_ str) -> Result<Time, String> {
-        u64::from_str(s)
-            .map(|n| self.convert_from(n))
-            .map_err(|e| e.to_string())
+    fn parse(s: &'_ str) -> Result<u64, String> {
+        u64::from_str(s).map_err(|e| e.to_string())
     }
 }
 impl OutputTimeRepresentation for RelativeNanos {}
@@ -149,12 +147,12 @@ impl TimeRepresentation for RelativeFloat {
         ts
     }
 
-    fn convert_into_string(&self, ts: Time) -> String {
+    fn to_string(&self, ts: Self::InnerTime) -> String {
         let dur = self.convert_into(ts);
         format! {"{}.{:09}", dur.as_secs(), dur.subsec_nanos()}
     }
 
-    fn parse(&mut self, s: &str) -> Result<Time, String> {
+    fn parse(s: &str) -> Result<Duration, String> {
         parse_float_time(s)
     }
 }
@@ -181,14 +179,12 @@ impl TimeRepresentation for OffsetNanos {
         ts.sub(self.last_time).as_nanos() as u64
     }
 
-    fn convert_into_string(&self, ts: Time) -> String {
-        self.convert_into(ts).to_string()
+    fn to_string(&self, ts: Self::InnerTime) -> String {
+        ts.to_string()
     }
 
-    fn parse(&mut self, s: &'_ str) -> Result<Time, String> {
-        u64::from_str(s)
-            .map(|n| self.convert_from(n))
-            .map_err(|e| e.to_string())
+    fn parse(s: &'_ str) -> Result<u64, String> {
+        u64::from_str(s).map_err(|e| e.to_string())
     }
 }
 impl TimeMode for OffsetNanos {}
@@ -213,14 +209,13 @@ impl TimeRepresentation for OffsetFloat {
         ts - self.last_time
     }
 
-    fn convert_into_string(&self, ts: Time) -> String {
+    fn to_string(&self, ts: Time) -> String {
         let dur = self.convert_into(ts);
         format! {"{}.{:09}", dur.as_secs(), dur.subsec_nanos()}
     }
 
-    fn parse(&mut self, s: &str) -> Result<Time, String> {
-        let dur = parse_float_time(s)?;
-        Ok(self.convert_from(dur))
+    fn parse(s: &str) -> Result<Duration, String> {
+        parse_float_time(s)
     }
 }
 
@@ -250,14 +245,13 @@ impl TimeRepresentation for AbsoluteFloat {
             .expect("Time did not behave monotonically!")
     }
 
-    fn convert_into_string(&self, ts: Time) -> String {
+    fn to_string(&self, ts: Time) -> String {
         let dur = self.convert_into(ts);
         format! {"{}.{:09}", dur.as_secs(), dur.subsec_nanos()}
     }
 
-    fn parse(&mut self, s: &str) -> Result<Time, String> {
-        let dur = parse_float_time(s)?;
-        Ok(self.convert_from(dur))
+    fn parse(s: &str) -> Result<Duration, String> {
+        parse_float_time(s)
     }
 
     fn default_start_time() -> Option<SystemTime> {
@@ -290,14 +284,13 @@ impl TimeRepresentation for AbsoluteRfc {
         humantime::format_rfc3339(ts)
     }
 
-    fn convert_into_string(&self, ts: Time) -> String {
-        self.convert_into(ts).to_string()
+    fn to_string(&self, ts: Self::InnerTime) -> String {
+        ts.to_string()
     }
 
-    fn parse(&mut self, s: &'_ str) -> Result<Time, String> {
+    fn parse(s: &'_ str) -> Result<Self::InnerTime, String> {
         let ts = humantime::parse_rfc3339(s).map_err(|e| e.to_string())?;
-        let rfc = humantime::format_rfc3339(ts);
-        Ok(self.convert_from(rfc))
+        Ok(humantime::format_rfc3339(ts))
     }
 
     fn default_start_time() -> Option<SystemTime> {
@@ -335,12 +328,12 @@ impl TimeRepresentation for DelayTime {
 
     fn convert_into(&self, _ts: Time) -> Self::InnerTime {}
 
-    fn parse(&mut self, _s: &str) -> Result<Time, String> {
-        Ok(self.convert_from(()))
+    fn parse(_s: &str) -> Result<(), String> {
+        Ok(())
     }
 
-    fn convert_into_string(&self, ts: Time) -> String {
-        format! {"{}.{:09}", ts.as_secs(), ts.subsec_nanos()}
+    fn to_string(&self, _ts: Self::InnerTime) -> String {
+        format! {"{}.{:09}", self.current.as_secs(), self.current.subsec_nanos()}
     }
 }
 
@@ -352,30 +345,33 @@ impl TimeMode for DelayTime {
 
 /// Time is set to be real-time. I.e. the input time is ignored and the current timestamp in rfc3339 format is taken instead.
 #[derive(Debug, Copy, Clone, Default)]
-pub struct RealTime {}
+pub struct RealTime {
+    last_ts: Time,
+}
 impl TimeRepresentation for RealTime {
     type InnerTime = ();
 
     fn convert_from(&mut self, _inner: Self::InnerTime) -> Time {
         let current = SystemTime::now();
         let st_read = *START_TIME.read().unwrap();
-        if let Some(st) = st_read {
+        self.last_ts = if let Some(st) = st_read {
             current.duration_since(st).expect("Time did not behave monotonically!")
         } else {
             *START_TIME.write().unwrap() = Some(current);
             Duration::ZERO
-        }
+        };
+        self.last_ts
     }
 
     fn convert_into(&self, _ts: Time) -> Self::InnerTime {}
 
-    fn convert_into_string(&self, ts: Time) -> String {
-        let ts = START_TIME.read().unwrap().unwrap() + ts;
+    fn to_string(&self, _ts: Self::InnerTime) -> String {
+        let ts = START_TIME.read().unwrap().unwrap() + self.last_ts;
         humantime::format_rfc3339(ts).to_string()
     }
 
-    fn parse(&mut self, _s: &str) -> Result<Time, String> {
-        Ok(self.convert_from(()))
+    fn parse(_s: &str) -> Result<(), String> {
+        Ok(())
     }
 }
 

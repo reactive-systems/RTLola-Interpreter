@@ -16,7 +16,7 @@ use pcap::{Activated, Capture, Device, Error as PCAPError};
 use rtlola_frontend::mir::RtLolaMir;
 
 use crate::configuration::time::{init_start_time, TimeRepresentation};
-use crate::io::io_handler::EventSource;
+use crate::io::output::EventSource;
 use crate::storage::Value;
 use crate::Time;
 

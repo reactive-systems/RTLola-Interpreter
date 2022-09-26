@@ -23,6 +23,7 @@ authors = [
 
 [dependencies]
 rtlola-interpreter = {path="../rtlola-interpreter"}
+rtlola-frontend = {git="ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git", branch="development"}
 csv = "1.1.6" # For CSV Parsing
 pcap = { version = "0.8.1", optional = true } # pcap file parsing
 etherparse = "0.9.0" # Network Packet parser
@@ -32,6 +33,7 @@ clap_complete = "3.0.5"
 lazy_static = "1.4.0" # static allocation at runtime
 crossterm = "0.20.0"  # terminal output
 human-panic = { version = "1.0.1", optional = true }
+humantime = "2.0"
 
 [features]
 public = ["human-panic"]

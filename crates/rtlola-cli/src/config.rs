@@ -1,20 +1,22 @@
 //! This module contains all configuration related structures.
 
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
+use std::io::Write;
+use std::marker::PhantomData;
+use std::thread;
 use std::time::SystemTime;
 
 use clap::ArgEnum;
 use rtlola_frontend::RtLolaMir;
+use rtlola_interpreter::config::ExecutionMode;
+use rtlola_interpreter::monitor::{Incremental, Record, RecordInput, TotalIncremental};
+use rtlola_interpreter::time::{OutputTimeRepresentation, TimeRepresentation};
+use rtlola_interpreter::QueuedMonitor;
 
 #[cfg(feature = "pcap_interface")]
 use crate::io::PCAPInputSource;
-use crate::io::{CsvInputSource, CsvInputSourceKind, OutputChannel, OutputHandler};
-use crate::coordination::Controller;
-use crate::monitor::{Incremental, Input, VerdictRepresentation};
-use crate::time::{OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
-use crate::Monitor;
-use std::marker::PhantomData;
+use crate::io::{CsvInputSourceKind, EventSource, OutputChannel, OutputHandler};
 
 /**
 `Config` combines an RTLola specification in [RtLolaMir] form with various configuration parameters for the interpreter.
@@ -22,71 +24,25 @@ use std::marker::PhantomData;
 The configuration describes how the specification should be executed.
 The `Config` can then be turned into a monitor for use via the API or simply executed.
  */
-#[derive(Clone, Debug)]
-pub struct Config<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation> {
+pub(crate) struct Config<Rec: Record, InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation> {
     /// The representation of the specification
-    pub ir: RtLolaMir,
+    pub(crate) ir: RtLolaMir,
     /// The source of events
-    pub source: EventSourceConfig,
+    pub(crate) source: Box<dyn EventSource<Rec, InputTime>>,
     /// A statistics module
-    pub statistics: Statistics,
+    pub(crate) statistics: Statistics,
     /// The verbosity to use
-    pub verbosity: Verbosity,
+    pub(crate) verbosity: Verbosity,
     /// Where the output should go
-    pub output_channel: OutputChannel,
+    pub(crate) output_channel: OutputChannel,
     /// In which mode the evaluator is executed
-    pub mode: ExecutionMode,
+    pub(crate) mode: ExecutionMode,
     /// Which format the time is given to the monitor
-    pub input_time_representation: InputTime,
+    pub(crate) input_time_representation: InputTime,
     /// Which format to use to output time
-    pub output_time_representation: PhantomData<OutputTime>,
+    pub(crate) output_time_representation: PhantomData<OutputTime>,
     /// The start time to assume
-    pub start_time: Option<SystemTime>,
-}
-
-/// A configuration struct containing all information (including type information) to initialize a Monitor.
-#[derive(Debug, Clone)]
-pub struct MonitorConfig<Source, SourceTime, Verdict = Incremental, VerdictTime = RelativeFloat>
-where
-    Source: Input,
-    SourceTime: TimeRepresentation,
-    Verdict: VerdictRepresentation,
-    VerdictTime: OutputTimeRepresentation,
-{
-    config: Config<SourceTime, VerdictTime>,
-    input: PhantomData<Source>,
-    verdict: PhantomData<Verdict>,
-}
-
-impl<
-        Source: Input,
-        SourceTime: TimeRepresentation,
-        Verdict: VerdictRepresentation,
-        VerdictTime: OutputTimeRepresentation,
-    > MonitorConfig<Source, SourceTime, Verdict, VerdictTime>
-{
-    /// Creates a new monitor config from a config
-    pub fn new(config: Config<SourceTime, VerdictTime>) -> Self {
-        Self { config, input: PhantomData::default(), verdict: PhantomData::default() }
-    }
-
-    /// Returns the underlying configuration
-    pub fn inner(&self) -> &Config<SourceTime, VerdictTime> {
-        &self.config
-    }
-
-    /// Transforms the configuration into a [Monitor] using the provided data to setup the input source.
-    pub fn monitor_with_data(self, data: Source::CreationData) -> Monitor<Source, SourceTime, Verdict, VerdictTime> {
-        Monitor::setup(self.config, data)
-    }
-
-    /// Transforms the configuration into a [Monitor]
-    pub fn monitor(self) -> Monitor<Source, SourceTime, Verdict, VerdictTime>
-    where
-        Source: Input<CreationData = ()>,
-    {
-        Monitor::setup(self.config, ())
-    }
+    pub(crate) start_time: Option<SystemTime>,
 }
 
 /// Used to define the level of statistics that should be computed.
@@ -108,7 +64,7 @@ impl From<Verbosity> for Statistics {
     fn from(v: Verbosity) -> Self {
         match v {
             Verbosity::Progress | Verbosity::Debug => Statistics::Debug,
-            Verbosity::Silent | Verbosity::WarningsOnly | Verbosity::Triggers | Verbosity::Outputs => Statistics::None,
+            Verbosity::Silent | Verbosity::WarningsOnly | Verbosity::Triggers | Verbosity::Streams => Statistics::None,
         }
     }
 }
@@ -125,11 +81,23 @@ pub enum Verbosity {
     WarningsOnly,
     /// Prints only triggers and runtime warnings.
     Triggers,
-    /// Prints information about all or a subset of output streams whenever they produce a new
-    /// value.
-    Outputs,
+    /// Prints new stream values for every stream.
+    Streams,
     /// Prints fine-grained debug information. Not suitable for production.
     Debug,
+}
+
+impl Display for Verbosity {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Verbosity::Silent => write!(f, ""),
+            Verbosity::Progress => write!(f, "Statistic"),
+            Verbosity::WarningsOnly => write!(f, "Warning"),
+            Verbosity::Triggers => write!(f, "Trigger"),
+            Verbosity::Streams => write!(f, "Stream"),
+            Verbosity::Debug => write!(f, "Debug"),
+        }
+    }
 }
 
 impl Default for Verbosity {
@@ -138,102 +106,67 @@ impl Default for Verbosity {
     }
 }
 
-/// The execution mode of the interpreter. See the `README` for more details.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum ExecutionMode {
-    /// Time provided by input source
-    Offline,
-    /// Time taken by evaluator
-    Online,
-}
-
 /// The different supported input sources of the interpreter.
 #[derive(Debug, Clone)]
 pub enum EventSourceConfig {
     /// Parse events in CSV format
     Csv {
-        /// The source of the CSV data.
-        src: CsvInputSource,
+        /// The index of column in which the time information is given
+        /// If none the column named 'time' is chosen.
+        time_col: Option<usize>,
+        /// Specifies the input channel of the source.
+        kind: CsvInputSourceKind,
     },
 
     /// Parse events from network packets
     #[cfg(feature = "pcap_interface")]
-    PCAP {
-        /// The source of the network packets.
-        src: PCAPInputSource,
-    },
-
-    /// The API handles the input.
-    Api,
+    PCAP(PCAPInputSource),
 }
 
-impl Config<RelativeFloat, RelativeFloat> {
-    /// Creates a new Debug config.
-    pub fn debug(ir: RtLolaMir) -> Self {
-        let mode = ExecutionMode::Offline;
-        Config {
+impl<Rec: Record + 'static, InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation>
+    Config<Rec, InputTime, OutputTime>
+{
+    pub(crate) fn run(self) -> Result<(), Box<dyn Error>> {
+        // Convert config
+        use rtlola_interpreter::config::Config as InterpreterConfig;
+        let Config {
             ir,
-            source: EventSourceConfig::Csv { src: CsvInputSource { time_col: None, kind: CsvInputSourceKind::StdIn } },
-            statistics: Statistics::Debug,
-            verbosity: Verbosity::Debug,
-            output_channel: OutputChannel::StdOut,
+            mut source,
+            statistics,
+            verbosity,
+            output_channel,
             mode,
-            input_time_representation: RelativeFloat::default(),
-            output_time_representation: PhantomData::<RelativeFloat>::default(),
-            start_time: None,
-        }
-    }
-}
-
-impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation> Config<InputTime, OutputTime> {
-    /// Creates a new release config.
-    pub fn release(
-        ir: RtLolaMir,
-        csv_path: String,
-        output: OutputChannel,
-        mode: ExecutionMode,
-        start_time: Option<SystemTime>,
-    ) -> Self {
-        Config {
-            ir,
-            source: EventSourceConfig::Csv {
-                src: CsvInputSource { time_col: None, kind: CsvInputSourceKind::File(PathBuf::from(csv_path)) },
-            },
-            statistics: Statistics::None,
-            verbosity: Verbosity::Triggers,
-            output_channel: output,
-            mode,
-            input_time_representation: InputTime::default(),
-            output_time_representation: PhantomData::<OutputTime>::default(),
+            input_time_representation,
+            output_time_representation,
             start_time,
-        }
-    }
+        } = self;
 
-    /// Creates a new API config
-    pub fn api(ir: RtLolaMir) -> Self {
-        Config {
+        let output: OutputHandler<OutputTime> = OutputHandler::new(&ir, verbosity, statistics, output_channel);
+
+        let cfg = InterpreterConfig {
             ir,
-            source: EventSourceConfig::Api,
-            statistics: Statistics::None,
-            verbosity: Verbosity::Triggers,
-            output_channel: OutputChannel::None,
-            mode: ExecutionMode::Offline,
-            input_time_representation: InputTime::default(),
-            output_time_representation: PhantomData::default(),
-            start_time: None,
+            mode,
+            input_time_representation,
+            output_time_representation,
+            start_time,
+        };
+
+        // init monitor
+        let mut monitor: QueuedMonitor<RecordInput<Rec>, InputTime, TotalIncremental, OutputTime> =
+            QueuedMonitor::setup(cfg, source.init_data());
+
+        let queue = monitor.output_queue();
+        let output_handler = thread::spawn(move || output.run(queue));
+
+        // start evaluation
+        monitor.start();
+        while let Some((ev, ts)) = source.next_event() {
+            monitor.accept_event(ev, ts);
         }
-    }
-
-    /// Run the interpreter on this configuration.
-    pub fn run(self) -> Result<Arc<OutputHandler<OutputTime>>, Box<dyn std::error::Error>> {
-        Controller::new(self).start()
-    }
-
-    /// Turn the configuration into the [Monitor] API.
-    pub fn monitor<Source: Input, Verdict: VerdictRepresentation>(
-        self,
-        data: Source::CreationData,
-    ) -> Monitor<Source, InputTime, Verdict, OutputTime> {
-        Monitor::setup(self, data)
+        // Drop closes the input queue and signal the worker thread that we have finished the input.
+        drop(monitor);
+        // Wait for the output queue to empty up.
+        output_handler.join();
+        Ok(())
     }
 }

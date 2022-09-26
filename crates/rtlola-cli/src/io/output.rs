@@ -1,5 +1,6 @@
 #![allow(clippy::mutex_atomic)]
 
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
 use std::io::{stderr, stdout, Write};
@@ -12,49 +13,16 @@ use std::time::{Duration, SystemTime};
 use crossterm::cursor::MoveUp;
 use crossterm::execute;
 use crossterm::terminal::{Clear, ClearType};
-use rtlola_frontend::mir::RtLolaMir;
-use rtlola_interpreter::config::Config;
-use rtlola_interpreter::rtlola_mir::RtLolaMir;
+use rtlola_frontend::mir::{OutputReference, RtLolaMir, TriggerReference};
+use rtlola_interpreter::monitor::{Change, Incremental, Input, Parameters, Record, TotalIncremental};
+use rtlola_interpreter::queued::{QueuedVerdict, Receiver, VerdictKind};
 use rtlola_interpreter::time::{OutputTimeRepresentation, TimeRepresentation};
 use rtlola_interpreter::{Time, Value};
 
 use crate::config::{Config, EventSourceConfig, Verbosity};
-use crate::configuration::time::{OutputTimeRepresentation, TimeRepresentation};
 use crate::io::CsvEventSource;
 #[cfg(feature = "pcap_interface")]
 use crate::io::PCAPEventSource;
-use crate::storage::Value;
-use crate::Time;
-
-//Input Handling
-
-/// A trait that represents the functionality needed for an event source.
-/// The order in which the functions are called is:
-/// has_event -> get_event
-pub(crate) trait EventSource<InputTime: TimeRepresentation> {
-    /// Returns true if another event can be obtained from the Event Source
-    fn has_event(&mut self) -> bool;
-
-    /// Returns an Event consisting of a vector of Values for the input streams and the time passed since the start of the evaluation
-    fn get_event(&mut self) -> (Vec<Value>, Time);
-}
-
-pub(crate) fn create_event_source<InputTime: TimeRepresentation>(
-    config: EventSourceConfig,
-    ir: &RtLolaMir,
-    start_time: Option<SystemTime>,
-    input_time_representation: InputTime,
-) -> Result<Box<dyn EventSource<InputTime>>, Box<dyn Error>> {
-    use EventSourceConfig::*;
-    match config {
-        Csv { src } => CsvEventSource::setup(&src, input_time_representation, ir, start_time),
-        #[cfg(feature = "pcap_interface")]
-        PCAP { src } => PCAPEventSource::setup(&src, input_time_representation, ir, start_time),
-        Api => unreachable!("Currently, there is no need to create an event source for the API."),
-    }
-}
-
-// Output Handling
 
 /// The possible targets at which the output of the interpreter can be directed.
 #[derive(Debug, Clone)]
@@ -65,8 +33,6 @@ pub enum OutputChannel {
     StdErr,
     /// Write the output to a File
     File(PathBuf),
-    /// Do not write any output
-    None,
 }
 
 impl Default for OutputChannel {
@@ -83,76 +49,135 @@ pub struct OutputHandler<OutputTime: OutputTimeRepresentation> {
     file: Option<File>,
     pub(crate) statistics: Option<Statistics>,
     output_time: OutputTime,
+
+    ir: RtLolaMir,
+    or_to_tr: HashMap<OutputReference, TriggerReference>,
 }
 
 impl<OutputTime: OutputTimeRepresentation> OutputHandler<OutputTime> {
     /// Creates a new Output Handler. If None is given as 'start_time', then the first event determines it.
     pub(crate) fn new(
-        config: &Config<impl TimeRepresentation, OutputTime>,
-        num_trigger: usize,
+        ir: &RtLolaMir,
+        verbosity: Verbosity,
+        stats: crate::config::Statistics,
+        channel: OutputChannel,
     ) -> OutputHandler<OutputTime> {
-        let statistics = if config.verbosity == Verbosity::Progress {
-            let stats = Statistics::new(num_trigger);
+        let statistics = if verbosity == Verbosity::Progress {
+            let stats = Statistics::new(ir.triggers.len());
             stats.start_print_progress();
             Some(stats)
-        } else if config.statistics == crate::config::Statistics::Debug {
-            Some(Statistics::new(num_trigger))
+        } else if stats == crate::config::Statistics::Debug {
+            Some(Statistics::new(ir.triggers.len()))
         } else {
             None
         };
+
+        let or_to_tr = ir.triggers.iter().map(|trigger| (trigger.reference.out_ix(), trigger.trigger_reference)).collect();
+
         OutputHandler {
-            verbosity: config.verbosity,
-            channel: config.output_channel.clone(),
+            verbosity,
+            channel,
             file: None,
             statistics,
             output_time: OutputTime::default(),
+            ir: ir.clone(),
+            or_to_tr,
         }
     }
 
-    pub(crate) fn runtime_warning<F, T: Into<String>>(&self, msg: F)
-    where
-        F: FnOnce() -> T,
-    {
-        self.emit(Verbosity::WarningsOnly, msg);
+    fn display_parameter(paras: Parameters) -> String {
+        if let Some(paras) = paras {
+            format!("({})", paras.iter().map(|p| p.to_string()).collect::<Vec<String>>().join(", "))
+        } else {
+            String::new()
+        }
+    }
+
+    pub(crate) fn run(self, input: Receiver<QueuedVerdict<TotalIncremental, OutputTime>>) -> () {
+        loop {
+            let verdict = match input.recv() {
+                Ok(v) => v,
+                Err(_) => {
+                    self.terminate();
+                    return;
+                },
+            };
+            self.new_event();
+
+            let ts = self.output_time.to_string(verdict.ts);
+            let TotalIncremental{ inputs, outputs, trigger } = verdict.verdict;
+            match verdict.kind {
+                VerdictKind::Timed => {
+                    self.debug(|| "Deadline reached", &ts);
+                },
+                VerdictKind::Event => {
+                    self.debug(|| "Processing new event", &ts);
+                    for (idx, val) in inputs {
+                        let name = &self.ir.inputs[idx].name;
+                        self.stream(move || format!("[Input][{}][Value] = {}", name, val), &ts);
+                    }
+                }
+            }
+
+            for (out, changes) in outputs {
+                let name = &self.ir.outputs[out].name;
+                for change in changes {
+                    match change {
+                        Change::Spawn(parameter) => {
+                            self.debug(move || format!("[Output][{}][Spawn] = {}", name, Self::display_parameter(Some(parameter))), &ts);
+                        }
+                        Change::Value(parameter, val) => {
+                            self.stream(move || format!("[Output][{}{}][Value] = {}", name, Self::display_parameter(parameter), val), &ts);
+                        }
+                        Change::Close(parameter) => {
+                            self.debug(move || format!("[Output][{}][Close] = {}", name, Self::display_parameter(Some(parameter))), &ts);
+                        }
+                    }
+                }
+            }
+
+            for (trg, msg) in trigger {
+                let trigger_ref = self.or_to_tr[&trg];
+                self.trigger(move || format!("[#{}] {}", trigger_ref, msg) , trigger_ref, &ts);
+            }
+        }
     }
 
     #[allow(dead_code)]
-    pub(crate) fn trigger<F, T: Into<String>>(&self, msg: F, trigger_idx: usize, time: Time)
+    pub(crate) fn trigger<F, T: Into<String>>(&self, msg: F, trigger_idx: usize, ts: &str)
     where
         F: FnOnce() -> T,
     {
-        let time = self.output_time.convert_into_string(time);
-        let msg = || format!("{}: {}", time, msg().into());
-        self.emit(Verbosity::Triggers, msg);
+        self.emit(Verbosity::Triggers, msg, ts);
         if let Some(statistics) = &self.statistics {
             statistics.trigger(trigger_idx);
         }
     }
 
     #[allow(dead_code)]
-    pub(crate) fn debug<F, T: Into<String>>(&self, msg: F)
+    pub(crate) fn debug<F, T: Into<String>>(&self, msg: F, ts: &str)
     where
         F: FnOnce() -> T,
     {
-        self.emit(Verbosity::Debug, msg);
+        self.emit(Verbosity::Debug, msg, ts);
     }
 
     #[allow(dead_code)]
-    pub(crate) fn output<F, T: Into<String>>(&self, msg: F)
+    pub(crate) fn stream<F, T: Into<String>>(&self, msg: F, ts: &str)
     where
         F: FnOnce() -> T,
     {
-        self.emit(Verbosity::Outputs, msg);
+        self.emit(Verbosity::Streams, msg, ts);
     }
 
     /// Accepts a message and forwards it to the appropriate output channel.
     /// If the configuration prohibits printing the message, `msg` is never called.
-    fn emit<F, T: Into<String>>(&self, kind: Verbosity, msg: F)
+    fn emit<F, T: Into<String>>(&self, kind: Verbosity, msg: F, ts: &str)
     where
         F: FnOnce() -> T,
     {
         if kind <= self.verbosity {
-            self.print(msg().into());
+            self.print( format!("[{}][{}]{}", ts, kind, msg().into()));
         }
     }
 
@@ -161,7 +186,6 @@ impl<OutputTime: OutputTimeRepresentation> OutputHandler<OutputTime> {
             OutputChannel::StdOut => stdout().write((msg + "\n").as_bytes()),
             OutputChannel::StdErr => stderr().write((msg + "\n").as_bytes()),
             OutputChannel::File(_) => self.file.as_ref().unwrap().write(msg.as_bytes()),
-            OutputChannel::None => Ok(0),
         }; // TODO: Decide how to handle the result.
     }
 

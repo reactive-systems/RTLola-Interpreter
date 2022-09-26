@@ -96,7 +96,7 @@ where
     VerdictTime: OutputTimeRepresentation,
 {
     ///setup
-    pub(crate) fn setup(
+    pub fn setup(
         config: Config<SourceTime, VerdictTime>,
         setup_data: Source::CreationData,
     ) -> QueuedMonitor<Source, SourceTime, Verdict, VerdictTime> {
@@ -504,6 +504,7 @@ impl<
                     panic!("Received second start command.")
                 },
             };
+
             for (ts, v) in verdict.timed {
                 let verdict = QueuedVerdict {
                     kind: VerdictKind::Timed,
@@ -513,7 +514,6 @@ impl<
                 Self::try_send(&self.output, Some(verdict));
             }
             if !verdict.event.is_empty() {
-                let ts = monitor.verdict_time().convert_into(ts);
                 let verdict = QueuedVerdict {
                     kind: VerdictKind::Event,
                     ts,
