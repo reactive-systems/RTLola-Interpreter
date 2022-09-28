@@ -2,7 +2,6 @@
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::io::Write;
 use std::marker::PhantomData;
 use std::thread;
 use std::time::SystemTime;
@@ -10,7 +9,7 @@ use std::time::SystemTime;
 use clap::ArgEnum;
 use rtlola_frontend::RtLolaMir;
 use rtlola_interpreter::config::ExecutionMode;
-use rtlola_interpreter::monitor::{Incremental, Record, RecordInput, TotalIncremental};
+use rtlola_interpreter::monitor::{EvalTimeTracer, Record, RecordInput, TotalIncremental, TracingVerdict};
 use rtlola_interpreter::time::{OutputTimeRepresentation, TimeRepresentation};
 use rtlola_interpreter::QueuedMonitor;
 
@@ -47,7 +46,7 @@ pub(crate) struct Config<Rec: Record, InputTime: TimeRepresentation, OutputTime:
 
 /// Used to define the level of statistics that should be computed.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub enum Statistics {
+pub(crate) enum Statistics {
     /// No statistics will be computed
     None,
     /// All statistics will be computed
@@ -152,8 +151,12 @@ impl<Rec: Record + 'static, InputTime: TimeRepresentation, OutputTime: OutputTim
         };
 
         // init monitor
-        let mut monitor: QueuedMonitor<RecordInput<Rec>, InputTime, TotalIncremental, OutputTime> =
-            QueuedMonitor::setup(cfg, source.init_data());
+        let mut monitor: QueuedMonitor<
+            RecordInput<Rec>,
+            InputTime,
+            TracingVerdict<EvalTimeTracer, TotalIncremental>,
+            OutputTime,
+        > = QueuedMonitor::setup(cfg, source.init_data());
 
         let queue = monitor.output_queue();
         let output_handler = thread::spawn(move || output.run(queue));
@@ -163,10 +166,10 @@ impl<Rec: Record + 'static, InputTime: TimeRepresentation, OutputTime: OutputTim
         while let Some((ev, ts)) = source.next_event() {
             monitor.accept_event(ev, ts);
         }
-        // Drop closes the input queue and signal the worker thread that we have finished the input.
-        drop(monitor);
+        // Wait for all events to be processed
+        monitor.end();
         // Wait for the output queue to empty up.
-        output_handler.join();
+        output_handler.join().expect("Failed to join on output handler");
         Ok(())
     }
 }

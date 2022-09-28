@@ -203,7 +203,7 @@ impl<InputTime: TimeRepresentation> EventSource<CsvRecord, InputTime> for CsvEve
                 let ts = (*self.get_time)(&record);
                 Some((record, ts))
             },
-            Ok(false) => return None,
+            Ok(false) => None,
             Err(e) => panic!("Error reading csv file: {}", e),
         }
     }

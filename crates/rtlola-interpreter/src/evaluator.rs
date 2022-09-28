@@ -321,7 +321,16 @@ impl Evaluator {
 
     /// NOT for external use because the values are volatile
     pub(crate) fn peek_fresh_input(&self) -> Vec<(InputReference, Value)> {
-        self.fresh_inputs.iter().map(|i| (i, self.peek_value(StreamReference::In(i), &[], 0).expect("Marked as fresh"))).collect()
+        self.fresh_inputs
+            .iter()
+            .map(|i| {
+                (
+                    i,
+                    self.peek_value(StreamReference::In(i), &[], 0)
+                        .expect("Marked as fresh"),
+                )
+            })
+            .collect()
     }
 
     /// NOT for external use because the values are volatile
@@ -1011,7 +1020,7 @@ mod tests {
         let mut eval = eval.into_evaluator();
         let sr = StreamReference::In(0);
         let v = Unsigned(3);
-        accept_input!(eval, start, sr, v.clone());
+        accept_input!(eval, start, sr, v);
         peek_assert_eq!(eval, start, 0, vec![], Bool(true));
         peek_assert_eq!(eval, start, 1, vec![], Unsigned(3));
         peek_assert_eq!(eval, start, 2, vec![], Signed(-5));
@@ -1062,7 +1071,7 @@ mod tests {
         let mut eval = eval.into_evaluator();
         let sr = StreamReference::In(0);
         let v = Unsigned(3);
-        accept_input!(eval, start, sr, v.clone());
+        accept_input!(eval, start, sr, v);
         peek_assert_eq!(eval, start, 0, vec![], Bool(!false));
         peek_assert_eq!(eval, start, 1, vec![], Bool(!true));
         peek_assert_eq!(eval, start, 2, vec![], Unsigned(8 + 3));
@@ -1103,7 +1112,7 @@ mod tests {
         let mut eval = eval.into_evaluator();
         let sr = StreamReference::In(0);
         let v = Unsigned(3);
-        accept_input!(eval, start, sr, v.clone());
+        accept_input!(eval, start, sr, v);
         assert_eq!(eval.peek_value(sr, &Vec::new(), 0).unwrap(), v)
     }
 
@@ -1115,7 +1124,7 @@ mod tests {
         let out_ref_1 = StreamReference::Out(1);
         let in_ref = StreamReference::In(0);
         let v = Unsigned(9);
-        accept_input!(eval, start, in_ref, v.clone());
+        accept_input!(eval, start, in_ref, v);
         eval_stream!(eval, start, 0, vec![]);
         eval_stream!(eval, start, 1, vec![]);
         assert_eq!(eval.peek_value(out_ref_0, &Vec::new(), 0).unwrap(), v);
@@ -1150,7 +1159,7 @@ mod tests {
         let in_ref = StreamReference::In(0);
         let v1 = Unsigned(1);
         let v2 = Unsigned(2);
-        accept_input!(eval, start, in_ref, v1.clone());
+        accept_input!(eval, start, in_ref, v1);
         eval_stream!(eval, start, 0, vec![]);
         eval_stream!(eval, start, 1, vec![]);
         accept_input!(eval, start, in_ref, v2);
@@ -1187,7 +1196,7 @@ mod tests {
         let v1 = Unsigned(1);
         let t = Bool(true);
 
-        accept_input!(eval, start, a, v1.clone());
+        accept_input!(eval, start, a, v1);
         eval_stream!(eval, start, 0, vec![]);
         spawn_stream!(eval, start, mirror_p);
         eval_stream_instances!(eval, start, mirror_p);
@@ -1251,7 +1260,7 @@ mod tests {
         let out_ref = StreamReference::Out(0);
         let in_ref = StreamReference::In(0);
         let v1 = Unsigned(1);
-        accept_input!(eval, start, in_ref, v1.clone());
+        accept_input!(eval, start, in_ref, v1);
         eval_stream!(eval, start, 0, vec![]);
         assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), v1);
     }
@@ -1280,8 +1289,8 @@ mod tests {
         let v1 = Unsigned(1);
         let v2 = Unsigned(2);
         let expected = Unsigned(1 + 2);
-        accept_input!(eval, start, a, v1.clone());
-        accept_input!(eval, start, b, v2.clone());
+        accept_input!(eval, start, a, v1);
+        accept_input!(eval, start, b, v2);
         eval_stream!(eval, start, 0, vec![]);
         assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
     }
@@ -1296,8 +1305,8 @@ mod tests {
         let v1 = Float(NotNan::new(3.5f64).unwrap());
         let v2 = Float(NotNan::new(39.347568f64).unwrap());
         let expected = Float(NotNan::new(3.5f64 + 39.347568f64).unwrap());
-        accept_input!(eval, start, a, v1.clone());
-        accept_input!(eval, start, b, v2.clone());
+        accept_input!(eval, start, a, v1);
+        accept_input!(eval, start, b, v2);
         eval_stream!(eval, start, 0, vec![]);
         assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
     }
@@ -1315,8 +1324,8 @@ mod tests {
         let v1 = Signed(1);
         let v2 = Bool(true);
         let expected = Tuple(Box::new([v1.clone(), v2.clone()]));
-        accept_input!(eval, start, a, v1.clone());
-        accept_input!(eval, start, b, v2.clone());
+        accept_input!(eval, start, a, v1);
+        accept_input!(eval, start, b, v2);
         eval_stream!(eval, start, 0, vec![]);
         eval_stream!(eval, start, 1, vec![]);
         eval_stream!(eval, start, 2, vec![]);
@@ -1336,7 +1345,7 @@ mod tests {
         let v2 = Unsigned(2);
         let v3 = Unsigned(3);
         accept_input!(eval, start, in_ref, v1);
-        accept_input!(eval, start, in_ref, v2.clone());
+        accept_input!(eval, start, in_ref, v2);
         accept_input!(eval, start, in_ref, v3);
         eval_stream!(eval, start, 0, vec![]);
         eval_stream!(eval, start, 1, vec![]);
@@ -1358,7 +1367,7 @@ mod tests {
         eval_stream!(eval, start, 2, vec![]);
         assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), Unsigned(3));
         assert_eq!(eval.peek_value(trig_ref, &Vec::new(), 0).unwrap(), Bool(false));
-        accept_input!(eval, start, in_ref, v1.clone());
+        accept_input!(eval, start, in_ref, v1);
         eval_stream!(eval, start, 0, vec![]);
         eval_stream!(eval, start, 1, vec![]);
         eval_stream!(eval, start, 2, vec![]);
@@ -1751,7 +1760,7 @@ mod tests {
         let in_ref = StreamReference::In(0);
         let n = 25;
         for _ in 1..=n {
-            accept_input_timed!(eval, in_ref, Float(NotNan::new(10 as f64).unwrap()), time);
+            accept_input_timed!(eval, in_ref, Float(NotNan::new(10_f64).unwrap()), time);
             time += Duration::from_secs(1);
         }
         time += Duration::from_secs(1);
@@ -2122,7 +2131,7 @@ mod tests {
         assert!(stream_has_instance!(eval, out_ref, vec![Signed(15)]));
 
         eval_stream_instances!(eval, start, out_ref);
-        assert_eq!(eval.peek_value(out_ref, &vec![Signed(15)], 0).unwrap(), Signed(30));
+        assert_eq!(eval.peek_value(out_ref, &[Signed(15)], 0).unwrap(), Signed(30));
     }
 
     #[test]
@@ -2154,7 +2163,7 @@ mod tests {
         );
 
         eval_stream_timed!(eval, out_ref.out_ix(), vec![Signed(15)], time);
-        assert_eq!(eval.peek_value(out_ref, &vec![Signed(15)], 0).unwrap(), Signed(30));
+        assert_eq!(eval.peek_value(out_ref, &[Signed(15)], 0).unwrap(), Signed(30));
     }
 
     #[test]
@@ -2214,7 +2223,7 @@ mod tests {
         );
 
         eval_stream_timed!(eval, out_ref.out_ix(), vec![], time);
-        assert_eq!(eval.peek_value(out_ref, &vec![], 0).unwrap(), Signed(42));
+        assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Signed(42));
     }
 
     // Window access a unit parameterized stream before it is spawned
@@ -2236,7 +2245,7 @@ mod tests {
         spawn_stream_timed!(eval, time, b_ref);
         assert!(!stream_has_instance!(eval, b_ref, Vec::<Value>::new()));
         eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
-        assert_eq!(eval.peek_value(c_ref, &vec![], 0).unwrap(), Signed(0));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(0));
 
         //Stream is spawned
         time += Duration::from_millis(200);
@@ -2244,27 +2253,27 @@ mod tests {
         spawn_stream_timed!(eval, time, b_ref);
         assert!(stream_has_instance!(eval, b_ref, Vec::<Value>::new()));
         eval_stream_instances_timed!(eval, time, b_ref);
-        assert_eq!(eval.peek_value(b_ref, &vec![], 0).unwrap(), Signed(42));
+        assert_eq!(eval.peek_value(b_ref, &[], 0).unwrap(), Signed(42));
 
         //Stream gets new value
         time += Duration::from_millis(200);
         accept_input_timed!(eval, in_ref, Signed(18), time);
         eval_stream_instances_timed!(eval, time, b_ref);
-        assert_eq!(eval.peek_value(b_ref, &vec![], 0).unwrap(), Signed(18));
+        assert_eq!(eval.peek_value(b_ref, &[], 0).unwrap(), Signed(18));
 
         //Stream gets new value
         time += Duration::from_millis(200);
         accept_input_timed!(eval, in_ref, Signed(17), time);
         eval_stream_instances_timed!(eval, time, b_ref);
-        assert_eq!(eval.peek_value(b_ref, &vec![], 0).unwrap(), Signed(17));
+        assert_eq!(eval.peek_value(b_ref, &[], 0).unwrap(), Signed(17));
 
         //Stream gets new value. Window is evaluated.
         time += Duration::from_millis(400);
         accept_input_timed!(eval, in_ref, Signed(3), time);
         eval_stream_instances_timed!(eval, time, b_ref);
-        assert_eq!(eval.peek_value(b_ref, &vec![], 0).unwrap(), Signed(3));
+        assert_eq!(eval.peek_value(b_ref, &[], 0).unwrap(), Signed(3));
         eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
-        assert_eq!(eval.peek_value(c_ref, &vec![], 0).unwrap(), Signed(80));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(80));
     }
 
     // Window access a unit parameterized stream after it is spawned
@@ -2286,27 +2295,27 @@ mod tests {
         spawn_stream_timed!(eval, time, b_ref);
         assert!(stream_has_instance!(eval, b_ref, Vec::<Value>::new()));
         eval_stream_instances_timed!(eval, time, b_ref);
-        assert_eq!(eval.peek_value(b_ref, &vec![], 0).unwrap(), Signed(42));
+        assert_eq!(eval.peek_value(b_ref, &[], 0).unwrap(), Signed(42));
 
         //Stream gets new value
         time += Duration::from_millis(200);
         accept_input_timed!(eval, in_ref, Signed(18), time);
         eval_stream_instances_timed!(eval, time, b_ref);
-        assert_eq!(eval.peek_value(b_ref, &vec![], 0).unwrap(), Signed(18));
+        assert_eq!(eval.peek_value(b_ref, &[], 0).unwrap(), Signed(18));
 
         //Stream gets new value
         time += Duration::from_millis(200);
         accept_input_timed!(eval, in_ref, Signed(17), time);
         eval_stream_instances_timed!(eval, time, b_ref);
-        assert_eq!(eval.peek_value(b_ref, &vec![], 0).unwrap(), Signed(17));
+        assert_eq!(eval.peek_value(b_ref, &[], 0).unwrap(), Signed(17));
 
         //Stream gets new value. Window is evaluated.
         time += Duration::from_millis(400);
         accept_input_timed!(eval, in_ref, Signed(3), time);
         eval_stream_instances_timed!(eval, time, b_ref);
-        assert_eq!(eval.peek_value(b_ref, &vec![], 0).unwrap(), Signed(3));
+        assert_eq!(eval.peek_value(b_ref, &[], 0).unwrap(), Signed(3));
         eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
-        assert_eq!(eval.peek_value(c_ref, &vec![], 0).unwrap(), Signed(80));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(80));
     }
 
     // p = true -> only gets 42 values
@@ -2332,7 +2341,7 @@ mod tests {
         assert!(stream_has_instance!(eval, b_ref, vec![Bool(false)]));
         assert!(!stream_has_instance!(eval, b_ref, vec![Bool(true)]));
         eval_stream_instances_timed!(eval, time, b_ref);
-        assert_eq!(eval.peek_value(b_ref, &vec![Bool(false)], 0).unwrap(), Signed(15));
+        assert_eq!(eval.peek_value(b_ref, &[Bool(false)], 0).unwrap(), Signed(15));
 
         //Intance b(false) gets new value
         //Intance b(true) is spawned
@@ -2342,12 +2351,12 @@ mod tests {
         spawn_stream_timed!(eval, time, b_ref);
         assert!(stream_has_instance!(eval, b_ref, vec![Bool(true)]));
         eval_stream_instances_timed!(eval, time, b_ref);
-        assert_eq!(eval.peek_value(b_ref, &vec![Bool(false)], 0).unwrap(), Signed(42));
-        assert_eq!(eval.peek_value(b_ref, &vec![Bool(true)], 0).unwrap(), Signed(42));
+        assert_eq!(eval.peek_value(b_ref, &[Bool(false)], 0).unwrap(), Signed(42));
+        assert_eq!(eval.peek_value(b_ref, &[Bool(true)], 0).unwrap(), Signed(42));
         eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
-        assert_eq!(eval.peek_value(c_ref, &vec![], 0).unwrap(), Signed(57));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(57));
         eval_stream_timed!(eval, d_ref.out_ix(), vec![], time);
-        assert_eq!(eval.peek_value(d_ref, &vec![], 0).unwrap(), Signed(42));
+        assert_eq!(eval.peek_value(d_ref, &[], 0).unwrap(), Signed(42));
 
         //Intance b(false) gets new value
         //Intance b(true) gets new value
@@ -2355,12 +2364,12 @@ mod tests {
         time += Duration::from_secs(1);
         accept_input_timed!(eval, in_ref, Signed(42), time);
         eval_stream_instances_timed!(eval, time, b_ref);
-        assert_eq!(eval.peek_value(b_ref, &vec![Bool(false)], 0).unwrap(), Signed(42));
-        assert_eq!(eval.peek_value(b_ref, &vec![Bool(true)], 0).unwrap(), Signed(42));
+        assert_eq!(eval.peek_value(b_ref, &[Bool(false)], 0).unwrap(), Signed(42));
+        assert_eq!(eval.peek_value(b_ref, &[Bool(true)], 0).unwrap(), Signed(42));
         eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
-        assert_eq!(eval.peek_value(c_ref, &vec![], 0).unwrap(), Signed(42));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(42));
         eval_stream_timed!(eval, d_ref.out_ix(), vec![], time);
-        assert_eq!(eval.peek_value(d_ref, &vec![], 0).unwrap(), Signed(42));
+        assert_eq!(eval.peek_value(d_ref, &[], 0).unwrap(), Signed(42));
     }
 
     #[test]
@@ -2380,7 +2389,7 @@ mod tests {
         assert!(stream_has_instance!(eval, out_ref, vec![Signed(15)]));
 
         eval_stream_instances!(eval, start, out_ref);
-        assert_eq!(eval.peek_value(out_ref, &vec![Signed(15)], 0).unwrap(), Signed(30));
+        assert_eq!(eval.peek_value(out_ref, &[Signed(15)], 0).unwrap(), Signed(30));
 
         accept_input!(eval, start, b_ref, Bool(false));
         accept_input!(eval, start, a_ref, Signed(8));
@@ -2390,8 +2399,8 @@ mod tests {
         assert!(stream_has_instance!(eval, out_ref, vec![Signed(8)]));
 
         eval_stream_instances!(eval, start, out_ref);
-        assert_eq!(eval.peek_value(out_ref, &vec![Signed(15)], 0).unwrap(), Signed(23));
-        assert_eq!(eval.peek_value(out_ref, &vec![Signed(8)], 0).unwrap(), Signed(16));
+        assert_eq!(eval.peek_value(out_ref, &[Signed(15)], 0).unwrap(), Signed(23));
+        assert_eq!(eval.peek_value(out_ref, &[Signed(8)], 0).unwrap(), Signed(16));
 
         // Close has no effect, because it is false
         eval_close!(eval, start, out_ref, vec![Signed(15)]);
@@ -2405,7 +2414,7 @@ mod tests {
         eval_close!(eval, start, out_ref, vec![Signed(8)]);
         assert!(stream_has_instance!(eval, out_ref, vec![Signed(15)]));
         assert!(!stream_has_instance!(eval, out_ref, vec![Signed(8)]));
-        assert!(eval.peek_value(out_ref, &vec![Signed(8)], 0).is_none());
+        assert!(eval.peek_value(out_ref, &[Signed(8)], 0).is_none());
     }
 
     #[test]
@@ -2486,21 +2495,21 @@ mod tests {
         assert!(stream_has_instance!(eval, out_ref, vec![Signed(15)]));
 
         eval_stream_instances!(eval, start, out_ref);
-        assert_eq!(eval.peek_value(out_ref, &vec![Signed(15)], 0).unwrap(), Signed(30));
+        assert_eq!(eval.peek_value(out_ref, &[Signed(15)], 0).unwrap(), Signed(30));
 
         accept_input!(eval, start, a_ref, Signed(1322));
         spawn_stream!(eval, start, out_ref);
         assert!(stream_has_instance!(eval, out_ref, vec![Signed(1322)]));
 
         eval_stream_instances!(eval, start, out_ref);
-        assert_eq!(eval.peek_value(out_ref, &vec![Signed(15)], 0).unwrap(), Signed(1337));
-        assert_eq!(eval.peek_value(out_ref, &vec![Signed(1322)], 0).unwrap(), Signed(2644));
+        assert_eq!(eval.peek_value(out_ref, &[Signed(15)], 0).unwrap(), Signed(1337));
+        assert_eq!(eval.peek_value(out_ref, &[Signed(1322)], 0).unwrap(), Signed(2644));
 
         eval_close!(eval, start, out_ref, vec![Signed(15)]);
         eval_close!(eval, start, out_ref, vec![Signed(1322)]);
         assert!(!stream_has_instance!(eval, out_ref, vec![Signed(15)]));
         assert!(stream_has_instance!(eval, out_ref, vec![Signed(1322)]));
-        assert!(eval.peek_value(out_ref, &vec![Signed(15)], 0).is_none());
+        assert!(eval.peek_value(out_ref, &[Signed(15)], 0).is_none());
     }
 
     // p = true -> only gets 42 values
@@ -2526,7 +2535,7 @@ mod tests {
         assert!(stream_has_instance!(eval, b_ref, vec![Bool(false)]));
         assert!(!stream_has_instance!(eval, b_ref, vec![Bool(true)]));
         eval_stream_instances_timed!(eval, time, b_ref);
-        assert_eq!(eval.peek_value(b_ref, &vec![Bool(false)], 0).unwrap(), Signed(15));
+        assert_eq!(eval.peek_value(b_ref, &[Bool(false)], 0).unwrap(), Signed(15));
 
         //Intance b(false) gets new value
         //Intance b(true) is spawned
@@ -2536,12 +2545,12 @@ mod tests {
         spawn_stream_timed!(eval, time, b_ref);
         assert!(stream_has_instance!(eval, b_ref, vec![Bool(true)]));
         eval_stream_instances_timed!(eval, time, b_ref);
-        assert_eq!(eval.peek_value(b_ref, &vec![Bool(false)], 0).unwrap(), Signed(42));
-        assert_eq!(eval.peek_value(b_ref, &vec![Bool(true)], 0).unwrap(), Signed(42));
+        assert_eq!(eval.peek_value(b_ref, &[Bool(false)], 0).unwrap(), Signed(42));
+        assert_eq!(eval.peek_value(b_ref, &[Bool(true)], 0).unwrap(), Signed(42));
         eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
-        assert_eq!(eval.peek_value(c_ref, &vec![], 0).unwrap(), Signed(57));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(57));
         eval_stream_timed!(eval, d_ref.out_ix(), vec![], time);
-        assert_eq!(eval.peek_value(d_ref, &vec![], 0).unwrap(), Signed(42));
+        assert_eq!(eval.peek_value(d_ref, &[], 0).unwrap(), Signed(42));
 
         //Intance b(false) gets new value
         //Timed streams are evaluated
@@ -2550,12 +2559,12 @@ mod tests {
         accept_input_timed!(eval, in_ref, Signed(1337), time);
         eval.prepare_evaluation(time);
         eval_stream_instances_timed!(eval, time, b_ref);
-        assert_eq!(eval.peek_value(b_ref, &vec![Bool(false)], 0).unwrap(), Signed(1337));
-        assert_eq!(eval.peek_value(b_ref, &vec![Bool(true)], 0).unwrap(), Signed(42));
+        assert_eq!(eval.peek_value(b_ref, &[Bool(false)], 0).unwrap(), Signed(1337));
+        assert_eq!(eval.peek_value(b_ref, &[Bool(true)], 0).unwrap(), Signed(42));
         eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
-        assert_eq!(eval.peek_value(c_ref, &vec![], 0).unwrap(), Signed(1337));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(1337));
         eval_stream_timed!(eval, d_ref.out_ix(), vec![], time);
-        assert_eq!(eval.peek_value(d_ref, &vec![], 0).unwrap(), Signed(0));
+        assert_eq!(eval.peek_value(d_ref, &[], 0).unwrap(), Signed(0));
         eval_close_timed!(eval, time, b_ref, &vec![Bool(false)]);
         eval_close_timed!(eval, time, b_ref, &vec![Bool(true)]);
         assert!(!stream_has_instance!(eval, b_ref, vec![Bool(false)]));
@@ -2565,9 +2574,9 @@ mod tests {
         time += Duration::from_secs(1);
         eval.prepare_evaluation(time);
         eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
-        assert_eq!(eval.peek_value(c_ref, &vec![], 0).unwrap(), Signed(0));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(0));
         eval_stream_timed!(eval, d_ref.out_ix(), vec![], time);
-        assert_eq!(eval.peek_value(d_ref, &vec![], 0).unwrap(), Signed(0));
+        assert_eq!(eval.peek_value(d_ref, &[], 0).unwrap(), Signed(0));
     }
 
     #[test]
@@ -2588,33 +2597,33 @@ mod tests {
         spawn_stream_timed!(eval, time, b_ref);
         assert!(stream_has_instance!(eval, b_ref, Vec::<Value>::new()));
         eval_stream_instances_timed!(eval, time, b_ref);
-        assert_eq!(eval.peek_value(b_ref, &vec![], 0).unwrap(), Signed(42));
+        assert_eq!(eval.peek_value(b_ref, &[], 0).unwrap(), Signed(42));
 
         //Stream gets new value
         time += Duration::from_millis(200);
         accept_input_timed!(eval, in_ref, Signed(18), time);
         eval_stream_instances_timed!(eval, time, b_ref);
-        assert_eq!(eval.peek_value(b_ref, &vec![], 0).unwrap(), Signed(18));
+        assert_eq!(eval.peek_value(b_ref, &[], 0).unwrap(), Signed(18));
 
         //Stream gets new value
         time += Duration::from_millis(200);
         accept_input_timed!(eval, in_ref, Signed(17), time);
         eval_stream_instances_timed!(eval, time, b_ref);
-        assert_eq!(eval.peek_value(b_ref, &vec![], 0).unwrap(), Signed(17));
+        assert_eq!(eval.peek_value(b_ref, &[], 0).unwrap(), Signed(17));
 
         //Stream gets new value. Window is evaluated.
         time += Duration::from_millis(400);
         accept_input_timed!(eval, in_ref, Signed(3), time);
         eval_stream_instances_timed!(eval, time, b_ref);
-        assert_eq!(eval.peek_value(b_ref, &vec![], 0).unwrap(), Signed(3));
+        assert_eq!(eval.peek_value(b_ref, &[], 0).unwrap(), Signed(3));
         eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
-        assert_eq!(eval.peek_value(c_ref, &vec![], 0).unwrap(), Signed(80));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(80));
 
         //Stream gets new value and is closed
         time += Duration::from_millis(500);
         accept_input_timed!(eval, in_ref, Signed(1337), time);
         eval_stream_instances_timed!(eval, time, b_ref);
-        assert_eq!(eval.peek_value(b_ref, &vec![], 0).unwrap(), Signed(1337));
+        assert_eq!(eval.peek_value(b_ref, &[], 0).unwrap(), Signed(1337));
         eval_close_timed!(eval, time, b_ref, &vec![]);
         assert!(!stream_has_instance!(eval, b_ref, Vec::<Value>::new()));
 
@@ -2622,6 +2631,6 @@ mod tests {
         time += Duration::from_millis(500);
         eval.prepare_evaluation(time);
         eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
-        assert_eq!(eval.peek_value(c_ref, &vec![], 0).unwrap(), Signed(0));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(0));
     }
 }

@@ -190,7 +190,7 @@ impl Record for CsvRecord {
         let (ty, idx) = data
             .get(name)
             .map(|(t, i)| (t.clone(), *i))
-            .expect(&format!("Input {} not found in CSV", name));
+            .unwrap_or_else(|| panic!("Input {} not found in CSV", name));
         let res = move |rec: &CsvRecord| value_from_string(&rec.0[idx], &ty).unwrap();
         Box::new(res)
     }
@@ -325,7 +325,7 @@ impl Test {
 
         let actual = HashSet::from_iter(actual.into_iter());
         let expected = &self.triggers;
-        for (trigger, when) in actual.difference(&expected) {
+        for (trigger, when) in actual.difference(expected) {
             fail = true;
             messages.push(format!("Unexpected trigger occurred: '{}' at {:?}", trigger, when));
         }
@@ -361,7 +361,7 @@ fn parse_tests(directory: &Path, repo_base: &Path) -> Result<Vec<Test>, Box<dyn 
         .map::<Result<JsonTest, std::io::Error>, _>(|file_path| {
             let file = File::open(file_path.as_path())?;
             let reader = BufReader::new(file);
-            let mut test: JsonTest = serde_json::from_reader(reader).map_err(|e| std::io::Error::from(e))?;
+            let mut test: JsonTest = serde_json::from_reader(reader).map_err(std::io::Error::from)?;
             test.name = file_path.file_stem().and_then(|s| s.to_str().map(|s| s.to_string()));
             Ok(test)
         })

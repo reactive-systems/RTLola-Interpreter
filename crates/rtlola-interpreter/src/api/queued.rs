@@ -24,17 +24,18 @@ use std::fmt::Debug;
 use std::ops::Not;
 use std::rc::Rc;
 use std::thread;
+use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime};
 
-use crossbeam_channel::{unbounded, Sender, TrySendError};
+use crossbeam_channel::{bounded, unbounded, Sender, TrySendError};
 pub use crossbeam_channel::{Receiver, RecvError, RecvTimeoutError, TryRecvError};
 use rtlola_frontend::mir::{InputReference, OutputReference, RtLolaMir, Type};
 
 use crate::config::{Config, ExecutionMode};
 use crate::configuration::time::{init_start_time, OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
 use crate::evaluator::{Evaluator, EvaluatorData};
-use crate::monitor::{Incremental, Input, RawVerdict, VerdictRepresentation};
-use crate::schedule::schedule::ScheduleManager;
+use crate::monitor::{Incremental, Input, RawVerdict, Tracer, VerdictRepresentation};
+use crate::schedule::schedule_manager::ScheduleManager;
 use crate::schedule::DynamicSchedule;
 use crate::Monitor;
 
@@ -45,6 +46,25 @@ pub enum VerdictKind {
     Timed,
     /// The verdict resulted from the evaluation of an event.
     Event,
+}
+
+/// Represents the length of a queue used for communication.
+/// Bounding its length can be useful in resource constraint environments.
+#[derive(Debug, Clone, Copy)]
+pub enum QueueLength {
+    /// There is no bound on the queue.
+    Unbounded,
+    /// The queue is bounded to keep at most this many elements.
+    Bounded(usize),
+}
+
+impl QueueLength {
+    fn to_queue<T>(self) -> (Sender<T>, Receiver<T>) {
+        match self {
+            QueueLength::Unbounded => unbounded(),
+            QueueLength::Bounded(cap) => bounded(cap),
+        }
+    }
 }
 
 /// The verdict of the queued monitor. It is either triggered by a deadline or an event described by the `kind` field.
@@ -82,6 +102,7 @@ where
     VerdictTime: OutputTimeRepresentation + 'static,
 {
     ir: RtLolaMir,
+    worker: JoinHandle<()>,
 
     input: Sender<WorkItem<Source, SourceTime>>,
     output: Receiver<QueuedVerdict<Verdict, VerdictTime>>,
@@ -95,10 +116,12 @@ where
     Verdict: VerdictRepresentation,
     VerdictTime: OutputTimeRepresentation,
 {
-    ///setup
-    pub fn setup(
+    /// setup the api, while providing bounds for the queues.
+    pub fn bounded_setup(
         config: Config<SourceTime, VerdictTime>,
         setup_data: Source::CreationData,
+        input_queue_bound: QueueLength,
+        output_queue_bound: QueueLength,
     ) -> QueuedMonitor<Source, SourceTime, Verdict, VerdictTime> {
         let config_clone = config.clone();
 
@@ -109,10 +132,10 @@ where
             .map(|i| (i.name.clone(), i.reference.in_ix()))
             .collect();
 
-        let (input_send, input_rcv) = unbounded();
-        let (output_send, output_rcv) = unbounded();
+        let (input_send, input_rcv) = input_queue_bound.to_queue();
+        let (output_send, output_rcv) = output_queue_bound.to_queue();
 
-        match config.mode {
+        let worker = match config.mode {
             ExecutionMode::Offline => {
                 thread::spawn(move || {
                     Self::runner::<OfflineWorker<Source, SourceTime, Verdict, VerdictTime>>(
@@ -139,10 +162,19 @@ where
 
         QueuedMonitor {
             ir: config.ir,
+            worker,
 
             input: input_send,
             output: output_rcv,
         }
+    }
+
+    /// setup the api
+    pub fn setup(
+        config: Config<SourceTime, VerdictTime>,
+        setup_data: Source::CreationData,
+    ) -> QueuedMonitor<Source, SourceTime, Verdict, VerdictTime> {
+        Self::bounded_setup(config, setup_data, QueueLength::Unbounded, QueueLength::Unbounded)
     }
 
     fn runner<W: Worker<Source, SourceTime, Verdict, VerdictTime>>(
@@ -151,7 +183,7 @@ where
         setup_data: Source::CreationData,
         input: Receiver<WorkItem<Source, SourceTime>>,
         output: Sender<QueuedVerdict<Verdict, VerdictTime>>,
-    ) -> () {
+    ) {
         let mut worker = W::setup(config, input_names, setup_data, input.clone(), output);
         worker.wait_for_start(&input);
         drop(input);
@@ -185,6 +217,15 @@ where
         self.input
             .send(WorkItem::Event(ev, ts))
             .expect("Worker thread hung up!");
+    }
+
+    /// Ends the evaluation process and blocks until all events are processed.
+    pub fn end(self) {
+        let QueuedMonitor { worker, input, .. } = self;
+        // Drop the sender of the input queue
+        drop(input);
+        // wait for worker to finish processing all events left in input queue
+        worker.join().expect("Failed to join on worker thread.");
     }
 
     /// Returns the underlying representation of the specification as an [RtLolaMir]
@@ -404,8 +445,12 @@ impl<
                     let e = self.source.get_event(e);
                     let ts = self.source_time.convert_from(ts);
 
+                    let mut tracer = Verdict::Tracing::default();
+                    tracer.eval_start();
                     self.evaluator.eval_event(&e, ts);
-                    let verdict = Verdict::create(RawVerdict::from(&self.evaluator));
+                    tracer.eval_end();
+
+                    let verdict = Verdict::create(RawVerdict::from(&self.evaluator), tracer);
                     verdict.is_empty().not().then_some(QueuedVerdict {
                         kind: VerdictKind::Event,
                         ts: output_time.convert_into(ts),
@@ -414,11 +459,15 @@ impl<
                 },
                 Err(RecvTimeoutError::Timeout) => {
                     // Deadline occurred before event
+                    let mut tracer = Verdict::Tracing::default();
+                    tracer.eval_start();
                     let due = next_deadline.expect("timeout to only happen for a deadline.");
+
                     let deadline = self.schedule_manager.get_next_deadline(due);
                     self.evaluator.eval_time_driven_tasks(deadline, due);
+                    tracer.eval_end();
 
-                    let verdict = Verdict::create(RawVerdict::from(&self.evaluator));
+                    let verdict = Verdict::create(RawVerdict::from(&self.evaluator), tracer);
                     verdict.is_empty().not().then_some(QueuedVerdict {
                         kind: VerdictKind::Timed,
                         ts: output_time.convert_into(due),

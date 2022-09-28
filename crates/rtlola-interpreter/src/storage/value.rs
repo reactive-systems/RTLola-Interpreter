@@ -93,7 +93,7 @@ impl Value {
         }
         if let Ok(source) = std::str::from_utf8(source) {
             if source == "#" {
-                return Some(Value::None);
+                return Some(None);
             }
             match ty {
                 Type::Bool => source.parse::<bool>().map(Bool).ok(),

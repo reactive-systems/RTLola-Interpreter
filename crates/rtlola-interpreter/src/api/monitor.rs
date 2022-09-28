@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomData;
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use itertools::Itertools;
 use rtlola_frontend::mir::{InputReference, OutputReference, RtLolaMir, Type};
@@ -30,7 +30,7 @@ use rtlola_frontend::mir::{InputReference, OutputReference, RtLolaMir, Type};
 use crate::config::Config;
 use crate::configuration::time::{init_start_time, OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
 use crate::evaluator::{Evaluator, EvaluatorData};
-use crate::schedule::schedule::ScheduleManager;
+use crate::schedule::schedule_manager::ScheduleManager;
 use crate::schedule::DynamicSchedule;
 use crate::storage::Value;
 use crate::Time;
@@ -42,13 +42,81 @@ pub type Event = Vec<Value>;
     Provides the functionality to generate a snapshot of the streams values.
 */
 pub trait VerdictRepresentation: Clone + Debug + Send + 'static {
+    /// This subtype captures the tracing capabilities of the verdict representation.
+    type Tracing: Tracer;
+
     /// Creates a snapshot of the streams values.
-    fn create(data: RawVerdict) -> Self
-    where
-        Self: Sized;
+    fn create(data: RawVerdict, tracing: Self::Tracing) -> Self;
 
     /// Returns whether the verdict is empty. I.e. it doesn't contain any information.
     fn is_empty(&self) -> bool;
+}
+
+/**
+Provides the functionality to collect additional tracing data during evaluation.
+ */
+pub trait Tracer: Default + Clone + Debug + Send + 'static {
+    /// This method is invoked at the start of the evaluation cycle.
+    fn eval_start(&mut self);
+    /// This method is invoked at the end of the evaluation cycle.
+    fn eval_end(&mut self);
+}
+
+/// This tracer provides no tracing data at all and serves as a default value.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoTracer {}
+impl Tracer for NoTracer {
+    fn eval_start(&mut self) {}
+
+    fn eval_end(&mut self) {}
+}
+
+/// This tracer provides the time given as a duration the evaluation cycle took.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct EvalTimeTracer {
+    start: Option<Instant>,
+    end: Option<Instant>,
+}
+
+impl EvalTimeTracer {
+    /// Returns the duration the traced evaluation cycle took.
+    pub fn duration(&self) -> Duration {
+        self.end.unwrap().duration_since(self.start.unwrap())
+    }
+}
+
+impl Tracer for EvalTimeTracer {
+    fn eval_start(&mut self) {
+        self.start.replace(Instant::now());
+    }
+
+    fn eval_end(&mut self) {
+        self.end.replace(Instant::now());
+    }
+}
+
+/// A generic VerdictRepresentation suitable to use with any tracer.
+#[derive(Debug, Clone)]
+pub struct TracingVerdict<T: Tracer, V: VerdictRepresentation> {
+    /// The contained tracing information.
+    pub tracer: T,
+    /// The verdict given in the chosen VerdictRepresentation
+    pub verdict: V,
+}
+
+impl<T: Tracer, V: VerdictRepresentation<Tracing = NoTracer>> VerdictRepresentation for TracingVerdict<T, V> {
+    type Tracing = T;
+
+    fn create(data: RawVerdict, tracing: Self::Tracing) -> Self {
+        Self {
+            tracer: tracing,
+            verdict: V::create(data, NoTracer::default()),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        V::is_empty(&self.verdict)
+    }
 }
 
 /// A type representing the parameters of a stream.
@@ -91,7 +159,9 @@ impl Display for Change {
 pub type Incremental = Vec<(OutputReference, Vec<Change>)>;
 
 impl VerdictRepresentation for Incremental {
-    fn create(data: RawVerdict) -> Self {
+    type Tracing = NoTracer;
+
+    fn create(data: RawVerdict, _tracing: Self::Tracing) -> Self {
         data.eval
             .peek_fresh_outputs()
             .into_iter()
@@ -128,14 +198,21 @@ pub struct TotalIncremental {
 }
 
 impl VerdictRepresentation for TotalIncremental {
-    fn create(data: RawVerdict) -> Self {
+    type Tracing = NoTracer;
+
+    fn create(data: RawVerdict, _tracing: Self::Tracing) -> Self {
         let inputs = data.eval.peek_fresh_input();
         let outputs = data.eval.peek_fresh_outputs();
-        let trigger = data.eval.peek_violated_triggers().into_iter().map(|t| (t, data.eval.format_trigger_message(t))).collect();
-        Self{
+        let trigger = data
+            .eval
+            .peek_violated_triggers()
+            .into_iter()
+            .map(|t| (t, data.eval.format_trigger_message(t)))
+            .collect();
+        Self {
             inputs,
             outputs,
-            trigger
+            trigger,
         }
     }
 
@@ -158,7 +235,9 @@ pub struct Total {
 }
 
 impl VerdictRepresentation for Total {
-    fn create(data: RawVerdict) -> Self {
+    type Tracing = NoTracer;
+
+    fn create(data: RawVerdict, _tracing: Self::Tracing) -> Self {
         Total {
             inputs: data.eval.peek_inputs(),
             outputs: data.eval.peek_outputs(),
@@ -176,7 +255,9 @@ impl VerdictRepresentation for Total {
 pub type TriggerMessages = Vec<(OutputReference, String)>;
 
 impl VerdictRepresentation for TriggerMessages {
-    fn create(data: RawVerdict) -> Self
+    type Tracing = NoTracer;
+
+    fn create(data: RawVerdict, _tracing: Self::Tracing) -> Self
     where
         Self: Sized,
     {
@@ -198,7 +279,9 @@ impl VerdictRepresentation for TriggerMessages {
 pub type TriggersWithInfoValues = Vec<(OutputReference, Vec<Option<Value>>)>;
 
 impl VerdictRepresentation for TriggersWithInfoValues {
-    fn create(data: RawVerdict) -> Self
+    type Tracing = NoTracer;
+
+    fn create(data: RawVerdict, _tracing: Self::Tracing) -> Self
     where
         Self: Sized,
     {
@@ -311,6 +394,24 @@ where
 
     pub(crate) fn last_event(&self) -> Option<VerdictTime::InnerTime> {
         self.last_event.clone()
+    }
+
+    fn eval_deadlines(&mut self, ts: Time, only_before: bool) -> Vec<(Time, Verdict)> {
+        let mut timed: Vec<(Time, Verdict)> = vec![];
+        while self.schedule_manager.get_next_due().is_some() {
+            let mut tracer = Verdict::Tracing::default();
+            tracer.eval_start();
+            let due = self.schedule_manager.get_next_due().unwrap();
+            if due > ts || (only_before && due == ts) {
+                break;
+            }
+            let deadline = self.schedule_manager.get_next_deadline(ts);
+
+            self.eval.eval_time_driven_tasks(deadline, due);
+            tracer.eval_end();
+            timed.push((due, Verdict::create(RawVerdict::from(&self.eval), tracer)))
+        }
+        timed
     }
 }
 
@@ -461,25 +562,17 @@ where
 
         // Evaluate timed streams with due < ts
         let timed = if self.ir.has_time_driven_features() {
-            let mut timed: Vec<(Time, Verdict)> = vec![];
-            while self.schedule_manager.get_next_due().is_some() {
-                let due = self.schedule_manager.get_next_due().unwrap();
-                if due >= ts {
-                    break;
-                }
-                let deadline = self.schedule_manager.get_next_deadline(ts);
-
-                self.eval.eval_time_driven_tasks(deadline, due);
-                timed.push((due, Verdict::create(RawVerdict::from(&self.eval))))
-            }
-            timed
+            self.eval_deadlines(ts, true)
         } else {
             vec![]
         };
 
         // Evaluate
+        let mut tracer = Verdict::Tracing::default();
+        tracer.eval_start();
         self.eval.eval_event(ev.as_slice(), ts);
-        let event_change = Verdict::create(RawVerdict::from(&self.eval));
+        tracer.eval_end();
+        let event_change = Verdict::create(RawVerdict::from(&self.eval), tracer);
 
         let timed = timed
             .into_iter()
@@ -500,18 +593,7 @@ where
         self.last_event = Some(self.output_time.convert_into(ts));
 
         let timed = if self.ir.has_time_driven_features() {
-            let mut timed: Vec<(Time, Verdict)> = vec![];
-            while self.schedule_manager.get_next_due().is_some() {
-                let due = self.schedule_manager.get_next_due().unwrap();
-                if due > ts {
-                    break;
-                }
-                let deadline = self.schedule_manager.get_next_deadline(ts);
-
-                self.eval.eval_time_driven_tasks(deadline, due);
-                timed.push((due, Verdict::create(RawVerdict::from(&self.eval))))
-            }
-            timed
+            self.eval_deadlines(ts, false)
         } else {
             vec![]
         };

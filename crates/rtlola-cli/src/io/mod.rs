@@ -7,12 +7,11 @@ mod pcap_input;
 
 pub(crate) use csv_input::{CsvEventSource, CsvInputSourceKind};
 #[cfg(feature = "pcap_interface")]
-pub use pcap_input::{PCAPEventSource, PCAPInputSource};
+pub(crate) use pcap_input::{PCAPEventSource, PCAPInputSource};
 use rtlola_interpreter::monitor::Record;
 use rtlola_interpreter::time::TimeRepresentation;
 
-pub use self::output::OutputChannel;
-pub(crate) use self::output::OutputHandler;
+pub(crate) use self::output::{OutputChannel, OutputHandler};
 
 /// A trait that represents the functionality needed for an event source.
 

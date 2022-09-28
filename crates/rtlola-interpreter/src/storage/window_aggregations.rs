@@ -255,9 +255,9 @@ impl Add for IntegralIv {
 impl From<(Value, Time)> for IntegralIv {
     fn from(v: (Value, Time)) -> IntegralIv {
         let f = match v.0 {
-            Value::Signed(i) => (i as f64),
-            Value::Unsigned(u) => (u as f64),
-            Value::Float(f) => (f.into()),
+            Value::Signed(i) => i as f64,
+            Value::Unsigned(u) => u as f64,
+            Value::Float(f) => f.into(),
             _ => unreachable!("Type error."),
         };
         IntegralIv {

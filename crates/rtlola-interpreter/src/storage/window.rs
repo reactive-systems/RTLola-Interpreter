@@ -506,9 +506,9 @@ pub(crate) struct WindowFloat {}
 impl WindowGeneric for WindowFloat {
     fn from_value(v: Value) -> Value {
         let f = match v {
-            Value::Signed(i) => (i as f64),
-            Value::Unsigned(u) => (u as f64),
-            Value::Float(f) => (f.into()),
+            Value::Signed(i) => i as f64,
+            Value::Unsigned(u) => u as f64,
+            Value::Float(f) => f.into(),
             _ => unreachable!("Type error."),
         };
         Value::Float(NotNan::new(f).unwrap())
