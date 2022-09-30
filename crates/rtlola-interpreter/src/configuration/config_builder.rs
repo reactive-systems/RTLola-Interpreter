@@ -7,7 +7,7 @@ use rtlola_frontend::mir::RtLolaMir;
 use crate::api::monitor::{Event, EventInput, Input, Record, RecordInput, VerdictRepresentation};
 use crate::config::{Config, ExecutionMode, MonitorConfig};
 use crate::configuration::time::{OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
-use crate::monitor::{EvalTimeTracer, NoTracer, TracingVerdict};
+use crate::monitor::{NoTracer, Tracer, TracingVerdict};
 use crate::time::RealTime;
 use crate::Monitor;
 #[cfg(feature = "queued-api")]
@@ -354,10 +354,10 @@ impl<
         OutputTime: OutputTimeRepresentation,
     > ConfigBuilder<VerdictConfigured<InputTime, Source, Verdict>, OutputTime>
 {
-    /// Additionally collects timing information of the evaluator
-    pub fn with_eval_time(
+    /// Adds tracing functionality to the evaluator
+    pub fn with_tracer<T: Tracer>(
         self,
-    ) -> ConfigBuilder<VerdictConfigured<InputTime, Source, TracingVerdict<EvalTimeTracer, Verdict>>, OutputTime> {
+    ) -> ConfigBuilder<VerdictConfigured<InputTime, Source, TracingVerdict<T, Verdict>>, OutputTime> {
         let ConfigBuilder {
             output_time_representation,
             start_time,

@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomData;
 use std::rc::Rc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use itertools::Itertools;
 use rtlola_frontend::mir::{InputReference, OutputReference, RtLolaMir, Type};
@@ -46,7 +46,12 @@ pub trait VerdictRepresentation: Clone + Debug + Send + 'static {
     type Tracing: Tracer;
 
     /// Creates a snapshot of the streams values.
-    fn create(data: RawVerdict, tracing: Self::Tracing) -> Self;
+    fn create(data: RawVerdict) -> Self;
+
+    /// Creates a snapshot of the streams values including tracing data.
+    fn create_with_trace(data: RawVerdict, _tracing: Self::Tracing) -> Self {
+        Self::create(data)
+    }
 
     /// Returns whether the verdict is empty. I.e. it doesn't contain any information.
     fn is_empty(&self) -> bool;
@@ -54,46 +59,39 @@ pub trait VerdictRepresentation: Clone + Debug + Send + 'static {
 
 /**
 Provides the functionality to collect additional tracing data during evaluation.
+The 'start' methods are guaranteed to be called before the 'end' method, while either both or none of them are called.
  */
 pub trait Tracer: Default + Clone + Debug + Send + 'static {
+    /// This method is invoked at the start of event parsing
+    fn parse_start(&mut self) {}
+    /// This method is invoked at the end of event parsing
+    fn parse_end(&mut self) {}
+
     /// This method is invoked at the start of the evaluation cycle.
-    fn eval_start(&mut self);
+    fn eval_start(&mut self) {}
     /// This method is invoked at the end of the evaluation cycle.
-    fn eval_end(&mut self);
+    fn eval_end(&mut self) {}
+
+    /// This method is invoked at the start of the spawn evaluation of stream `output`
+    fn spawn_start(&mut self, _output: OutputReference) {}
+    /// This method is invoked at the end of the spawn evaluation of stream `output`
+    fn spawn_end(&mut self, _output: OutputReference) {}
+
+    /// This method is invoked at the start of the evaluation of stream `output`
+    fn instance_eval_start(&mut self, _output: OutputReference, _instance: &[Value]) {}
+    /// This method is invoked at the end of the evaluation of stream `output`
+    fn instance_eval_end(&mut self, _output: OutputReference, _instance: &[Value]) {}
+
+    /// This method is invoked at the start of the close evaluation of stream `output`
+    fn close_start(&mut self, _output: OutputReference, _instance: &[Value]) {}
+    /// This method is invoked at the end of the close evaluation of stream `output`
+    fn close_end(&mut self, _output: OutputReference, _instance: &[Value]) {}
 }
 
 /// This tracer provides no tracing data at all and serves as a default value.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NoTracer {}
-impl Tracer for NoTracer {
-    fn eval_start(&mut self) {}
-
-    fn eval_end(&mut self) {}
-}
-
-/// This tracer provides the time given as a duration the evaluation cycle took.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct EvalTimeTracer {
-    start: Option<Instant>,
-    end: Option<Instant>,
-}
-
-impl EvalTimeTracer {
-    /// Returns the duration the traced evaluation cycle took.
-    pub fn duration(&self) -> Duration {
-        self.end.unwrap().duration_since(self.start.unwrap())
-    }
-}
-
-impl Tracer for EvalTimeTracer {
-    fn eval_start(&mut self) {
-        self.start.replace(Instant::now());
-    }
-
-    fn eval_end(&mut self) {
-        self.end.replace(Instant::now());
-    }
-}
+impl Tracer for NoTracer {}
 
 /// A generic VerdictRepresentation suitable to use with any tracer.
 #[derive(Debug, Clone)]
@@ -107,10 +105,17 @@ pub struct TracingVerdict<T: Tracer, V: VerdictRepresentation> {
 impl<T: Tracer, V: VerdictRepresentation<Tracing = NoTracer>> VerdictRepresentation for TracingVerdict<T, V> {
     type Tracing = T;
 
-    fn create(data: RawVerdict, tracing: Self::Tracing) -> Self {
+    fn create(data: RawVerdict) -> Self {
+        Self {
+            tracer: T::default(),
+            verdict: V::create(data),
+        }
+    }
+
+    fn create_with_trace(data: RawVerdict, tracing: Self::Tracing) -> Self {
         Self {
             tracer: tracing,
-            verdict: V::create(data, NoTracer::default()),
+            verdict: V::create(data),
         }
     }
 
@@ -161,7 +166,7 @@ pub type Incremental = Vec<(OutputReference, Vec<Change>)>;
 impl VerdictRepresentation for Incremental {
     type Tracing = NoTracer;
 
-    fn create(data: RawVerdict, _tracing: Self::Tracing) -> Self {
+    fn create(data: RawVerdict) -> Self {
         data.eval
             .peek_fresh_outputs()
             .into_iter()
@@ -200,7 +205,7 @@ pub struct TotalIncremental {
 impl VerdictRepresentation for TotalIncremental {
     type Tracing = NoTracer;
 
-    fn create(data: RawVerdict, _tracing: Self::Tracing) -> Self {
+    fn create(data: RawVerdict) -> Self {
         let inputs = data.eval.peek_fresh_input();
         let outputs = data.eval.peek_fresh_outputs();
         let trigger = data
@@ -237,7 +242,7 @@ pub struct Total {
 impl VerdictRepresentation for Total {
     type Tracing = NoTracer;
 
-    fn create(data: RawVerdict, _tracing: Self::Tracing) -> Self {
+    fn create(data: RawVerdict) -> Self {
         Total {
             inputs: data.eval.peek_inputs(),
             outputs: data.eval.peek_outputs(),
@@ -257,7 +262,7 @@ pub type TriggerMessages = Vec<(OutputReference, String)>;
 impl VerdictRepresentation for TriggerMessages {
     type Tracing = NoTracer;
 
-    fn create(data: RawVerdict, _tracing: Self::Tracing) -> Self
+    fn create(data: RawVerdict) -> Self
     where
         Self: Sized,
     {
@@ -281,7 +286,7 @@ pub type TriggersWithInfoValues = Vec<(OutputReference, Vec<Option<Value>>)>;
 impl VerdictRepresentation for TriggersWithInfoValues {
     type Tracing = NoTracer;
 
-    fn create(data: RawVerdict, _tracing: Self::Tracing) -> Self
+    fn create(data: RawVerdict) -> Self
     where
         Self: Sized,
     {
@@ -407,9 +412,9 @@ where
             }
             let deadline = self.schedule_manager.get_next_deadline(ts);
 
-            self.eval.eval_time_driven_tasks(deadline, due);
+            self.eval.eval_time_driven_tasks(deadline, due, &mut tracer);
             tracer.eval_end();
-            timed.push((due, Verdict::create(RawVerdict::from(&self.eval), tracer)))
+            timed.push((due, Verdict::create_with_trace(RawVerdict::from(&self.eval), tracer)))
         }
         timed
     }
@@ -556,8 +561,13 @@ where
     The new event is therefore not seen by periodic streams up through a new timestamp.
     */
     pub fn accept_event(&mut self, ev: Source::Record, ts: SourceTime::InnerTime) -> Verdicts<Verdict, VerdictTime> {
+        let mut tracer = Verdict::Tracing::default();
+
+        tracer.parse_start();
         let ev = self.source.get_event(ev);
+        tracer.parse_end();
         let ts = self.source_time.convert_from(ts);
+
         self.last_event = Some(self.output_time.convert_into(ts));
 
         // Evaluate timed streams with due < ts
@@ -568,11 +578,10 @@ where
         };
 
         // Evaluate
-        let mut tracer = Verdict::Tracing::default();
         tracer.eval_start();
-        self.eval.eval_event(ev.as_slice(), ts);
+        self.eval.eval_event(ev.as_slice(), ts, &mut tracer);
         tracer.eval_end();
-        let event_change = Verdict::create(RawVerdict::from(&self.eval), tracer);
+        let event_change = Verdict::create_with_trace(RawVerdict::from(&self.eval), tracer);
 
         let timed = timed
             .into_iter()

@@ -11,7 +11,7 @@ pub(crate) use pcap_input::{PCAPEventSource, PCAPInputSource};
 use rtlola_interpreter::monitor::Record;
 use rtlola_interpreter::time::TimeRepresentation;
 
-pub(crate) use self::output::{OutputChannel, OutputHandler};
+pub(crate) use self::output::{EvalTimeTracer, OutputChannel, OutputHandler};
 
 /// A trait that represents the functionality needed for an event source.
 

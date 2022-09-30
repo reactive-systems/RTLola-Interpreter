@@ -19,7 +19,7 @@ use rtlola_interpreter::time::{
     RelativeNanos,
 };
 
-use crate::config::{Config, EventSourceConfig, Verbosity};
+use crate::config::{Config, EventSourceConfig, Statistics, Verbosity};
 #[cfg(feature = "pcap_interface")]
 use crate::io::PCAPInputSource;
 use crate::io::{CsvEventSource, CsvInputSourceKind, OutputChannel};
@@ -41,6 +41,7 @@ macro_rules! enum_doc {
 
 lazy_static! {
     static ref VERBOSITY_HELP: String = enum_doc!(Verbosity, "Output Verbosity; one of the following keywords:");
+    static ref STATISTICS_HELP: String = enum_doc!(Statistics, "Statistic Verbosity; one of the following keywords:");
     static ref OUTPUT_FORMAT_HELP: String = enum_doc!(
         CliOutputTimeRepresentation,
         "Output Time Format; one of the following keywords:"
@@ -87,6 +88,13 @@ enum Cli {
         #[clap(flatten)]
         start_time: CliStartTime,
 
+        /// Sets the statistic verbosity
+        #[clap(short, long, arg_enum,
+        long_help=Some(STATISTICS_HELP.as_str()),
+        default_value_t
+        )]
+        statistics: Statistics,
+
         /// Sets the output verbosity
         #[clap(short, long, arg_enum,
         long_help=Some(VERBOSITY_HELP.as_str()),
@@ -119,6 +127,13 @@ enum Cli {
 
         #[clap(flatten)]
         start_time: CliStartTime,
+
+        /// Sets the statistic verbosity
+        #[clap(short, long, arg_enum,
+        long_help=Some(STATISTICS_HELP.as_str()),
+        default_value_t
+        )]
+        statistics: Statistics,
 
         /// Sets the output verbosity
         #[clap(short, long, arg_enum,
@@ -605,6 +620,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             output,
             mode,
             start_time,
+            statistics,
             verbosity,
             output_time_format,
         } => {
@@ -626,7 +642,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         output_time_format,
                         ir,
                         source,
-                        verbosity.into(),
+                        statistics,
                         verbosity,
                         output.into(),
                         mode.into(),
@@ -640,7 +656,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                             output_time_format,
                             ir,
                             source,
-                            verbosity.into(),
+                            statistics,
                             verbosity,
                             output.into(),
                             mode.into(),
@@ -652,7 +668,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                             output_time_format,
                             ir,
                             source,
-                            verbosity.into(),
+                            statistics,
                             verbosity,
                             output.into(),
                             mode.into(),
@@ -671,6 +687,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             output,
             input,
             start_time,
+            statistics,
             verbosity,
             output_time_format,
         } => {
@@ -692,7 +709,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     output_time_format,
                     ir,
                     source,
-                    verbosity.into(),
+                    statistics,
                     verbosity,
                     output.into(),
                     input.into(),
@@ -704,7 +721,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     output_time_format,
                     ir,
                     source,
-                    verbosity.into(),
+                    statistics,
                     verbosity,
                     output.into(),
                     input.into(),
@@ -716,7 +733,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     output_time_format,
                     ir,
                     source,
-                    verbosity.into(),
+                    statistics,
                     verbosity,
                     output.into(),
                     input.into(),

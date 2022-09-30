@@ -11,6 +11,7 @@ use string_template::Template;
 
 use crate::api::monitor::{Change, Instance};
 use crate::closuregen::{CompiledExpr, Expr};
+use crate::monitor::Tracer;
 use crate::schedule::{DynamicSchedule, EvaluationTask};
 use crate::storage::{GlobalStore, InstanceStore, Value};
 use crate::Time;
@@ -262,10 +263,10 @@ impl Drop for Evaluator {
 impl Evaluator {
     /// Values of event are expected in the order of the input streams
     /// Time should be relative to the starting time of the monitor
-    pub(crate) fn eval_event(&mut self, event: &[Value], ts: Time) {
+    pub(crate) fn eval_event(&mut self, event: &[Value], ts: Time, tracer: &mut impl Tracer) {
         self.new_cycle();
         self.accept_inputs(event, ts);
-        self.eval_event_driven(ts);
+        self.eval_event_driven(ts, tracer);
     }
 
     /// NOT for external use because the values are volatile
@@ -385,10 +386,10 @@ impl Evaluator {
         }
     }
 
-    fn eval_event_driven(&mut self, ts: Time) {
+    fn eval_event_driven(&mut self, ts: Time, tracer: &mut impl Tracer) {
         self.prepare_evaluation(ts);
         for layer in self.layers {
-            self.eval_event_driven_layer(layer, ts);
+            self.eval_event_driven_layer(layer, ts, tracer);
         }
         for close in self.closing_streams {
             let ac = &self.close_activation_conditions[*close];
@@ -397,20 +398,24 @@ impl Evaluator {
                     let stream_instances: Vec<Vec<Value>> =
                         self.global_store.get_out_instance_collection(*close).all_instances();
                     for instance in stream_instances {
+                        tracer.close_start(*close, instance.as_slice());
                         self.eval_close(*close, instance.as_slice(), ts);
+                        tracer.close_end(*close, instance.as_slice());
                     }
                 } else if self.global_store.get_out_instance(*close).is_active() {
+                    tracer.close_start(*close, &[]);
                     self.eval_close(*close, &[], ts);
+                    tracer.close_end(*close, &[]);
                 }
             }
         }
     }
 
-    fn eval_event_driven_layer(&mut self, tasks: &[Task], ts: Time) {
+    fn eval_event_driven_layer(&mut self, tasks: &[Task], ts: Time, tracer: &mut impl Tracer) {
         for task in tasks {
             match task {
-                Task::Evaluate(idx) => self.eval_event_driven_output(*idx, ts),
-                Task::Spawn(idx) => self.eval_event_driven_spawn(*idx, ts),
+                Task::Evaluate(idx) => self.eval_event_driven_output(*idx, ts, tracer),
+                Task::Spawn(idx) => self.eval_event_driven_spawn(*idx, ts, tracer),
                 Task::Close(_) => unreachable!("closes are not included in evaluation layer"),
             }
         }
@@ -532,26 +537,32 @@ impl Evaluator {
         }
     }
 
-    fn eval_event_driven_spawn(&mut self, output: OutputReference, ts: Time) {
+    fn eval_event_driven_spawn(&mut self, output: OutputReference, ts: Time, tracer: &mut impl Tracer) {
         if self.spawn_activation_conditions[output].eval(self.fresh_inputs) {
+            tracer.spawn_start(output);
             self.eval_spawn(output, ts);
+            tracer.spawn_end(output);
         }
     }
 
-    fn eval_event_driven_output(&mut self, output: OutputReference, ts: Time) {
+    fn eval_event_driven_output(&mut self, output: OutputReference, ts: Time, tracer: &mut impl Tracer) {
         if self.stream_activation_conditions[output].eval(self.fresh_inputs) {
             if self.ir.output(StreamReference::Out(output)).is_parameterized() {
                 for instance in self.global_store.get_out_instance_collection(output).all_instances() {
+                    tracer.instance_eval_start(output, instance.as_slice());
                     self.eval_stream_instance(output, instance.as_slice(), ts);
+                    tracer.instance_eval_end(output, instance.as_slice());
                 }
             } else if self.global_store.get_out_instance(output).is_active() {
-                self.eval_stream_instance(output, vec![].as_slice(), ts);
+                tracer.instance_eval_start(output, &[]);
+                self.eval_stream_instance(output, &[], ts);
+                tracer.instance_eval_end(output, &[]);
             }
         }
     }
 
     /// Time is expected to be relative to the start of the monitor
-    pub(crate) fn eval_time_driven_tasks(&mut self, tasks: Vec<EvaluationTask>, ts: Time) {
+    pub(crate) fn eval_time_driven_tasks(&mut self, tasks: Vec<EvaluationTask>, ts: Time, tracer: &mut impl Tracer) {
         if tasks.is_empty() {
             return;
         }
@@ -559,9 +570,21 @@ impl Evaluator {
         self.prepare_evaluation(ts);
         for task in tasks {
             match task {
-                EvaluationTask::Evaluate(idx, parameter) => self.eval_stream_instance(idx, parameter.as_slice(), ts),
-                EvaluationTask::Spawn(idx) => self.eval_spawn(idx, ts),
-                EvaluationTask::Close(idx, parameter) => self.eval_close(idx, parameter.as_slice(), ts),
+                EvaluationTask::Evaluate(idx, parameter) => {
+                    tracer.instance_eval_start(idx, parameter.as_slice());
+                    self.eval_stream_instance(idx, parameter.as_slice(), ts);
+                    tracer.instance_eval_end(idx, parameter.as_slice());
+                },
+                EvaluationTask::Spawn(idx) => {
+                    tracer.spawn_start(idx);
+                    self.eval_spawn(idx, ts);
+                    tracer.spawn_end(idx);
+                },
+                EvaluationTask::Close(idx, parameter) => {
+                    tracer.close_start(idx, parameter.as_slice());
+                    self.eval_close(idx, parameter.as_slice(), ts);
+                    tracer.close_end(idx, parameter.as_slice());
+                },
             }
         }
     }
@@ -900,6 +923,7 @@ mod tests {
     use rtlola_frontend::ParserConfig;
 
     use super::*;
+    use crate::monitor::NoTracer;
     use crate::schedule::dynamic_schedule::*;
     use crate::storage::Value::*;
 
@@ -919,13 +943,13 @@ mod tests {
 
     macro_rules! eval_stream_instances {
         ($eval:expr, $start:expr, $ix:expr) => {
-            $eval.eval_event_driven_output($ix.out_ix(), $start.elapsed());
+            $eval.eval_event_driven_output($ix.out_ix(), $start.elapsed(), &mut NoTracer::default());
         };
     }
 
     macro_rules! eval_stream_instances_timed {
         ($eval:expr, $time:expr, $ix:expr) => {
-            $eval.eval_event_driven_output($ix.out_ix(), $time);
+            $eval.eval_event_driven_output($ix.out_ix(), $time, &mut NoTracer::default());
         };
     }
 
@@ -937,13 +961,13 @@ mod tests {
 
     macro_rules! spawn_stream {
         ($eval:expr, $start:expr, $ix:expr) => {
-            $eval.eval_event_driven_spawn($ix.out_ix(), $start.elapsed());
+            $eval.eval_event_driven_spawn($ix.out_ix(), $start.elapsed(), &mut NoTracer::default());
         };
     }
 
     macro_rules! spawn_stream_timed {
         ($eval:expr, $time:expr, $ix:expr) => {
-            $eval.eval_event_driven_spawn($ix.out_ix(), $time);
+            $eval.eval_event_driven_spawn($ix.out_ix(), $time, &mut NoTracer::default());
         };
     }
 

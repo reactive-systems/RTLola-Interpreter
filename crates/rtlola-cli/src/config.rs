@@ -2,20 +2,23 @@
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::fs::File;
+use std::io::{stderr, stdout, BufWriter};
 use std::marker::PhantomData;
 use std::thread;
 use std::time::SystemTime;
 
 use clap::ArgEnum;
+use crossterm::style::Color;
 use rtlola_frontend::RtLolaMir;
 use rtlola_interpreter::config::ExecutionMode;
-use rtlola_interpreter::monitor::{EvalTimeTracer, Record, RecordInput, TotalIncremental, TracingVerdict};
+use rtlola_interpreter::monitor::{Record, RecordInput, TotalIncremental, TracingVerdict};
 use rtlola_interpreter::time::{OutputTimeRepresentation, TimeRepresentation};
 use rtlola_interpreter::QueuedMonitor;
 
 #[cfg(feature = "pcap_interface")]
 use crate::io::PCAPInputSource;
-use crate::io::{CsvInputSourceKind, EventSource, OutputChannel, OutputHandler};
+use crate::io::{CsvInputSourceKind, EvalTimeTracer, EventSource, OutputChannel, OutputHandler};
 
 /**
 `Config` combines an RTLola specification in [RtLolaMir] form with various configuration parameters for the interpreter.
@@ -45,12 +48,12 @@ pub(crate) struct Config<Rec: Record, InputTime: TimeRepresentation, OutputTime:
 }
 
 /// Used to define the level of statistics that should be computed.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, ArgEnum)]
 pub(crate) enum Statistics {
     /// No statistics will be computed
     None,
     /// All statistics will be computed
-    Debug,
+    All,
 }
 
 impl Default for Statistics {
@@ -59,25 +62,11 @@ impl Default for Statistics {
     }
 }
 
-impl From<Verbosity> for Statistics {
-    fn from(v: Verbosity) -> Self {
-        match v {
-            Verbosity::Progress | Verbosity::Debug => Statistics::Debug,
-            Verbosity::Silent | Verbosity::WarningsOnly | Verbosity::Triggers | Verbosity::Streams => Statistics::None,
-        }
-    }
-}
-
 /// The different verbosities supported by the interpreter.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, ArgEnum)]
 pub enum Verbosity {
     /// Suppresses any kind of logging.
     Silent,
-    /// Prints statistical information like number of events, triggers, etc.
-    Progress,
-    /// Prints nothing but runtime warnings about potentially critical states, e.g. dropped
-    /// evaluation cycles.
-    WarningsOnly,
     /// Prints only triggers and runtime warnings.
     Triggers,
     /// Prints new stream values for every stream.
@@ -89,9 +78,7 @@ pub enum Verbosity {
 impl Display for Verbosity {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Verbosity::Silent => write!(f, ""),
-            Verbosity::Progress => write!(f, "Statistic"),
-            Verbosity::WarningsOnly => write!(f, "Warning"),
+            Verbosity::Silent => write!(f, "Silent"),
             Verbosity::Triggers => write!(f, "Trigger"),
             Verbosity::Streams => write!(f, "Stream"),
             Verbosity::Debug => write!(f, "Debug"),
@@ -102,6 +89,17 @@ impl Display for Verbosity {
 impl Default for Verbosity {
     fn default() -> Self {
         Verbosity::Triggers
+    }
+}
+
+impl From<Verbosity> for Color {
+    fn from(v: Verbosity) -> Self {
+        match v {
+            Verbosity::Silent => Color::White,
+            Verbosity::Triggers => Color::DarkRed,
+            Verbosity::Streams => Color::DarkGreen,
+            Verbosity::Debug => Color::Grey,
+        }
     }
 }
 
@@ -140,7 +138,7 @@ impl<Rec: Record + 'static, InputTime: TimeRepresentation, OutputTime: OutputTim
             start_time,
         } = self;
 
-        let output: OutputHandler<OutputTime> = OutputHandler::new(&ir, verbosity, statistics, output_channel);
+        let output: OutputHandler<OutputTime> = OutputHandler::new(&ir, verbosity, statistics);
 
         let cfg = InterpreterConfig {
             ir,
@@ -159,7 +157,14 @@ impl<Rec: Record + 'static, InputTime: TimeRepresentation, OutputTime: OutputTim
         > = QueuedMonitor::setup(cfg, source.init_data());
 
         let queue = monitor.output_queue();
-        let output_handler = thread::spawn(move || output.run(queue));
+        let output_handler = match output_channel {
+            OutputChannel::StdOut => thread::spawn(move || output.run(stdout(), queue)),
+            OutputChannel::StdErr => thread::spawn(move || output.run(stderr(), queue)),
+            OutputChannel::File(f) => {
+                let file = File::create(f.as_path()).expect("Could not open output file!");
+                thread::spawn(move || output.run(BufWriter::new(file), queue))
+            },
+        };
 
         // start evaluation
         monitor.start();

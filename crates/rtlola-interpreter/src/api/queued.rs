@@ -447,10 +447,10 @@ impl<
 
                     let mut tracer = Verdict::Tracing::default();
                     tracer.eval_start();
-                    self.evaluator.eval_event(&e, ts);
+                    self.evaluator.eval_event(&e, ts, &mut tracer);
                     tracer.eval_end();
 
-                    let verdict = Verdict::create(RawVerdict::from(&self.evaluator), tracer);
+                    let verdict = Verdict::create_with_trace(RawVerdict::from(&self.evaluator), tracer);
                     verdict.is_empty().not().then_some(QueuedVerdict {
                         kind: VerdictKind::Event,
                         ts: output_time.convert_into(ts),
@@ -464,10 +464,10 @@ impl<
                     let due = next_deadline.expect("timeout to only happen for a deadline.");
 
                     let deadline = self.schedule_manager.get_next_deadline(due);
-                    self.evaluator.eval_time_driven_tasks(deadline, due);
+                    self.evaluator.eval_time_driven_tasks(deadline, due, &mut tracer);
                     tracer.eval_end();
 
-                    let verdict = Verdict::create(RawVerdict::from(&self.evaluator), tracer);
+                    let verdict = Verdict::create_with_trace(RawVerdict::from(&self.evaluator), tracer);
                     verdict.is_empty().not().then_some(QueuedVerdict {
                         kind: VerdictKind::Timed,
                         ts: output_time.convert_into(due),
