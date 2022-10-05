@@ -1,5 +1,5 @@
 {
-  "spec_file": "../tests/specs/parameterized_window.lola",
+  "spec_file": "../specs/parameterized_window.lola",
   "input_file": "../traces/tests/long_int2.csv",
   "rationale": "",
   "modes": ["offline"],

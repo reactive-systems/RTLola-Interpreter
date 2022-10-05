@@ -1,14 +1,13 @@
 #![allow(clippy::mutex_atomic)]
 
 use std::collections::HashMap;
-use std::fmt::Write as FmtWrite;
 use std::fs::File;
 use std::io::{stderr, stdout, BufWriter, Write};
 use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crossterm::cursor::{MoveDown, MoveToNextLine, MoveToPreviousLine, MoveUp};
+use crossterm::cursor::MoveToPreviousLine;
 use crossterm::execute;
 use crossterm::style::{Print, ResetColor, SetForegroundColor};
 use crossterm::terminal::{Clear, ClearType};
@@ -18,8 +17,6 @@ use rtlola_interpreter::queued::{QueuedVerdict, Receiver, RecvTimeoutError, Verd
 use rtlola_interpreter::time::OutputTimeRepresentation;
 
 use crate::config::Verbosity;
-#[cfg(feature = "pcap_interface")]
-use crate::io::PCAPEventSource;
 
 /// The possible targets at which the output of the interpreter can be directed.
 #[derive(Debug, Clone)]
@@ -119,7 +116,7 @@ impl<OutputTime: OutputTimeRepresentation> OutputHandler<OutputTime> {
                 if self.statistics.is_some() && last_stat_print.elapsed() > Duration::from_millis(20) {
                     break;
                 }
-                let queue_verdict = match input.recv_timeout(Duration::from_millis(20)){
+                let queue_verdict = match input.recv_timeout(Duration::from_millis(20)) {
                     Ok(v) => v,
                     Err(RecvTimeoutError::Disconnected) => break 'outer, // Channel closed
                     Err(RecvTimeoutError::Timeout) => break,
@@ -145,7 +142,7 @@ impl<OutputTime: OutputTimeRepresentation> OutputHandler<OutputTime> {
                         self.debug(&mut output, || "Processing new event", &ts);
                         for (idx, val) in inputs {
                             let name = &self.ir.inputs[idx].name;
-                            self.stream(&mut output, move || format!("[Input][{}][Value] = {}", name, val), &ts);
+                            self.debug(&mut output, move || format!("[Input][{}][Value] = {}", name, val), &ts);
                         }
                     },
                 }
@@ -227,7 +224,15 @@ impl<OutputTime: OutputTimeRepresentation> OutputHandler<OutputTime> {
     where
         F: FnOnce() -> T,
     {
-        self.emit(out, Verbosity::Triggers, msg, ts);
+        let msg = move || {
+            format!(
+                "{}{}{}",
+                SetForegroundColor(Verbosity::Trigger.into()),
+                msg().into(),
+                ResetColor
+            )
+        };
+        self.emit(out, Verbosity::Trigger, msg, ts);
         if let Some(statistics) = self.statistics.as_mut() {
             statistics.trigger(trigger_idx);
         }
@@ -256,13 +261,16 @@ impl<OutputTime: OutputTimeRepresentation> OutputHandler<OutputTime> {
         F: FnOnce() -> T,
     {
         if kind <= self.verbosity {
-            execute!(out, Print(format!("[{}]", ts)), SetForegroundColor(kind.into()), Print(format!("[{}]{}\r\n", kind, msg().into())), ResetColor);
+            execute!(
+                out,
+                Print(format!("[{}]", ts)),
+                SetForegroundColor(kind.into()),
+                Print(format!("[{}]", kind)),
+                ResetColor,
+                Print(format!("{}\r\n", msg().into()))
+            )
+            .expect("Failed to write to output channel");
         }
-    }
-
-    fn print(&self, out: &mut impl Write, msg: String) {
-        out.write_all((msg + "\n").as_bytes())
-            .expect("Failed to write to output");
     }
 
     pub(crate) fn terminate(&mut self, out: &mut impl Write) {
@@ -337,7 +345,7 @@ impl Statistics {
             num_triggers: vec![0; num_trigger],
             spinner: ['▌', '▀', '▐', '▄'],
             current_char: 0,
-            term_width: crossterm::terminal::size().map(|(width, height)| width).unwrap_or(32),
+            term_width: crossterm::terminal::size().map(|(width, _)| width).unwrap_or(32),
         }
     }
 
@@ -361,14 +369,14 @@ impl Statistics {
 
     pub(crate) fn print_progress(&mut self, out: &mut impl Write) {
         let spinner_char = self.next_spinner_char();
-        writeln!(out, "{}", "=".repeat(self.term_width as usize));
+        writeln!(out, "{}", "=".repeat(self.term_width as usize)).unwrap_or_else(|_| {});
         self.cycle_stats(out, spinner_char);
         self.trigger_stats(out, true);
     }
 
     pub(crate) fn print_final(&self, out: &mut impl Write) {
         self.clear_progress(out);
-        writeln!(out, "{}", "=".repeat(self.term_width as usize));
+        writeln!(out, "{}", "=".repeat(self.term_width as usize)).unwrap_or_else(|_| {});
         self.cycle_stats(out, ' ');
         self.event_stats(out);
         self.trigger_stats(out, false);

@@ -34,7 +34,7 @@ use rtlola_frontend::mir::{InputReference, OutputReference, RtLolaMir, Type};
 use crate::config::{Config, ExecutionMode};
 use crate::configuration::time::{init_start_time, OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
 use crate::evaluator::{Evaluator, EvaluatorData};
-use crate::monitor::{Incremental, Input, RawVerdict, Tracer, VerdictRepresentation};
+use crate::monitor::{Incremental, Input, RawVerdict, Tracer, VerdictRepresentation, Verdicts};
 use crate::schedule::schedule_manager::ScheduleManager;
 use crate::schedule::DynamicSchedule;
 use crate::Monitor;
@@ -536,17 +536,35 @@ impl<
 
     fn process(&mut self) {
         let monitor = self.monitor.as_mut().expect("Init to be called before process");
-        loop {
-            let (verdict, ts) = match self.input.recv() {
+        let mut last_event = None;
+        let mut done = false;
+        while !done {
+            let timed = match self.input.recv() {
                 Ok(WorkItem::Event(e, ts)) => {
                     // Received Event
-                    let v = monitor.accept_event(e, ts);
+                    last_event.replace(ts.clone());
+                    let Verdicts { timed, event } = monitor.accept_event(e, ts);
                     let ts = monitor.last_event().expect("the event to be recorded");
-                    (v, ts)
+
+                    if !event.is_empty() {
+                        let verdict = QueuedVerdict {
+                            kind: VerdictKind::Event,
+                            ts: ts.clone(),
+                            verdict: event,
+                        };
+                        Self::try_send(&self.output, Some(verdict));
+                    }
+
+                    timed
                 },
                 Err(_) => {
                     // Channel closed, we are done here
-                    return;
+                    done = true;
+                    if let Some(last_event) = last_event.as_ref() {
+                        monitor.accept_time(last_event.clone())
+                    } else {
+                        return;
+                    }
                 },
                 Ok(WorkItem::Start) => {
                     // Received second start command -> abort
@@ -554,19 +572,11 @@ impl<
                 },
             };
 
-            for (ts, v) in verdict.timed {
+            for (ts, v) in timed {
                 let verdict = QueuedVerdict {
                     kind: VerdictKind::Timed,
                     ts,
                     verdict: v,
-                };
-                Self::try_send(&self.output, Some(verdict));
-            }
-            if !verdict.event.is_empty() {
-                let verdict = QueuedVerdict {
-                    kind: VerdictKind::Event,
-                    ts,
-                    verdict: verdict.event,
                 };
                 Self::try_send(&self.output, Some(verdict));
             }

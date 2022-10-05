@@ -8,7 +8,7 @@ use std::marker::PhantomData;
 use std::thread;
 use std::time::SystemTime;
 
-use clap::ArgEnum;
+use clap::ValueEnum;
 use crossterm::style::Color;
 use rtlola_frontend::RtLolaMir;
 use rtlola_interpreter::config::ExecutionMode;
@@ -17,7 +17,7 @@ use rtlola_interpreter::time::{OutputTimeRepresentation, TimeRepresentation};
 use rtlola_interpreter::QueuedMonitor;
 
 #[cfg(feature = "pcap_interface")]
-use crate::io::PCAPInputSource;
+use crate::io::PcapInputSource;
 use crate::io::{CsvInputSourceKind, EvalTimeTracer, EventSource, OutputChannel, OutputHandler};
 
 /**
@@ -48,7 +48,7 @@ pub(crate) struct Config<Rec: Record, InputTime: TimeRepresentation, OutputTime:
 }
 
 /// Used to define the level of statistics that should be computed.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, ArgEnum)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, ValueEnum)]
 pub(crate) enum Statistics {
     /// No statistics will be computed
     None,
@@ -63,12 +63,12 @@ impl Default for Statistics {
 }
 
 /// The different verbosities supported by the interpreter.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, ArgEnum)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, ValueEnum)]
 pub enum Verbosity {
     /// Suppresses any kind of logging.
     Silent,
     /// Prints only triggers and runtime warnings.
-    Triggers,
+    Trigger,
     /// Prints new stream values for every stream.
     Streams,
     /// Prints fine-grained debug information. Not suitable for production.
@@ -79,7 +79,7 @@ impl Display for Verbosity {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Verbosity::Silent => write!(f, "Silent"),
-            Verbosity::Triggers => write!(f, "Trigger"),
+            Verbosity::Trigger => write!(f, "Trigger"),
             Verbosity::Streams => write!(f, "Stream"),
             Verbosity::Debug => write!(f, "Debug"),
         }
@@ -88,7 +88,7 @@ impl Display for Verbosity {
 
 impl Default for Verbosity {
     fn default() -> Self {
-        Verbosity::Triggers
+        Verbosity::Trigger
     }
 }
 
@@ -96,8 +96,8 @@ impl From<Verbosity> for Color {
     fn from(v: Verbosity) -> Self {
         match v {
             Verbosity::Silent => Color::White,
-            Verbosity::Triggers => Color::DarkRed,
-            Verbosity::Streams => Color::DarkGreen,
+            Verbosity::Trigger => Color::DarkRed,
+            Verbosity::Streams => Color::DarkGrey,
             Verbosity::Debug => Color::Grey,
         }
     }
@@ -117,7 +117,7 @@ pub enum EventSourceConfig {
 
     /// Parse events from network packets
     #[cfg(feature = "pcap_interface")]
-    PCAP(PCAPInputSource),
+    PCAP(PcapInputSource),
 }
 
 impl<Rec: Record + 'static, InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation>

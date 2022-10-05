@@ -1,5 +1,5 @@
 {
-  "spec_file": "../tests/specs/hold_access.lola",
+  "spec_file": "../specs/hold_access.lola",
   "input_file": "../traces/tests/three_int_streams.csv",
   "rationale": "Check that the hold access works",
   "modes": ["offline", "online"],

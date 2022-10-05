@@ -1,5 +1,5 @@
 {
-  "spec_file": "../tests/specs/delay_advanced.lola",
+  "spec_file": "../specs/delay_advanced.lola",
   "input_file": "../traces/tests/count_1_2.csv",
   "rationale": "Check that a 2 occurred 1 second after a 1",
   "modes": ["offline"],

@@ -1,6 +1,9 @@
 stages:
-  - check
+  - check-format
+  - clippy
+  - ignored
   - test
+  - additional-test
   - bench
 #  - release
 
@@ -12,74 +15,126 @@ variables:
 #- apt-get update -yqq
 #- apt-get install -yqq --no-install-recommends build-essential cmake
 
+default:
+  before_script:
+    - cd crates
+    - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ rtlola-interpreter/Cargo.toml
+    - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ rtlola-cli/Cargo.toml
+
 # Use cargo to check the source code formatting
-cargo:check-format:
-  stage: check
+format:cli:
+  stage: check-format
   tags:
     - docker
   image: rust:latest
-  before_script:
-    - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
-    - rustup component add rustfmt-preview
   script:
     - rustc --version && cargo --version      # Print version info for debugging
-    - cargo fmt --all --verbose -- --check
+    - cargo +nightly fmt -p rtlola-cli --verbose -- --check
 
-# Use cargo to run clippy (Rust linter)
-cargo:clippy:
-  stage: check
+# Use cargo to check the source code formatting
+format:interpreter:
+  stage: check-format
   tags:
     - docker
   image: rust:latest
+  script:
+    - rustc --version && cargo --version      # Print version info for debugging
+    - cargo +nightly fmt -p rtlola-interpreter --verbose -- --check
+
+# Use cargo to run clippy (Rust linter)
+clippy:cli:
+  stage: clippy
+  tags:
+    - docker
+  image: rust:latest
+  needs: ["format:cli"]
   cache:
-    key: "build"
+    key: "cli"
     policy: pull-push
     paths:
       - target/
       - $CARGO_HOME
-  before_script:
-    - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
-    - rustup component add clippy-preview
   script:
     - rustc --version && cargo --version      # Print version info for debugging
-    - cargo clippy
+    - cargo clippy -p rtlola-cli
+
+# Use cargo to run clippy (Rust linter)
+clippy:interpreter:
+  stage: clippy
+  tags:
+    - docker
+  image: rust:latest
+  needs: ["format:interpreter"]
+  cache:
+    key: "interpreter"
+    policy: pull-push
+    paths:
+      - target/
+      - $CARGO_HOME
+  script:
+    - rustc --version && cargo --version      # Print version info for debugging
+    - cargo clippy -p rtlola-interpreter
 
 # Check that every ignored test has an accompanying comment
-check-ignored-tests:
-  stage: check
+ignored:interpreter:
+  stage: ignored
   tags:
     - docker
   image: alpine:latest
+  needs: ["clippy:interpreter"]
   script:
     - ./check_ignored_tests_without_comment.sh
   allow_failure: true
 
 # Use cargo to test the project on stable toolchain
-cargo:test:
+test:interpreter:
   stage: test
   tags:
     - docker
   image: rust:latest
+  needs: ["ignored:interpreter"]
   cache:
-    key: "build"
+    key: "interpreter"
     policy: pull-push
     paths:
       - target/
       - $CARGO_HOME
-  before_script:
-    - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
+  script:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev
-  script:
     - rustc --version && cargo --version      # Print version info for debugging
-    - cargo test --all --verbose
+    - cargo test -p rtlola-interpreter --all --verbose
+
+# Run the tool by checking the number of triggers fired
+test:cli:
+  stage: test
+  tags:
+    - docker
+  image: rust:latest
+  needs: ["clippy:cli"]
+  cache:
+    key: "cli"
+    policy: pull-push
+    paths:
+      - target/
+      - $CARGO_HOME
+  script:
+    - apt-get update -yqq
+    - apt-get install -yqq --no-install-recommends libpcap-dev python3-pip
+    - pip3 install junit-xml
+    - python3 ./rtlola-cli/rtlola-interpreter-e2e-tests.py
+  artifacts:
+    when: always
+    reports:
+      junit: e2e-results.xml
 
 # Use cargo to test the project on stable toolchain on windows
-cargo:test:windows:
-  stage: test
+test:windows:
+  stage: additional-test
   tags:
     - windows
     - rust
+  needs: ["test:cli", "test:interpreter"]
   variables:
     CARGO_HOME: "C:\\Users\\react\\.cargo"
   before_script:
@@ -91,11 +146,12 @@ cargo:test:windows:
     - cargo test --all --verbose
 
 # Use cargo to test the project on nightly toolchain
-cargo:test-nightly:
-  stage: test
+test:nightly:
+  stage: additional-test
   tags:
     - docker
   image: rustlang/rust:nightly
+  needs: ["test:cli", "test:interpreter"]
   cache:
     key: "build-nightly"
     policy: pull-push
@@ -105,8 +161,7 @@ cargo:test-nightly:
   variables:
     RUSTFLAGS: "-Zinstrument-coverage -Zgcc-ld=lld"
     LLVM_PROFILE_FILE: "json5format-%m.profraw"
-  before_script:
-    - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
+  script:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev python3-pip
     - pip3 install junit-xml
@@ -114,10 +169,9 @@ cargo:test-nightly:
     - curl -L https://github.com/mozilla/grcov/releases/download/v0.6.1/grcov-linux-x86_64.tar.bz2 | tar jxf -
     - rustup component add llvm-tools-preview
     - (rm -r ./target/debug/coverage/) || true
-  script:
     - rustc --version && cargo --version      # Print version info for debugging
     - (cargo test -- -Z unstable-options --format json | $CARGO_HOME/bin/cargo2junit > results.xml) || true # ignore the return code so that we can show the complete output (including ignored tests)
-    - python3 ./tests/rtlola-interpreter-e2e-tests.py || true        # count the e2e test for coverage but keep going
+    - python3 ./rtlola-cli/rtlola-interpreter-e2e-tests.py || true        # count the e2e test for coverage but keep going
     - ./grcov . --ignore ".cargo/*" --binary-path ./target/debug/ -s . -t html --branch --ignore-not-existing --llvm -o ./target/debug/coverage/
     - cat ./target/debug/coverage/index.html
     - cargo test --all --verbose
@@ -130,31 +184,50 @@ cargo:test-nightly:
     reports:
       junit: results.xml
 
-# Run the tool by checking the number of triggers fired
-integration_tests:
-  stage: test
+test:online_e2e:
+  stage: additional-test
+  only:
+    - merge_requests
+    - pipelines
+    - tags
+    - web
   tags:
     - docker
   image: rust:latest
+  needs: ["test:cli", "test:interpreter"]
   cache:
-    key: "release"
+    key: "cli"
     policy: pull-push
     paths:
       - target/
       - $CARGO_HOME
-  before_script:
-    - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
+  script:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev python3-pip
     - pip3 install junit-xml
-  variables:
-    BUILD_MODE: "release"
-  script:
-    - python3 ./tests/rtlola-interpreter-e2e-tests.py
+    - python3 ./rtlola-cli/rtlola-interpreter-e2e-tests.py --online
   artifacts:
     when: always
     reports:
       junit: e2e-results.xml
+
+test:wasm:
+  stage: additional-test
+  needs: ["test:cli", "test:interpreter"]
+  tags:
+    - docker
+  image: rust:latest
+  cache:
+    key: "wasm"
+    policy: pull-push
+    paths:
+      - target/
+      - $CARGO_HOME
+  script:
+    - rustup target add wasm32-unknown-unknown
+    - rustc --version
+    - cargo --version
+    - cargo check -p rtlola-interpreter --target wasm32-unknown-unknown --no-default-features
 
 # Use cargo to run the benchmarks
 cargo:bench:
@@ -167,17 +240,16 @@ cargo:bench:
   tags:
     - docker
   image: rustlang/rust:nightly
+  needs: ["test:windows", "test:nightly", "test:online_e2e"]
   cache:
     key: "build-nightly"
     policy: pull-push
     paths:
       - target/
       - $CARGO_HOME
-  before_script:
+  script:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev
-    - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
-  script:
     - rustc --version && cargo --version      # Print version info for debugging
     - cargo bench --quiet | grep -e 'bench:' | tee bench_results.txt # TODO: actually compare the results
     - sed s/'test '// bench_results.txt | sed -e s/' ... bench:'// | sed -e s/,//g | sed -e "s|ns/iter.*$||" > metrics.txt
@@ -189,36 +261,6 @@ cargo:bench:
     reports:
       metrics: metrics.txt
   allow_failure: true
-
-online_integration_tests:
-  stage: test
-  only:
-    - merge_requests
-    - pipelines
-    - tags
-    - web
-  tags:
-    - docker
-  image: rust:latest
-  cache:
-    key: "release"
-    policy: pull-push
-    paths:
-      - target/
-      - $CARGO_HOME
-  before_script:
-    - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ Cargo.toml
-    - apt-get update -yqq
-    - apt-get install -yqq --no-install-recommends libpcap-dev python3-pip
-    - pip3 install junit-xml
-  variables:
-    BUILD_MODE: "release"
-  script:
-    - python3 ./tests/rtlola-interpreter-e2e-tests.py --online
-  artifacts:
-    when: always
-    reports:
-      junit: e2e-results.xml
 
 # For the release build we do not use the Cargo.lock file, because we haven't investigated how it interacts with different platforms.
 # Windows, Linux, and MacOS could resolve to different Cargo.lock files.

@@ -1,5 +1,5 @@
 {
-  "spec_file": "../tests/specs/count_packets.lola",
+  "spec_file": "../specs/count_packets.lola",
   "modes": ["pcap"],
   "input_file": "../traces/ids/udp_packets.pcap",
   "rationale": "Count number of packets in pcap file.",

@@ -1,5 +1,5 @@
 {
-  "spec_file": "../tests/specs/count_1_4.lola",
+  "spec_file": "../specs/count_1_4.lola",
   "input_file": "../traces/tests/count_1_4.csv",
   "rationale": "",
   "modes": ["offline"],

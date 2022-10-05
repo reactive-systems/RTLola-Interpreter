@@ -1,5 +1,5 @@
 {
-  "spec_file": "../tests/specs/large_offset.lola",
+  "spec_file": "../specs/large_offset.lola",
   "input_file": "../traces/tests/long_int.csv",
   "rationale": "Large offset of 260 which is larger than the initially used fixed buffer size of 256.",
   "modes": ["offline", "online"],

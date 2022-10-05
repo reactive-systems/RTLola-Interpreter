@@ -1,5 +1,5 @@
 {
-  "spec_file": "../tests/specs/complex_spawn.lola",
+  "spec_file": "../specs/complex_spawn.lola",
   "input_file": "../traces/tests/count_1_2.csv",
   "rationale": "spawn x with an aggregation",
   "modes": ["offline"],

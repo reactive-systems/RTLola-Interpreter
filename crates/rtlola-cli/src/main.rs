@@ -2,17 +2,15 @@ mod config;
 mod io;
 
 use std::error::Error;
-use std::fmt::Write;
 use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use clap::{AppSettings, ArgEnum, ArgGroup, Args, CommandFactory, Parser};
+use clap::{ArgGroup, Args, CommandFactory, Parser, ValueEnum};
 use clap_complete::generate;
 use clap_complete::shells::*;
 #[cfg(feature = "public")]
 use human_panic::setup_panic;
-use lazy_static::lazy_static;
 use rtlola_interpreter::config::ExecutionMode;
 use rtlola_interpreter::time::{
     parse_float_time, AbsoluteFloat, AbsoluteRfc, DelayTime, OffsetFloat, OffsetNanos, RealTime, RelativeFloat,
@@ -20,52 +18,22 @@ use rtlola_interpreter::time::{
 };
 
 use crate::config::{Config, EventSourceConfig, Statistics, Verbosity};
-#[cfg(feature = "pcap_interface")]
-use crate::io::PCAPInputSource;
 use crate::io::{CsvEventSource, CsvInputSourceKind, OutputChannel};
-
-macro_rules! enum_doc {
-    ($enum: ty, $heading: expr) => {{
-        let pv_iter = <$enum>::value_variants().iter().filter_map(|v| v.to_possible_value());
-
-        let max_width = pv_iter.clone().map(|pv| pv.get_name()).map(str::len).max().unwrap_or(0);
-
-        let mut text: String = String::from($heading) + "\n";
-        for pv in pv_iter {
-            // Note: There's a final newline so that clap's default value text is put on a new line.
-            writeln!(text, "• {:max_width$} — {}", pv.get_name(), pv.get_help().unwrap()).unwrap();
-        }
-        text
-    }};
-}
-
-lazy_static! {
-    static ref VERBOSITY_HELP: String = enum_doc!(Verbosity, "Output Verbosity; one of the following keywords:");
-    static ref STATISTICS_HELP: String = enum_doc!(Statistics, "Statistic Verbosity; one of the following keywords:");
-    static ref OUTPUT_FORMAT_HELP: String = enum_doc!(
-        CliOutputTimeRepresentation,
-        "Output Time Format; one of the following keywords:"
-    );
-    static ref INPUT_FORMAT_HELP: String = enum_doc!(
-        CliInputTimeRepresentation,
-        "Input Time Format; one of the following keywords:"
-    );
-}
+#[cfg(feature = "pcap_interface")]
+use crate::io::{PcapEventSource, PcapInputSource};
 
 #[derive(Parser, Debug, Clone)]
-#[clap(
+#[command(
     author,
     version,
     about,
     long_about = "RTLola is a tool to analyze and monitor Lola specifications."
 )]
-#[clap(global_setting(AppSettings::DeriveDisplayOrder))]
-#[clap(propagate_version = true)]
+#[command(propagate_version = true)]
 enum Cli {
     /// Parses the input file and runs semantic analysis.
     Analyze {
         /// Path to the specification
-        #[clap(parse(from_os_str))]
         spec: PathBuf,
     },
 
@@ -73,38 +41,30 @@ enum Cli {
     /// Run the monitor for network intrusion detection
     Ids {
         /// Path to the specification
-        #[clap(parse(from_os_str))]
         spec: PathBuf,
 
         /// The local ip range given in CIDR notation
         local_network: String,
 
-        #[clap(flatten)]
+        #[command(flatten)]
         output: CliOutputChannel,
 
-        #[clap(flatten)]
+        #[command(flatten)]
         input: IdsInput,
 
-        #[clap(flatten)]
+        #[command(flatten)]
         start_time: CliStartTime,
 
         /// Sets the statistic verbosity
-        #[clap(short, long, arg_enum,
-        long_help=Some(STATISTICS_HELP.as_str()),
-        default_value_t
-        )]
+        #[arg(short, long, value_enum, default_value_t)]
         statistics: Statistics,
 
         /// Sets the output verbosity
-        #[clap(short, long, arg_enum,
-        long_help=Some(VERBOSITY_HELP.as_str()),
-        default_value_t
-        )]
+        #[arg(short, long, value_enum, default_value_t)]
         verbosity: Verbosity,
 
         /// Set the format in which time should be represented in the output
-        #[clap(short='f', long, arg_enum,
-        long_help=Some(OUTPUT_FORMAT_HELP.as_str()),
+        #[arg(short='f', long, value_enum,
         default_value_t=CliOutputTimeRepresentation::RelativeFloatSecs
         )]
         output_time_format: CliOutputTimeRepresentation,
@@ -113,38 +73,30 @@ enum Cli {
     /// Start the monitor using the given specification
     Monitor {
         /// Path to the specification
-        #[clap(parse(from_os_str))]
         spec: PathBuf,
 
-        #[clap(flatten)]
+        #[command(flatten)]
         input: MonitorInput,
 
-        #[clap(flatten)]
+        #[command(flatten)]
         output: CliOutputChannel,
 
-        #[clap(flatten)]
+        #[command(flatten)]
         mode: CliExecutionMode,
 
-        #[clap(flatten)]
+        #[command(flatten)]
         start_time: CliStartTime,
 
         /// Sets the statistic verbosity
-        #[clap(short, long, arg_enum,
-        long_help=Some(STATISTICS_HELP.as_str()),
-        default_value_t
-        )]
+        #[arg(short, long, value_enum, default_value_t)]
         statistics: Statistics,
 
         /// Sets the output verbosity
-        #[clap(short, long, arg_enum,
-        long_help=Some(VERBOSITY_HELP.as_str()),
-        default_value_t
-        )]
+        #[arg(short, long, value_enum, default_value_t)]
         verbosity: Verbosity,
 
         /// Set the format in which time should be represented in the output
-        #[clap(short='f', long, arg_enum,
-        long_help=Some(OUTPUT_FORMAT_HELP.as_str()),
+        #[arg(short='f', long, value_enum,
         default_value_t=CliOutputTimeRepresentation::RelativeFloatSecs
         )]
         output_time_format: CliOutputTimeRepresentation,
@@ -152,12 +104,12 @@ enum Cli {
 
     /// Generate a SHELL completion script and print it to stdout
     Completions {
-        #[clap(arg_enum, value_name = "SHELL")]
+        #[arg(value_enum, value_name = "SHELL")]
         shell: Shell,
     },
 }
 
-#[derive(ArgEnum, Copy, Clone, Debug)]
+#[derive(ValueEnum, Copy, Clone, Debug)]
 pub enum Shell {
     Bash,
     Zsh,
@@ -180,90 +132,90 @@ impl Shell {
 }
 
 #[derive(Clone, Debug, Args)]
-#[clap(next_help_heading = "Start Time")]
+#[command(next_help_heading = "Start Time")]
 struct CliStartTime {
     /// Sets the starting time of the monitor using a unix timestamp in 'seconds.subseconds' format.
-    #[clap(long="start-time-unix", parse(try_from_str = parse_float_time), group = "start-time")]
+    #[arg(long="start-time-unix", value_parser = parse_float_time, group = "start-time")]
     unix: Option<Duration>,
     /// Sets the starting time of the monitor using a timestamp in RFC3339 format.
-    #[clap(long = "start-time-rfc3339", parse(try_from_str = humantime::parse_rfc3339),  group = "start-time")]
+    #[arg(long = "start-time-rfc3339", value_parser = humantime::parse_rfc3339,  group = "start-time")]
     rfc: Option<SystemTime>,
 }
 
 #[cfg(feature = "pcap_interface")]
 #[derive(Clone, Debug, Args)]
-#[clap(next_help_heading = "Input Source")]
-#[clap(group(
+#[command(next_help_heading = "Input Source")]
+#[command(group(
 ArgGroup::new("ids_input")
 .required(true)
-.args(&["pcap-in", "interface"])
+.args(&["pcap_in", "interface"])
 ))]
 struct IdsInput {
     /// Use the specified pcap file as input source
-    #[clap(short, long, parse(from_os_str))]
+    #[clap(short, long)]
     pcap_in: Option<PathBuf>,
     /// Use the specified network interface as input source
     #[clap(short, long = "iface")]
     interface: Option<String>,
     /// Specifies a delay in ms to apply between two packets in the input file.
-    #[clap(long, requires = "pcap-in")]
+    #[clap(long, requires = "pcap_in")]
     input_delay: Option<u64>,
 }
 
 #[derive(Clone, Debug, Args)]
-#[clap(next_help_heading = "Input Source")]
-#[clap(group(
+#[command(next_help_heading = "Input Source")]
+#[command(group(
 ArgGroup::new("monitor_input")
 .required(true)
-.args(&["csv-in", "stdin"])
+.args(&["csv_in", "stdin"])
 ))]
 struct MonitorInput {
     /// Use the specified CSV file as input source
-    #[clap(long, parse(from_os_str))]
+    #[arg(long)]
     csv_in: Option<PathBuf>,
     /// Use the StdIn as input source
-    #[clap(long)]
+    #[arg(long)]
     stdin: bool,
     /// Specifies a delay in ms to apply between two events in the input file.
-    #[clap(long, requires = "csv-in")]
+    #[arg(long, requires = "csv_in")]
     input_delay: Option<u64>,
     /// The column in the CSV that contains time information.
-    #[clap(long, requires = "csv-in")]
+    #[arg(long, requires = "csv_in")]
     csv_time_column: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug, Args)]
-#[clap(next_help_heading = "Execution Mode")]
-#[clap(group(
+#[command(next_help_heading = "Execution Mode")]
+#[command(group(
 ArgGroup::new("mode")
 .required(true)
 .args(&["online", "offline"])
 ))]
 struct CliExecutionMode {
     /// The time of input events is taken by the monitor
-    #[clap(long, requires = "stdin")]
+    #[arg(long, requires = "stdin")]
     online: bool,
 
     /// The time of input events is taken from the source in the given format.
-    #[clap(long, arg_enum, value_name = "TIME FORMAT", long_help=Some(INPUT_FORMAT_HELP.as_str()))]
+    #[arg(long, value_enum, value_name = "TIME FORMAT")]
     offline: Option<CliInputTimeRepresentation>,
 }
 
 #[derive(Clone, Debug, Args)]
-#[clap(next_help_heading = "Output Channel")]
+#[command(next_help_heading = "Output Channel")]
 struct CliOutputChannel {
     /// Print output to StdOut (default)
-    #[clap(long, group = "output")]
+    #[arg(long, group = "output")]
     stdout: bool,
     /// Print output to StdErr
-    #[clap(long, group = "output")]
+    #[arg(long, group = "output")]
     stderr: bool,
     /// Print output to file
-    #[clap(long, group = "output", parse(from_os_str))]
+    #[arg(long, group = "output")]
     output_file: Option<PathBuf>,
 }
 
-#[derive(Clone, Copy, Debug, ArgEnum)]
+#[derive(Clone, Copy, Debug, ValueEnum)]
 enum CliInputTimeRepresentation {
     /// Short for relative-float-secs.
     Relative,
@@ -296,7 +248,7 @@ enum CliInputTimeRepresentation {
     AbsoluteRfc3339,
 }
 
-#[derive(Clone, Copy, Debug, ArgEnum)]
+#[derive(Clone, Copy, Debug, ValueEnum)]
 enum CliOutputTimeRepresentation {
     /// Short for relative-float-secs.
     Relative,
@@ -339,12 +291,12 @@ impl From<MonitorInput> for EventSourceConfig {
 impl IdsInput {
     fn into_event_source(self, local_net: String) -> EventSourceConfig {
         if let Some(pcap) = self.pcap_in {
-            EventSourceConfig::PCAP(PCAPInputSource::File {
+            EventSourceConfig::PCAP(PcapInputSource::File {
                 path: pcap,
                 local_network: local_net,
             })
         } else {
-            EventSourceConfig::PCAP(PCAPInputSource::Device {
+            EventSourceConfig::PCAP(PcapInputSource::Device {
                 name: self.interface.unwrap(),
                 local_network: local_net,
             })
@@ -561,8 +513,19 @@ macro_rules! run_config_it_ot {
                 )
             },
             #[cfg(feature = "pcap_interface")]
-            EventSourceConfig::PCAP(_) => {
-                todo!()
+            EventSourceConfig::PCAP(cfg) => {
+                let src: PcapEventSource<_> = PcapEventSource::setup(&cfg)?;
+                run_config_it_ot_src!(
+                    $it,
+                    $ot,
+                    $ir,
+                    Box::new(src),
+                    $statistics,
+                    $verbosity,
+                    $output,
+                    $mode,
+                    $start_time
+                )
             },
         }
     };

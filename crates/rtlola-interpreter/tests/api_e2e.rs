@@ -10,7 +10,7 @@ use std::process::exit;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 
-use clap::{ArgEnum, Parser};
+use clap::{Parser, ValueEnum};
 use crossterm::style::Stylize;
 use csv::StringRecord;
 use itertools::{Itertools, Position};
@@ -83,37 +83,37 @@ enum Event {
 }
 
 #[derive(Parser)]
-#[clap(author, version, about)]
+#[command(author, version, about)]
 struct Cli {
     /// Sets a test directoy path
-    #[clap(short, long, parse(from_os_str), value_name = "DIR")]
+    #[arg(short, long, value_name = "DIR")]
     test_directory: Option<PathBuf>,
 
     /// Set the mode the tests are run in
-    #[clap(short, long, arg_enum, default_value_t = Mode::Offline)]
+    #[arg(short, long, value_enum, default_value_t = Mode::Offline)]
     mode: Mode,
 
     /// Set the output format
-    #[clap(short, long, arg_enum, default_value_t = Format::Human)]
+    #[arg(short, long, value_enum, default_value_t = Format::Human)]
     format: Format,
 
     /// Z flags --- Currently ignored
-    #[clap(short = 'Z')]
+    #[arg(short = 'Z')]
     z_flags: Option<String>,
 
     /// Currently ignored
-    #[clap(short, long)]
+    #[arg(short, long)]
     show_output: bool,
 }
 
-#[derive(Clone, Debug, Deserialize, ArgEnum, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, ValueEnum, Eq, PartialEq)]
 enum Format {
     Human,
     Json,
     Xml,
 }
 
-#[derive(Clone, Debug, Deserialize, ArgEnum, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, ValueEnum, Eq, PartialEq)]
 enum Mode {
     #[serde(alias = "online")]
     Online,
@@ -228,12 +228,14 @@ impl Test {
         let spec_file = PathBuf::from(spec_file);
         let spec_file_relative: PathBuf = spec_file.iter().skip(1).collect();
         let mut spec_file = PathBuf::from(repo_base);
+        spec_file.push("tests");
         spec_file.push(spec_file_relative);
         assert!(spec_file.is_file(), "Spec file path of Test '{}' is invalid", name);
 
         let input_file = PathBuf::from(input_file);
         let input_file_relative: PathBuf = input_file.iter().skip(1).collect();
         let mut input_file = PathBuf::from(repo_base);
+        input_file.push("tests");
         input_file.push(input_file_relative);
         assert!(input_file.is_file(), "Input file path of Test '{}' is invalid", name);
 
@@ -376,15 +378,13 @@ fn find_base_dir() -> PathBuf {
     let cwd = env::current_dir().unwrap();
     let parent = PathBuf::from(cwd.parent().unwrap());
 
-    let mut dir = if cwd.ends_with("crates") {
+    if cwd.ends_with("crates") {
         cwd
     } else if parent.ends_with("crates") {
         parent
     } else {
         panic!("Test not run from repo base dir or tests directory");
-    };
-    dir.push("rtlola-interpreter");
-    dir
+    }
 }
 
 fn value_from_string(str: &str, ty: &Type) -> Result<Value, Box<dyn Error>> {
@@ -664,14 +664,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         Format::Xml => Box::new(XmlOutput::default()),
     };
 
+    let base_dir = find_base_dir();
+
     let test_path = args
         .test_directory
-        .or_else(|| PathBuf::from_str("./tests/definitions").ok())
-        .unwrap();
+        .unwrap_or_else(|| base_dir.clone().join("tests/definitions"));
     assert!(test_path.is_dir());
-    let base_dir = find_base_dir();
-    let tests: Vec<Test> = parse_tests(&test_path, base_dir.as_path())?;
 
+    let tests: Vec<Test> = parse_tests(&test_path, base_dir.as_path())?;
     let mut failed = false;
 
     output.pre(&tests);

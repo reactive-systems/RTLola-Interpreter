@@ -1,5 +1,5 @@
 {
-  "spec_file": "../tests/specs/add_two_streams_explicit_ac.lola",
+  "spec_file": "../specs/add_two_streams_explicit_ac.lola",
   "input_file": "../traces/tests/two_int_streams.csv",
   "rationale": "Add two Int streams that have holes. The explicit activation condition should fire exactly three times.",
   "modes": ["offline", "online"],

@@ -1,5 +1,5 @@
 {
-  "spec_file": "../tests/specs/parameterized_access_complex.lola",
+  "spec_file": "../specs/parameterized_access_complex.lola",
   "input_file": "../traces/tests/count_1_2.csv",
   "rationale": "b accesses a; Only dynamic periodic elements present.",
   "modes": ["offline"],

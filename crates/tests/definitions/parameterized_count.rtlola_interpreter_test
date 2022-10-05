@@ -1,5 +1,5 @@
 {
-  "spec_file": "../tests/specs/parameterized_count.lola",
+  "spec_file": "../specs/parameterized_count.lola",
   "input_file": "../traces/tests/count_1_2.csv",
   "rationale": "Count the occurrences of each value in stream a",
   "modes": ["offline"],

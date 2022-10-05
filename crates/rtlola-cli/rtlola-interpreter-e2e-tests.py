@@ -60,7 +60,7 @@ def print_trigger_too_many(message, expected, actual):
 
 
 def run_offline():
-    res = subprocess.run([rtlola_interpreter_executable_path_string, "monitor", "--offline", "relative-secs", "--stdout", "--verbosity", "outputs", str(spec_file), "--csv-in", str(input_file)] + config, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=str(repo_base_dir), universal_newlines=True, timeout=10)
+    res = subprocess.run([rtlola_interpreter_executable_path_string, "monitor", "--offline", "relative-secs", "--stdout", "--verbosity", "trigger", str(spec_file), "--csv-in", str(input_file)] + config, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=str(repo_base_dir), universal_newlines=True, timeout=10)
     return res.returncode, iter(res.stdout.split("\n"))
 
 def run_online():
@@ -69,7 +69,7 @@ def run_online():
     time_idx = input_lines[0].split(',').index("time")
 
     out_file = open("temp_test_output.txt", "w+")
-    monitor = subprocess.Popen([rtlola_interpreter_executable_path_string, "monitor", "--online", "--stdout", "--verbosity", "outputs", "--stdin", str(spec_file)] + config, stdout=out_file, stderr=subprocess.STDOUT, cwd=str(repo_base_dir), stdin=subprocess.PIPE, universal_newlines=True)
+    monitor = subprocess.Popen([rtlola_interpreter_executable_path_string, "monitor", "--online", "--stdout", "--verbosity", "trigger", "--stdin", str(spec_file)] + config, stdout=out_file, stderr=subprocess.STDOUT, cwd=str(repo_base_dir), stdin=subprocess.PIPE, universal_newlines=True)
 
     # write csv header
     monitor.stdin.write(input_lines[0]+os.linesep)
@@ -105,24 +105,26 @@ else:
     run_mode = "offline"
 
 running_on_windows = platform.system() == "Windows"
-executable_name = "rtlola-interpreter.exe" if running_on_windows else "rtlola-interpreter"
+executable_name = "rtlola-cli.exe" if running_on_windows else "rtlola-cli"
 
 build_mode = os.getenv("BUILD_MODE", default="debug")
 
-repo_base_dir = Path("../src").resolve()
+repo_base_dir = Path(os.getcwd())
 if not Path(".gitlab-ci.yml").exists():
     if (repo_base_dir.parent/".gitlab-ci.yml").exists():
         repo_base_dir = repo_base_dir.parent
     else:
-        print_fail("Run this script from the repo base or from te tests directory!")
+        print_fail("Run this script from the repo base or from the crates directory!")
         sys.exit(EXIT_FAILURE)
+repo_base_dir = repo_base_dir/"crates"
+
 rtlola_interpreter_executable_path = repo_base_dir / "target" / build_mode / executable_name
 rtlola_interpreter_executable_path_string = str(rtlola_interpreter_executable_path)
 
 if build_mode == "debug":
-    cargo_build = subprocess.run(["cargo", "build", "--bin", "rtlola-interpreter", "--all-features"], cwd=str(repo_base_dir))
+    cargo_build = subprocess.run(["cargo", "build", "--bin", "rtlola-cli", "--all-features"], cwd=str(repo_base_dir))
 elif build_mode == "release":
-    cargo_build = subprocess.run(["cargo", "build", "--bin", "rtlola-interpreter", "--all-features", "--release"], cwd=str(repo_base_dir))
+    cargo_build = subprocess.run(["cargo", "build", "--bin", "rtlola-cli", "--all-features", "--release"], cwd=str(repo_base_dir))
 else:
     print("invalid BUILD_MODE '{}'".format(build_mode))
     sys.exit(EXIT_FAILURE)
@@ -142,16 +144,17 @@ tests_crashed = []
 tests_wrong_out = []
 return_code = 0
 
-with open("e2e-results.xml", 'w') as results_file:
+ansi_escape = re.compile(r'\x1B[@-_][0-?]*[ -/]*[@-~]')
+
+with open(repo_base_dir/"tests/e2e-results.xml", 'w') as results_file:
     testcases = []
     for (mode, config) in [('closure', []), ('time-info', ["--output-time-format", "relative-secs"])]:
         check_time_info = "--output-time-format" in config
         for test_file in tests:
             with test_file.open() as fd:
                 test_json = json.load(fd)
-                spec_file = build_path(repo_base_dir, test_json["spec_file"].split('/')[1:])
-                input_file = build_path(repo_base_dir, test_json["input_file"].split('/')[1:])
-
+                spec_file = build_path(repo_base_dir, ["tests"]+test_json["spec_file"].split('/')[1:])
+                input_file = build_path(repo_base_dir, ["tests"]+test_json["input_file"].split('/')[1:])
                 is_pcap = len(test_json["modes"]) > 0 and test_json["modes"][0] == "pcap"
 
                 if not (is_pcap or run_mode in test_json["modes"]):
@@ -168,7 +171,7 @@ with open("e2e-results.xml", 'w') as results_file:
                 returncode = None
                 try:
                     if is_pcap:
-                        run_result = subprocess.run([rtlola_interpreter_executable_path_string, "ids", "--stdout", "--verbosity", "outputs", str(spec_file), "192.168.178.0/24", "--pcap-in", str(input_file)] + config, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(repo_base_dir), universal_newlines=True, timeout=10)
+                        run_result = subprocess.run([rtlola_interpreter_executable_path_string, "ids", "--stdout", "--verbosity", "trigger", str(spec_file), "192.168.178.0/24", "--pcap-in", str(input_file)] + config, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(repo_base_dir), universal_newlines=True, timeout=10)
                         returncode = run_result.returncode
                         lines = iter(run_result.stdout.split("\n"))
                     elif run_mode == "offline":
@@ -190,7 +193,8 @@ with open("e2e-results.xml", 'w') as results_file:
                         for line in lines:
                             if line == "":
                                 continue
-                            m = re.match(r'((?P<timeinfo>.*): )?Trigger: (?P<trig_msg>.*)', line)
+                            line = ansi_escape.sub(r'', line)
+                            m = re.match(r'\[(?P<timeinfo>\d+\.\d+)\]\[Trigger\]\[#\d+\]\s(?P<trig_msg>.*)\r?\n?$', line)
                             if m:
                                 timeinfo = m.group('timeinfo')
                                 trig_msg = m.group('trig_msg')

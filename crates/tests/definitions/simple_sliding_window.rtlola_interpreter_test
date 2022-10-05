@@ -1,5 +1,5 @@
 {
-  "spec_file": "../tests/specs/sliding_window.lola",
+  "spec_file": "../specs/sliding_window.lola",
   "input_file": "../traces/tests/single_int-every0.1s.csv",
   "rationale": "Have one sliding window count the number of events in its own duration.\nWe should see the default and the right counts.",
   "modes": ["offline"],
