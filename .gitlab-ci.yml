@@ -55,6 +55,7 @@ clippy:cli:
       - target/
       - $CARGO_HOME
   script:
+    - rustup component add clippy
     - rustc --version && cargo --version      # Print version info for debugging
     - cargo clippy -p rtlola-cli
 
@@ -72,6 +73,7 @@ clippy:interpreter:
       - target/
       - $CARGO_HOME
   script:
+    - rustup component add clippy
     - rustc --version && cargo --version      # Print version info for debugging
     - cargo clippy -p rtlola-interpreter
 
