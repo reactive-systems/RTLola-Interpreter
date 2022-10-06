@@ -122,9 +122,9 @@ rtlola_interpreter_executable_path = repo_base_dir / "target" / build_mode / exe
 rtlola_interpreter_executable_path_string = str(rtlola_interpreter_executable_path)
 
 if build_mode == "debug":
-    cargo_build = subprocess.run(["cargo", "build", "--bin", "rtlola-cli", "--all-features"], cwd=str(repo_base_dir))
+    cargo_build = subprocess.run(["cargo", "build", "--bin", "rtlola-cli", "--features", "pcap_interface"], cwd=str(repo_base_dir))
 elif build_mode == "release":
-    cargo_build = subprocess.run(["cargo", "build", "--bin", "rtlola-cli", "--all-features", "--release"], cwd=str(repo_base_dir))
+    cargo_build = subprocess.run(["cargo", "build", "--bin", "rtlola-cli", "--features", "pcap_interface"], cwd=str(repo_base_dir))
 else:
     print("invalid BUILD_MODE '{}'".format(build_mode))
     sys.exit(EXIT_FAILURE)
