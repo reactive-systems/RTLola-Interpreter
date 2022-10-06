@@ -52,7 +52,7 @@ clippy:cli:
     key: "cli"
     policy: pull-push
     paths:
-      - target/
+      - crates/target/
       - $CARGO_HOME
   script:
     - rustup component add clippy
@@ -70,7 +70,7 @@ clippy:interpreter:
     key: "interpreter"
     policy: pull-push
     paths:
-      - target/
+      - crates/target/
       - $CARGO_HOME
   script:
     - rustup component add clippy
@@ -99,7 +99,7 @@ test:interpreter:
     key: "interpreter"
     policy: pull-push
     paths:
-      - target/
+      - crates/target/
       - $CARGO_HOME
   script:
     - apt-get update -yqq
@@ -118,7 +118,7 @@ test:cli:
     key: "cli"
     policy: pull-push
     paths:
-      - target/
+      - crates/target/
       - $CARGO_HOME
   script:
     - apt-get update -yqq
@@ -128,7 +128,7 @@ test:cli:
   artifacts:
     when: always
     reports:
-      junit: e2e-results.xml
+      junit: crates/tests/e2e-results.xml
 
 # Use cargo to test the project on stable toolchain on windows
 test:windows:
@@ -158,7 +158,7 @@ test:nightly:
     key: "build-nightly"
     policy: pull-push
     paths:
-      - target/
+      - crates/target/
       - $CARGO_HOME
   variables:
     RUSTFLAGS: "-Zinstrument-coverage -Zgcc-ld=lld"
@@ -182,9 +182,9 @@ test:nightly:
   artifacts:
     when: always
     paths:
-      - target/debug/coverage/
+      - crates/target/debug/coverage/
     reports:
-      junit: results.xml
+      junit: crates/results.xml
 
 test:online_e2e:
   stage: additional-test
@@ -201,7 +201,7 @@ test:online_e2e:
     key: "cli"
     policy: pull-push
     paths:
-      - target/
+      - crates/target/
       - $CARGO_HOME
   script:
     - apt-get update -yqq
@@ -211,7 +211,7 @@ test:online_e2e:
   artifacts:
     when: always
     reports:
-      junit: e2e-results.xml
+      junit: crates/tests/e2e-results.xml
 
 test:wasm:
   stage: additional-test
@@ -223,7 +223,7 @@ test:wasm:
     key: "wasm"
     policy: pull-push
     paths:
-      - target/
+      - crates/target/
       - $CARGO_HOME
   script:
     - rustup target add wasm32-unknown-unknown
@@ -231,38 +231,38 @@ test:wasm:
     - cargo --version
     - cargo check -p rtlola-interpreter --target wasm32-unknown-unknown --no-default-features
 
-# Use cargo to run the benchmarks
-cargo:bench:
-  stage: bench
-  only:
-    - merge_requests
-    - pipelines
-    - tags
-    - web
-  tags:
-    - docker
-  image: rustlang/rust:nightly
-  needs: ["test:windows", "test:nightly", "test:online_e2e"]
-  cache:
-    key: "build-nightly"
-    policy: pull-push
-    paths:
-      - target/
-      - $CARGO_HOME
-  script:
-    - apt-get update -yqq
-    - apt-get install -yqq --no-install-recommends libpcap-dev
-    - rustc --version && cargo --version      # Print version info for debugging
-    - cargo bench --quiet | grep -e 'bench:' | tee bench_results.txt # TODO: actually compare the results
-    - sed s/'test '// bench_results.txt | sed -e s/' ... bench:'// | sed -e s/,//g | sed -e "s|ns/iter.*$||" > metrics.txt
-  artifacts:
-    name: "bench_results"
-    paths:
-      - bench_results.txt
-    expire_in: 5 yrs
-    reports:
-      metrics: metrics.txt
-  allow_failure: true
+## Use cargo to run the benchmarks
+#cargo:bench:
+#  stage: bench
+#  only:
+#    - merge_requests
+#    - pipelines
+#    - tags
+#    - web
+#  tags:
+#    - docker
+#  image: rustlang/rust:nightly
+#  needs: ["test:windows", "test:nightly", "test:online_e2e"]
+#  cache:
+#    key: "build-nightly"
+#    policy: pull-push
+#    paths:
+#      - crates/target/
+#      - $CARGO_HOME
+#  script:
+#    - apt-get update -yqq
+#    - apt-get install -yqq --no-install-recommends libpcap-dev
+#    - rustc --version && cargo --version      # Print version info for debugging
+#    - cargo bench --quiet | grep -e 'bench:' | tee bench_results.txt # TODO: actually compare the results
+#    - sed s/'test '// bench_results.txt | sed -e s/' ... bench:'// | sed -e s/,//g | sed -e "s|ns/iter.*$||" > metrics.txt
+#  artifacts:
+#    name: "bench_results"
+#    paths:
+#      - bench_results.txt
+#    expire_in: 5 yrs
+#    reports:
+#      metrics: metrics.txt
+#  allow_failure: true
 
 # For the release build we do not use the Cargo.lock file, because we haven't investigated how it interacts with different platforms.
 # Windows, Linux, and MacOS could resolve to different Cargo.lock files.
