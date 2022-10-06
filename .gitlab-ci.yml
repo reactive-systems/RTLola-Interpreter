@@ -182,9 +182,9 @@ test:nightly:
   artifacts:
     when: always
     paths:
-      - target/debug/coverage/
+      - crates/target/debug/coverage/
     reports:
-      junit: results.xml
+      junit: crates/results.xml
 
 test:online_e2e:
   stage: additional-test
