@@ -4,12 +4,15 @@ use std::ops;
 
 use ordered_float::NotNan;
 use rtlola_frontend::mir::Type;
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 use self::Value::*;
 
 /**
 The general type for holding all kinds of values.
 */
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum Value {
     /**

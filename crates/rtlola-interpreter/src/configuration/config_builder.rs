@@ -9,9 +9,9 @@ use crate::config::{Config, ExecutionMode, MonitorConfig};
 use crate::configuration::time::{OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
 use crate::monitor::{NoTracer, Tracer, TracingVerdict};
 use crate::time::RealTime;
-use crate::Monitor;
 #[cfg(feature = "queued-api")]
 use crate::QueuedMonitor;
+use crate::{CondDeserialize, CondSerialize, Monitor};
 
 /* Type state of shared config */
 /// Represents a state of the [ConfigBuilder]
@@ -236,7 +236,7 @@ impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation>
     ConfigBuilder<ModeConfigured<InputTime>, OutputTime>
 {
     /// Use the predefined [EventInput] method to provide inputs to the API.
-    pub fn event_input<E: Into<Event> + Send>(
+    pub fn event_input<E: Into<Event> + CondSerialize + CondDeserialize + Send>(
         self,
     ) -> ConfigBuilder<InputConfigured<InputTime, EventInput<E>>, OutputTime> {
         let ConfigBuilder {

@@ -45,12 +45,15 @@ use std::str::FromStr;
 use std::sync::RwLock;
 use std::time::{Duration, SystemTime};
 
+#[cfg(not(feature = "serde"))]
 use humantime::Rfc3339Timestamp;
 use lazy_static::lazy_static;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
-use crate::Time;
+use crate::{CondDeserialize, CondSerialize, Time};
 
 const NANOS_IN_SECOND: u64 = 1_000_000_000;
 
@@ -74,9 +77,9 @@ pub fn parse_float_time(s: &str) -> Result<Duration, String> {
 }
 
 /// The functionality a time format has to provide.
-pub trait TimeRepresentation: TimeMode + Default + Clone + Send + 'static {
+pub trait TimeRepresentation: TimeMode + Default + Clone + Send + CondSerialize + CondDeserialize + 'static {
     /// The internal representation of the time format.
-    type InnerTime: Debug + Clone + Clone + Send;
+    type InnerTime: Debug + Clone + Clone + Send + CondSerialize + CondDeserialize;
 
     /// Convert from the internal time representation to the monitor time.
     fn convert_from(&mut self, inner: Self::InnerTime) -> Time;
@@ -106,6 +109,7 @@ pub trait TimeMode {
 pub trait OutputTimeRepresentation: TimeRepresentation {}
 
 /// Time represented as the unsigned number of nanoseconds relative to a fixed start time.
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, Default)]
 pub struct RelativeNanos {}
 
@@ -133,6 +137,7 @@ impl TimeMode for RelativeNanos {}
 
 /// Time represented as a positive real number representing seconds and sub-seconds relative to a fixed start time.
 /// ie. 5.2
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, Default)]
 pub struct RelativeFloat {}
 
@@ -160,6 +165,7 @@ impl OutputTimeRepresentation for RelativeFloat {}
 impl TimeMode for RelativeFloat {}
 
 /// Time represented as the unsigned number in nanoseconds as the offset to the preceding event.
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, Default)]
 pub struct OffsetNanos {
     current: Time,
@@ -190,6 +196,7 @@ impl TimeRepresentation for OffsetNanos {
 impl TimeMode for OffsetNanos {}
 
 /// Time represented as a positive real number representing seconds and sub-seconds as the offset to the preceding event.
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, Default)]
 pub struct OffsetFloat {
     current: Time,
@@ -222,6 +229,7 @@ impl TimeRepresentation for OffsetFloat {
 impl TimeMode for OffsetFloat {}
 
 /// Time represented as wall clock time given as a positive real number representing seconds and sub-seconds since the start of the Unix Epoch.
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, Default)]
 pub struct AbsoluteFloat {}
 
@@ -262,9 +270,11 @@ impl OutputTimeRepresentation for AbsoluteFloat {}
 impl TimeMode for AbsoluteFloat {}
 
 /// Time represented as wall clock time in RFC3339 format.
+#[cfg(not(feature = "serde"))]
 #[derive(Debug, Copy, Clone, Default)]
 pub struct AbsoluteRfc {}
 
+#[cfg(not(feature = "serde"))]
 impl TimeRepresentation for AbsoluteRfc {
     type InnerTime = Rfc3339Timestamp;
 
@@ -297,11 +307,14 @@ impl TimeRepresentation for AbsoluteRfc {
         None
     }
 }
+#[cfg(not(feature = "serde"))]
 impl OutputTimeRepresentation for AbsoluteRfc {}
+#[cfg(not(feature = "serde"))]
 impl TimeMode for AbsoluteRfc {}
 
 /// Time is set to be a fixed delay between input events.
 /// The time given is ignored, and the fixed delay is applied.
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DelayTime {
     current: Duration,
@@ -344,6 +357,7 @@ impl TimeMode for DelayTime {
 }
 
 /// Time is set to be real-time. I.e. the input time is ignored and the current timestamp in rfc3339 format is taken instead.
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, Default)]
 pub struct RealTime {
     last_ts: Time,

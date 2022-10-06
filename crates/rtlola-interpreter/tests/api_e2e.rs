@@ -20,7 +20,7 @@ use rtlola_frontend::mir::Type;
 use rtlola_interpreter::monitor::{Monitor, Record, RecordInput, TriggerMessages};
 use rtlola_interpreter::time::RelativeFloat;
 use rtlola_interpreter::{ConfigBuilder, Value};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 // inspired by: https://github.com/johnterickson/cargo2junit/blob/master/src/main.rs
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -176,6 +176,23 @@ fn timestamp_to_duration(ts: &str) -> Result<Duration, String> {
 }
 
 struct CsvRecord(StringRecord);
+// These are just dummy implementations
+impl Serialize for CsvRecord {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bytes(self.0.as_byte_record().as_slice())
+    }
+}
+impl<'de> Deserialize<'de> for CsvRecord {
+    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Ok(StringRecord::new().into())
+    }
+}
 
 impl From<StringRecord> for CsvRecord {
     fn from(rec: StringRecord) -> Self {

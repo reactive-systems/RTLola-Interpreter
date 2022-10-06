@@ -22,18 +22,14 @@
     unused_import_braces,
     unused_qualifications
 )]
-mod api;
-mod closuregen;
-mod configuration;
-mod evaluator;
-mod schedule;
-mod storage;
-#[cfg(test)]
-mod tests;
 
 // Public exports
 use std::time::Duration;
 
+// Reexport Frontend
+pub use rtlola_frontend::mir as rtlola_mir;
+
+// Serialize and Deserialize traits for serde support
 pub use crate::api::monitor;
 pub use crate::api::monitor::Monitor;
 #[cfg(feature = "queued-api")]
@@ -44,8 +40,43 @@ pub use crate::configuration::config_builder::ConfigBuilder;
 pub use crate::configuration::{config, time};
 pub use crate::storage::Value;
 
+mod api;
+mod closuregen;
+mod configuration;
+mod evaluator;
+mod schedule;
+mod storage;
+#[cfg(test)]
+mod tests;
+
 /// The internal time representation.
 pub type Time = Duration;
 
-// Reexport Frontend
-pub use rtlola_frontend::mir as rtlola_mir;
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
+/// A helper trait to conditionally require a `serde::Serialize` as a trait bound when the `serde` feature is activated.
+#[cfg(feature = "serde")]
+pub trait CondSerialize: Serialize {}
+
+#[cfg(not(feature = "serde"))]
+/// A helper trait to conditionally require a `serde::Serialize` as a trait bound when the `serde` feature is activated.
+pub trait CondSerialize {}
+
+#[cfg(feature = "serde")]
+impl<T: Serialize> CondSerialize for T {}
+#[cfg(not(feature = "serde"))]
+impl<T> CondSerialize for T {}
+
+#[cfg(feature = "serde")]
+/// A helper trait to conditionally require a `serde::Deserialize` as a trait bound when the `serde` feature is activated.
+pub trait CondDeserialize: for<'a> Deserialize<'a> {}
+
+#[cfg(not(feature = "serde"))]
+/// A helper trait to conditionally require a `serde::Deserialize` as a trait bound when the `serde` feature is activated.
+pub trait CondDeserialize {}
+
+#[cfg(feature = "serde")]
+impl<T: for<'a> Deserialize<'a>> CondDeserialize for T {}
+#[cfg(not(feature = "serde"))]
+impl<T> CondDeserialize for T {}
