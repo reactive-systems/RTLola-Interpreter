@@ -26,7 +26,7 @@ format:cli:
   stage: check-format
   tags:
     - docker
-  image: rust:latest
+  image: rustlang/rust:nightly
   script:
     - rustc --version && cargo --version      # Print version info for debugging
     - cargo +nightly fmt -p rtlola-cli --verbose -- --check
@@ -36,7 +36,7 @@ format:interpreter:
   stage: check-format
   tags:
     - docker
-  image: rust:latest
+  image: rustlang/rust:nightly
   script:
     - rustc --version && cargo --version      # Print version info for debugging
     - cargo +nightly fmt -p rtlola-interpreter --verbose -- --check
