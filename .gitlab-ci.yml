@@ -196,7 +196,6 @@ test:online_e2e:
   tags:
     - docker
   image: rust:latest
-  needs: ["test:cli", "test:interpreter"]
   cache:
     key: "cli"
     policy: pull-push
