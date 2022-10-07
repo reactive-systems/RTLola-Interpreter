@@ -1,12 +1,22 @@
+![RTLola logo](https://pages.cispa.de/rtlola/assets/img/logos/rtlola-logo-ultrawide-blue.png)
 # RTLola Interpreter CLI
+[![Crate](https://img.shields.io/crates/v/rtlola-cli.svg)](https://crates.io/crates/rtlola-cli)
+[![API](https://docs.rs/rtlola-cli/badge.svg)](https://docs.rs/rtlola-cli)
+[![License](https://img.shields.io/crates/l/rtlola-cli)](https://crates.io/crates/rtlola-cli)
 
-Copyright (C) Universität des Saarlandes 2020.  Authors: Florian Kohn, Malte Schledjewski, Maximilian Schwenger, Marvin Stenger, and Leander Tentrup.
+RTLola is a runtime monitoring framework.  It consists of a parser, analyzer, and interpreter for the RTLola specification language.
+This crate contains a CLI interface to the interpreter capable of reading csv and pcap files.
 
-RTLola is a monitoring framework.  It consist of a parser, analyzer, and interpreter for the RTLola specification language.
+For detailed usage instructions try:
+
+`rtlola-cli help`
+
+For more information on the RTLola framework make sure to visit our Website:
+[rtlola.org](https://rtlola.org "RTLola")
 
 ## Installation Notes
 
-If you want to use the network interface, the provided binaries require a PCAP library to be installed. If it is not already installed on your system you can do so as follows:
+If you want to use the network interface make sure to compile with the `pcap_interface` feature enable. In that case the  PCAP library is required. If it is not already installed on your system you can do so as follows:
 
 ### Windows
 
@@ -97,3 +107,8 @@ a,b, time
 2,3, x + 0.3
 4,5, x + 0.6
 ```
+
+# Copyright
+
+Copyright (C) CISPA - Helmholtz Center for Information Security 2021.  Authors: Jan Baumeister, Florian Kohn, Stefan Oswald, Maximilian Schwenger.
+Based on original work at Universität des Saarlandes (C) 2020.  Authors: Jan Baumeister, Florian Kohn, Malte Schledjewski, Maximilian Schwenger, Marvin Stenger, and Leander Tentrup.
