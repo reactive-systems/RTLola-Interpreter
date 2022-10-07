@@ -10,8 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated to Frontend version 0.6.0
 - This includes many syntax changes.
 
+### Removed
+- CLI has now its own crate `rtlola-cli`
+
 ### Added
 - Support for `get()` and `is_fresh()` stream accesses.
+- New Queued Api designed for online monitoring using threads and FIFO queues to send verdicts of timed streams immediately.
 
 ## [0.8.0] - 12.04.2022
 

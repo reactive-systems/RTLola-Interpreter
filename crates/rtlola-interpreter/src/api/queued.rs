@@ -40,6 +40,7 @@ use crate::schedule::DynamicSchedule;
 use crate::Monitor;
 
 /// Represents the kind of the verdict. I.e. whether the evaluation was triggered by an event, or by a deadline.
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VerdictKind {
     /// The verdict resulted from a deadline evaluation.
@@ -70,6 +71,7 @@ impl QueueLength {
 /// The verdict of the queued monitor. It is either triggered by a deadline or an event described by the `kind` field.
 /// The time when the [Verdict] occurred ist given by `ts`. `verdict` finally describes the changes to input and output streams
 /// as defined by the [VerdictRepresentation].
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[derive(Debug, Clone)]
 pub struct QueuedVerdict<Verdict: VerdictRepresentation, VerdictTime: OutputTimeRepresentation> {
     /// The kind of the verdict. I.e. what triggered the evaluation it resulted from.

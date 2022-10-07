@@ -1,4 +1,4 @@
-# RTLola Interpreter
+# RTLola Interpreter CLI
 
 Copyright (C) Universität des Saarlandes 2020.  Authors: Florian Kohn, Malte Schledjewski, Maximilian Schwenger, Marvin Stenger, and Leander Tentrup.
 
@@ -28,7 +28,7 @@ The PCAP library is already be included in Mac OS X.
 ### Specification Analysis
 
 ```
-rtlola-interpreter analyze [SPEC]
+rtlola-cli analyze [SPEC]
 ```
 
 checks whether the given specification is valid
@@ -36,7 +36,7 @@ checks whether the given specification is valid
 ### Monitoring
 
 ```
-rtlola-interpreter monitor [SPEC] --offline relative --csv-in [TRACE] --verbosity progress
+rtlola-cli monitor [SPEC] --offline relative --csv-in [TRACE] --verbosity trigger
 ```
 
 For example, given the specification
@@ -67,7 +67,7 @@ Trigger: x > 2
 ```
 
 
-See all available options with `rtlola-interpreter help monitor`
+See all available options with `rtlola-cli help monitor`
 
 ### Time Representations
 The RTLola interpreter supports multiple representations of time in its input and output.
