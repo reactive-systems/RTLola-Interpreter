@@ -291,12 +291,12 @@ impl From<MonitorInput> for EventSourceConfig {
 impl IdsInput {
     fn into_event_source(self, local_net: String) -> EventSourceConfig {
         if let Some(pcap) = self.pcap_in {
-            EventSourceConfig::PCAP(PcapInputSource::File {
+            EventSourceConfig::Pcap(PcapInputSource::File {
                 path: pcap,
                 local_network: local_net,
             })
         } else {
-            EventSourceConfig::PCAP(PcapInputSource::Device {
+            EventSourceConfig::Pcap(PcapInputSource::Device {
                 name: self.interface.unwrap(),
                 local_network: local_net,
             })
@@ -500,32 +500,12 @@ macro_rules! run_config_it_ot {
         match $source {
             EventSourceConfig::Csv { time_col, kind } => {
                 let src: CsvEventSource<_> = CsvEventSource::setup(time_col, kind, &$ir)?;
-                run_config_it_ot_src!(
-                    $it,
-                    $ot,
-                    $ir,
-                    Box::new(src),
-                    $statistics,
-                    $verbosity,
-                    $output,
-                    $mode,
-                    $start_time
-                )
+                run_config_it_ot_src!($it, $ot, $ir, src, $statistics, $verbosity, $output, $mode, $start_time)
             },
             #[cfg(feature = "pcap_interface")]
-            EventSourceConfig::PCAP(cfg) => {
+            EventSourceConfig::Pcap(cfg) => {
                 let src: PcapEventSource<_> = PcapEventSource::setup(&cfg)?;
-                run_config_it_ot_src!(
-                    $it,
-                    $ot,
-                    $ir,
-                    Box::new(src),
-                    $statistics,
-                    $verbosity,
-                    $output,
-                    $mode,
-                    $start_time
-                )
+                run_config_it_ot_src!($it, $ot, $ir, src, $statistics, $verbosity, $output, $mode, $start_time)
             },
         }
     };

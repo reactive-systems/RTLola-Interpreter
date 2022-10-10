@@ -140,7 +140,9 @@ test:windows:
   variables:
     CARGO_HOME: "C:\\Users\\react\\.cargo"
   before_script:
-    - (get-content Cargo.toml) | %{$_ -replace "git=.*git@projects","git=`"https://gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content Cargo.toml
+    - cd crates
+    - (get-content rtlola-cli\Cargo.toml) | %{$_ -replace "git=.*git@projects","git=`"https://gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content rtlola-cli\Cargo.toml
+    - (get-content rtlola-interpreter\Cargo.toml) | %{$_ -replace "git=.*git@projects","git=`"https://gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content rtlola-interpreter\Cargo.toml
     - rustup update
     - rustc --version
     - cargo --version

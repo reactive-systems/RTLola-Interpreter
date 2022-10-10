@@ -65,11 +65,9 @@ impl<OutputTime: OutputTimeRepresentation> OutputHandler<OutputTime> {
         verbosity: Verbosity,
         stats: crate::config::Statistics,
     ) -> OutputHandler<OutputTime> {
-        let statistics = if stats == crate::config::Statistics::All {
-            let stats = Statistics::new(ir.triggers.len());
-            Some(stats)
-        } else {
-            None
+        let statistics = match stats {
+            crate::Statistics::None => None,
+            crate::Statistics::All => Some(Statistics::new(ir.triggers.len())),
         };
 
         let or_to_tr = ir
@@ -219,7 +217,6 @@ impl<OutputTime: OutputTimeRepresentation> OutputHandler<OutputTime> {
         self.terminate(&mut output);
     }
 
-    #[allow(dead_code)]
     pub(crate) fn trigger<F, T: Into<String>>(&mut self, out: &mut impl Write, msg: F, trigger_idx: usize, ts: &str)
     where
         F: FnOnce() -> T,
@@ -238,7 +235,6 @@ impl<OutputTime: OutputTimeRepresentation> OutputHandler<OutputTime> {
         }
     }
 
-    #[allow(dead_code)]
     pub(crate) fn debug<F, T: Into<String>>(&self, out: &mut impl Write, msg: F, ts: &str)
     where
         F: FnOnce() -> T,
@@ -246,7 +242,6 @@ impl<OutputTime: OutputTimeRepresentation> OutputHandler<OutputTime> {
         self.emit(out, Verbosity::Debug, msg, ts);
     }
 
-    #[allow(dead_code)]
     pub(crate) fn stream<F, T: Into<String>>(&self, out: &mut impl Write, msg: F, ts: &str)
     where
         F: FnOnce() -> T,

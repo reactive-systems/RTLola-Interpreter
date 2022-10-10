@@ -30,6 +30,8 @@ use std::time::{Duration, SystemTime};
 use crossbeam_channel::{bounded, unbounded, Sender, TrySendError};
 pub use crossbeam_channel::{Receiver, RecvError, RecvTimeoutError, TryRecvError};
 use rtlola_frontend::mir::{InputReference, OutputReference, RtLolaMir, Type};
+#[cfg(feature = "serde")]
+use serde::Serialize;
 
 use crate::config::{Config, ExecutionMode};
 use crate::configuration::time::{init_start_time, OutputTimeRepresentation, RelativeFloat, TimeRepresentation};

@@ -467,6 +467,9 @@ pub trait Record: Send + CondSerialize + CondDeserialize {
     fn func_for_input(name: &str, data: Self::CreationData) -> Box<dyn Fn(&Self) -> Value>;
 }
 
+/// A function Type that projects a reference to `From` to a `Value`
+pub type ValueProjection<From> = Box<dyn (Fn(&From) -> Value)>;
+
 /// An input method for types that implement the [Record] trait. Useful if you do not want to bother with the order of the input streams in an event.
 /// Assuming the specification has 3 inputs: 'a', 'b' and 'c'. You could implement this trait for your custom 'MyType' as follows:
 /// ```
@@ -517,7 +520,7 @@ pub trait Record: Send + CondSerialize + CondDeserialize {
 /// ```
 #[allow(missing_debug_implementations)]
 pub struct RecordInput<Inner: Record> {
-    translators: Vec<Box<dyn (Fn(&Inner) -> Value)>>,
+    translators: Vec<ValueProjection<Inner>>,
 }
 
 impl<Inner: Record> Input for RecordInput<Inner> {

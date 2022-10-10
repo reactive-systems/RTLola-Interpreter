@@ -658,8 +658,7 @@ impl<InputTime: TimeRepresentation> PcapEventSource<InputTime> {
                 let all_devices = Device::list()?;
                 let dev: Device = all_devices
                     .into_iter()
-                    .filter(|d| d.name == *name)
-                    .nth(0)
+                    .find(|d| d.name == *name)
                     .unwrap_or_else(|| panic!("Could not find network interface with name: {}", *name));
 
                 let capture_handle = Capture::from_device(dev)?.promisc(true).snaplen(65535).open()?;
@@ -691,7 +690,9 @@ impl<InputTime: TimeRepresentation> PcapEventSource<InputTime> {
     }
 }
 
-impl<InputTime: TimeRepresentation> EventSource<PcapRecord, InputTime> for PcapEventSource<InputTime> {
+impl<InputTime: TimeRepresentation> EventSource<InputTime> for PcapEventSource<InputTime> {
+    type Rec = PcapRecord;
+
     fn init_data(&self) -> IpNetwork {
         self.local_net
     }

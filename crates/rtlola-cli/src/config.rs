@@ -12,7 +12,7 @@ use clap::ValueEnum;
 use crossterm::style::Color;
 use rtlola_frontend::RtLolaMir;
 use rtlola_interpreter::config::ExecutionMode;
-use rtlola_interpreter::monitor::{Record, RecordInput, TotalIncremental, TracingVerdict};
+use rtlola_interpreter::monitor::{RecordInput, TotalIncremental, TracingVerdict};
 use rtlola_interpreter::time::{OutputTimeRepresentation, TimeRepresentation};
 use rtlola_interpreter::QueuedMonitor;
 
@@ -26,11 +26,15 @@ use crate::io::{CsvInputSourceKind, EvalTimeTracer, EventSource, OutputChannel, 
 The configuration describes how the specification should be executed.
 The `Config` can then be turned into a monitor for use via the API or simply executed.
  */
-pub(crate) struct Config<Rec: Record, InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation> {
+pub(crate) struct Config<
+    Source: EventSource<InputTime>,
+    InputTime: TimeRepresentation,
+    OutputTime: OutputTimeRepresentation,
+> {
     /// The representation of the specification
     pub(crate) ir: RtLolaMir,
     /// The source of events
-    pub(crate) source: Box<dyn EventSource<Rec, InputTime>>,
+    pub(crate) source: Source,
     /// A statistics module
     pub(crate) statistics: Statistics,
     /// The verbosity to use
@@ -117,11 +121,11 @@ pub enum EventSourceConfig {
 
     /// Parse events from network packets
     #[cfg(feature = "pcap_interface")]
-    PCAP(PcapInputSource),
+    Pcap(PcapInputSource),
 }
 
-impl<Rec: Record + 'static, InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation>
-    Config<Rec, InputTime, OutputTime>
+impl<Source: EventSource<InputTime> + 'static, InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation>
+    Config<Source, InputTime, OutputTime>
 {
     pub(crate) fn run(self) -> Result<(), Box<dyn Error>> {
         // Convert config
@@ -150,7 +154,7 @@ impl<Rec: Record + 'static, InputTime: TimeRepresentation, OutputTime: OutputTim
 
         // init monitor
         let mut monitor: QueuedMonitor<
-            RecordInput<Rec>,
+            RecordInput<Source::Rec>,
             InputTime,
             TracingVerdict<EvalTimeTracer, TotalIncremental>,
             OutputTime,

@@ -8,12 +8,15 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 
 use csv::{ByteRecord, Reader as CSVReader, Result as ReaderResult, StringRecord};
+use rtlola_frontend::mir::InputStream;
 use rtlola_interpreter::monitor::Record;
 use rtlola_interpreter::rtlola_mir::{RtLolaMir, Type};
 use rtlola_interpreter::time::TimeRepresentation;
 use rtlola_interpreter::Value;
 
 use crate::io::EventSource;
+
+const TIME_COLUMN_NAMES: [&str; 3] = ["time", "ts", "timestamp"];
 
 /// Configures the input source for the [CsvEventSource].
 #[derive(Debug, Clone)]
@@ -78,31 +81,37 @@ impl Record for CsvRecord {
 }
 
 impl CsvColumnMapping {
-    fn from_header(names: &[&str], types: &[Type], header: &StringRecord, time_col: Option<usize>) -> CsvColumnMapping {
-        let name2col: HashMap<String, usize> = names
+    fn from_header(
+        inputs: &[InputStream],
+        header: &StringRecord,
+        time_col: Option<usize>,
+    ) -> Result<CsvColumnMapping, Box<dyn Error>> {
+        let name2col = inputs
             .iter()
-            .map(|name| {
-                let pos = header.iter().position(|entry| &entry == name).unwrap_or_else(|| {
-                    eprintln!("error: CSV header does not contain an entry for stream `{}`.", name);
-                    std::process::exit(1)
-                });
-                (name.to_string(), pos)
+            .map(|i| {
+                if let Some(pos) = header.iter().position(|entry| entry == i.name) {
+                    Ok((i.name.clone(), pos))
+                } else {
+                    Err(format!(
+                        "error: CSV header does not contain an entry for stream `{}`.",
+                        &i.name
+                    ))
+                }
             })
-            .collect();
+            .collect::<Result<HashMap<String, usize>, String>>()?;
 
-        let name2type: HashMap<String, Type> = names.iter().map(|s| s.to_string()).zip(types.iter().cloned()).collect();
+        let name2type: HashMap<String, Type> = inputs.iter().map(|i| (i.name.clone(), i.ty.clone())).collect();
 
         let time_ix = time_col.map(|col| col - 1).or_else(|| {
-            header.iter().position(|name| {
-                let name = name.to_lowercase();
-                name == "time" || name == "ts" || name == "timestamp"
-            })
+            header
+                .iter()
+                .position(|name| TIME_COLUMN_NAMES.contains(&name.to_lowercase().as_str()))
         });
-        CsvColumnMapping {
+        Ok(CsvColumnMapping {
             name2col,
             name2type,
             time_ix,
-        }
+        })
     }
 }
 
@@ -128,11 +137,13 @@ impl ReaderWrapper {
     }
 }
 
+type TimeProjection<Time> = Box<dyn Fn(&CsvRecord) -> Time>;
+
 ///Parses events in CSV format.
 pub struct CsvEventSource<InputTime: TimeRepresentation> {
     reader: ReaderWrapper,
     csv_column_mapping: CsvColumnMapping,
-    get_time: Box<dyn Fn(&CsvRecord) -> InputTime::InnerTime>,
+    get_time: TimeProjection<InputTime::InnerTime>,
     timer: PhantomData<InputTime>,
 }
 
@@ -147,14 +158,7 @@ impl<InputTime: TimeRepresentation> CsvEventSource<InputTime> {
             CsvInputSourceKind::File(path) => ReaderWrapper::File(CSVReader::from_path(path)?),
         };
 
-        let stream_names: Vec<&str> = ir.inputs.iter().map(|i| i.name.as_str()).collect();
-        let in_types: Vec<Type> = ir.inputs.iter().map(|i| i.ty.clone()).collect();
-        let csv_column_mapping = CsvColumnMapping::from_header(
-            stream_names.as_slice(),
-            in_types.as_slice(),
-            wrapper.header()?,
-            time_col,
-        );
+        let csv_column_mapping = CsvColumnMapping::from_header(ir.inputs.as_slice(), wrapper.header()?, time_col)?;
 
         if InputTime::requires_timestamp() && csv_column_mapping.time_ix.is_none() {
             return Err(Box::from("Missing 'time' column in CSV input file."));
@@ -190,7 +194,9 @@ impl<InputTime: TimeRepresentation> CsvEventSource<InputTime> {
     }
 }
 
-impl<InputTime: TimeRepresentation> EventSource<CsvRecord, InputTime> for CsvEventSource<InputTime> {
+impl<InputTime: TimeRepresentation> EventSource<InputTime> for CsvEventSource<InputTime> {
+    type Rec = CsvRecord;
+
     fn init_data(&self) -> <CsvRecord as Record>::CreationData {
         self.csv_column_mapping.clone()
     }
