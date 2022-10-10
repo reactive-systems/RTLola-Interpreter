@@ -5,12 +5,19 @@ Copyright (C) Universität des Saarlandes 2020.  Authors: Florian Kohn, Malte Sc
 
 RTLola is a runtime monitoring framework.  It consists of a parser, analyzer, and interpreter for the RTLola specification language.
 
-For more information on the RTLola framework make sure to visit our Website:
-[rtlola.org](https://rtlola.org "RTLola")
+The project is split into two crates. The interpreter crate provides a library for interpreting RTLola specifications.
+The CLI crate provides a command line interface to the interpreter.
 
-# Project Structure
+## RTLola Interpreter
+[![Crate](https://img.shields.io/crates/v/rtlola-interpreter.svg)](https://crates.io/crates/rtlola-interpreter)
+[![API](https://docs.rs/rtlola-interpreter/badge.svg)](https://docs.rs/rtlola-interpreter)
+[![License](https://img.shields.io/crates/l/rtlola-interpreter)](https://crates.io/crates/rtlola-interpreter)
 
-The project is split into two crates:
+This library crate provides two APIs to evaluate RTLola specifications through interpretation.
 
-- `rtlola-cli`: Containing the command line interface to the interpreter
-- `rtlola-interpreter`: Containing the interpreter as a library.
+## RTLola Interpreter CLI
+[![Crate](https://img.shields.io/crates/v/rtlola-cli.svg)](https://crates.io/crates/rtlola-cli)
+[![API](https://docs.rs/rtlola-cli/badge.svg)](https://docs.rs/rtlola-cli)
+[![License](https://img.shields.io/crates/l/rtlola-cli)](https://crates.io/crates/rtlola-cli)
+
+This crate contains a CLI interface to the interpreter capable of reading csv and pcap files.
