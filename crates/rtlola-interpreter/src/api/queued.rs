@@ -1,5 +1,5 @@
 //! The [QueuedMonitor] is the multi-threaded version of the API.
-//! Deadlines are evaluated immediately and the resulting verdicts are returned through a queue retrieved using the [output_queue] method.
+//! Deadlines are evaluated immediately and the resulting verdicts are returned through a queue retrieved using the [output_queue](QueuedMonitor::output_queue) method.
 //! This API should be used in an online monitoring setting.
 //!
 //! The [QueuedMonitor] is parameterized over its input and output method.
@@ -7,16 +7,17 @@
 //!
 //! # Input Method
 //! An input method has to implement the [Input] trait. Out of the box two different methods are provided:
-//! * [EventInput]: Provides a basic input method for anything that already is an [Event] or that can be transformed into one using `Into<Event>`.
-//! * [RecordInput]: Is a more elaborate input method. It allows to provide a custom data structure to the monitor as an input, as long as it implements the [Record] trait.
+//! * [EventInput](crate::monitor::EventInput): Provides a basic input method for anything that already is an [Event](crate::monitor::Event) or that can be transformed into one using `Into<Event>`.
+//! * [RecordInput](crate::monitor::RecordInput): Is a more elaborate input method. It allows to provide a custom data structure to the monitor as an input, as long as it implements the [Record](crate::monitor::Record) trait.
 //!     If implemented this traits provides functionality to generate a new value for any input stream from the data structure.
 //!
 //! # Output Method
-//! The [Monitor] can provide output with a varying level of detail captured by the [VerdictRepresentation] trait. The different output formats are:
+//! The [QueuedMonitor] can provide output with a varying level of detail captured by the [VerdictRepresentation](crate::monitor::VerdictRepresentation) trait. The different output formats are:
 //! * [Incremental]: For each processed event a condensed list of monitor state changes is provided.
-//! * [Total]: For each event a complete snapshot of the current monitor state is returned
-//! * [TriggerMessages]: For each event a list of violated triggers with their description is produced.
-//! * [TriggersWithInfoValues]: For each event a list of violated triggers with their specified corresponding values is returned.
+//! * [Total](crate::monitor::Total): For each event a complete snapshot of the current monitor state is returned
+//! * [TotalIncremental](crate::monitor::TotalIncremental): For each processed event a complete list of monitor state changes is provided
+//! * [TriggerMessages](crate::monitor::TriggerMessages): For each event a list of violated triggers with their description is produced.
+//! * [TriggersWithInfoValues](crate::monitor::TriggersWithInfoValues): For each event a list of violated triggers with their specified corresponding values is returned.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -71,7 +72,7 @@ impl QueueLength {
 }
 
 /// The verdict of the queued monitor. It is either triggered by a deadline or an event described by the `kind` field.
-/// The time when the [Verdict] occurred ist given by `ts`. `verdict` finally describes the changes to input and output streams
+/// The time when the verdict occurred is given by `ts`. `verdict` finally describes the changes to input and output streams
 /// as defined by the [VerdictRepresentation].
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[derive(Debug, Clone)]
@@ -88,9 +89,10 @@ pub struct QueuedVerdict<Verdict: VerdictRepresentation, VerdictTime: OutputTime
 The QueuedMonitor is a threaded version of the Api allowing deadlines to be evaluated immediately.
 
 The [QueuedMonitor] accepts new events and computes streams.
-It can compute streams based on new events through `accept_event` once the `start` function was invoked.
-Timed streams are evaluated automatically at their deadline. The resulting verdicts are returned through a [Receiver] returned by `start`.
-Note that the `start` function *has* to be invoked before any event can be evaluated.
+It can compute streams based on new events through [accept_event](QueuedMonitor::accept_event) once the [start](QueuedMonitor::start) function was invoked.
+Timed streams are evaluated automatically at their deadline. The resulting verdicts of events and deadlines are returned through a [Receiver] which can be obtained through [output_queue](QueuedMonitor::output_queue).
+Note that the [start](QueuedMonitor::start) function *has* to be invoked before any event can be evaluated.
+Finally, a calling [end](QueuedMonitor::end) will block until all events have been evaluated.
 
 The generic argument `Source` implements the [Input] trait describing the input source of the API.
 The generic argument `SourceTime` implements the [TimeRepresentation] trait defining the input time format.

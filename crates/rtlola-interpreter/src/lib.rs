@@ -1,14 +1,16 @@
 //! # The RTLola Interpreter
-//! The RTLola interpreter is designed to easily test your setup, including your specification.
-//! It can either read events from trace files in CSV or PCAP format or read events in an online fashion from std-in or a network device.
+//! The RTLola interpreter is a library used to evaluate RTLola specifications.
+//! It is designed such that it easily integrates into your setup through highly configurable APIs.
 //!
-//! Note: The network functionality of the interpreter is only available when compiled with the `pcap_interface` feature flag.
+//! ## Features
+//! - `queued-api` (Default): By default the library features a queued API that uses threads. If your target architecture doesn't support threads, consider disabling this feature through "default-features = false"
+//! - `serde`: Enables Serde Serialization and Deserialization support for API interface structs.
 //!
 //! ## Usage
-//! Besides the command line interface, the main entrypoint of the application is the [ConfigBuilder].
+//! The main entrypoint of the application is the [ConfigBuilder].
 //! It features multiple methods to configure the interpreter for your needs.
-//! From there you can either run the interpreter directly with a specified input source or create a [Monitor].
-//! The main API interaction point of the application.
+//! From there you can create a [Monitor] or [QueuedMonitor].
+//! The main interaction points of the library.
 
 #![forbid(unused_must_use)] // disallow discarding errors
 #![warn(
