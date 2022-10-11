@@ -114,7 +114,6 @@ where
     output: Receiver<QueuedVerdict<Verdict, VerdictTime>>,
 }
 
-/// Crate-public interface
 impl<Source, SourceTime, Verdict, VerdictTime> QueuedMonitor<Source, SourceTime, Verdict, VerdictTime>
 where
     Source: Input + 'static,
@@ -196,16 +195,7 @@ where
         worker.init();
         worker.process();
     }
-}
 
-/// Public interface
-impl<Source, SourceTime, Verdict, VerdictTime> QueuedMonitor<Source, SourceTime, Verdict, VerdictTime>
-where
-    Source: Input,
-    SourceTime: TimeRepresentation,
-    Verdict: VerdictRepresentation,
-    VerdictTime: OutputTimeRepresentation,
-{
     /// Starts the evaluation process. This method has to be called before any event is accepted.
     pub fn start(&self) {
         self.input.send(WorkItem::Start).expect("Worker thread hung up!");

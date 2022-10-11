@@ -1,4 +1,4 @@
-//! This module exposes basic functionality that is useful when dealing with the interpreter or the Api.
+//! This module exposes functionality to handle the input and output methods of the CLI.
 
 mod csv_input;
 mod output;
