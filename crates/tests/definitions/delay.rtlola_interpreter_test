@@ -1,0 +1,14 @@
+{
+  "spec_file": "../specs/delay.lola",
+  "input_file": "../traces/tests/count_1_2.csv",
+  "rationale": "Check that a 2 occurred 1 second after a 1",
+  "modes": ["offline"],
+  "triggers": {
+    "delay fired": {
+      "expected_count": 1,
+      "time_info": [
+        "1.000000000"
+      ]
+    }
+  }
+}

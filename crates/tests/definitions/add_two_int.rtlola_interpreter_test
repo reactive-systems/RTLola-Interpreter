@@ -1,0 +1,14 @@
+{
+  "spec_file": "../specs/add_two_streams.lola",
+  "input_file": "../traces/tests/two_int_streams.csv",
+  "rationale": "Add two Int streams that have holes. The trigger should only fire once.",
+  "modes": ["offline", "online"],
+  "triggers": {
+    "c is too large": {
+      "expected_count": 1,
+      "time_info": [
+        "0.600536000"
+      ]
+    }
+  }
+}

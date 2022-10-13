@@ -1,0 +1,6 @@
+[workspace]
+
+members = [
+  "rtlola-interpreter",
+  "rtlola-cli",
+]

@@ -1,0 +1,39 @@
+[package]
+name = "rtlola-cli"
+version = "0.1.0"
+edition = "2021"
+description = "A CLI interface for the RTLola interpreter."
+readme = "README.md"
+homepage = "http://rtlola.org"
+repository = "https://github.com/reactive-systems/RTLola-Interpreter"
+license = "Apache-2.0"
+keywords = ["verification", "interpreter", "monitoring"]
+
+authors = [
+    "Jan Baumeister <jbaumeister@react.uni-saarland.de>",
+    "Florian Kohn <kohn@react.uni-saarland.de>",
+    "Stefan Oswald <stefano97@gmx.de>",
+    "Malte Schledjewski <schledjewski@react.uni-saarland.de>",
+    "Maximilian Schwenger <schwenger@react.uni-saarland.de>",
+    "Marvin Stenger <stenger@react.uni-saarland.de>",
+    "Leander Tentrup <tentrup@react.uni-saarland.de>"
+]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rtlola-interpreter = {path="../rtlola-interpreter"}
+rtlola-frontend = {git="ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git", branch="development"}
+csv = "1.1.6" # For CSV Parsing
+pcap = { version = "0.11.0", optional = true } # pcap file parsing
+etherparse = { version = "0.12.0", optional = true } # Network Packet parser
+ip_network = { version = "0.4.1", optional = true } # IP Address handling
+clap = { version = "4.0.9", features = ["derive", "cargo", "wrap_help"] } # command line parsing
+clap_complete = "4.0.2"
+crossterm = "0.25.0"  # terminal output
+human-panic = { version = "1.0.1", optional = true }
+humantime = "2.0"
+
+[features]
+public = ["human-panic"]
+pcap_interface = ["pcap", "etherparse", "ip_network"]

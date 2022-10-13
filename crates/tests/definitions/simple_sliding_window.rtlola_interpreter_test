@@ -1,0 +1,59 @@
+{
+  "spec_file": "../specs/sliding_window.lola",
+  "input_file": "../traces/tests/single_int-every0.1s.csv",
+  "rationale": "Have one sliding window count the number of events in its own duration.\nWe should see the default and the right counts.",
+  "modes": ["offline"],
+  "triggers": {
+    "count is 1": {
+      "expected_count": 4,
+      "time_info": [
+        "0.100000000",
+        "0.200000000",
+        "0.500000000",
+        "0.600000000"
+      ]
+    },
+    "count is 2": {
+      "expected_count": 2,
+      "time_info": [
+        "0.300000000",
+        "0.400000000"
+      ]
+    },
+    "sum is 0": {
+      "expected_count": 0,
+      "time_info": []
+    },
+    "sum is 1": {
+      "expected_count": 1,
+      "time_info": [
+        "0.100000000"
+      ]
+    },
+    "sum is 2": {
+      "expected_count": 1,
+      "time_info": [
+        "0.200000000"
+      ]
+    },
+    "sum is 7": {
+      "expected_count": 2,
+      "time_info": [
+        "0.300000000",
+        "0.500000000"
+      ]
+    },
+    "sum is 8": {
+      "expected_count": 1,
+      "time_info": [
+        "0.600000000"
+      ]
+    },
+    "sum is 11": {
+      "expected_count": 1,
+      "time_info": [
+        "0.400000000"
+      ]
+    }
+  }
+}

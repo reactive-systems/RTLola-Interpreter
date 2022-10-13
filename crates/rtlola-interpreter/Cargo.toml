@@ -1,0 +1,58 @@
+[package]
+name = "rtlola-interpreter"
+version = "0.9.0"
+authors = [
+    "Jan Baumeister <jbaumeister@react.uni-saarland.de>",
+    "Florian Kohn <kohn@react.uni-saarland.de>",
+    "Stefan Oswald <stefano97@gmx.de>",
+    "Malte Schledjewski <schledjewski@react.uni-saarland.de>",
+    "Maximilian Schwenger <schwenger@react.uni-saarland.de>",
+    "Marvin Stenger <stenger@react.uni-saarland.de>",
+    "Leander Tentrup <tentrup@react.uni-saarland.de>"
+]
+edition = "2021"
+description = "An interpreter for RTLola specifications."
+readme = "README.md"
+homepage = "http://rtlola.org"
+repository = "https://github.com/reactive-systems/RTLola-Interpreter"
+license = "Apache-2.0"
+keywords = ["verification", "interpreter", "monitoring"]
+
+
+[dependencies]
+rtlola-frontend = {git="ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git", branch="development"}
+ordered-float = "3.2.0"
+
+lazy_static = "1.4.0" # static allocation at runtime
+byteorder = "1.3.2"
+bit-set = "0.5.1"
+crossbeam-channel = {version="0.5.6", optional = true}
+serde = { version = "1.0.145", features = ["derive"], optional = true}
+regex = "1.2.1"
+humantime = "2.0"
+
+either = "1.5.3"
+string_template = "0.2.1" # Format Trigger Messages
+priority-queue = "1.1.0" # For the dynamic schedule
+
+itertools = "0.10.3"
+rust_decimal = "1.21.0"
+
+[features]
+queued-api = ["dep:crossbeam-channel"]
+serde = ["dep:serde", "ordered-float/serde"]
+default = ["queued-api"]
+
+[dev-dependencies]
+tempfile = "3.1.0"
+serde = "1.0.133"
+serde_json = "1.0.74"
+csv = "1.1.6"
+junit-report = "0.8.1"
+clap = { version = "4.0.9", features = ["derive", "cargo"] } # command line parsing for custom api test
+crossterm = "0.25.0"  # terminal output
+
+[[test]]
+name = "api"
+path = "tests/api_e2e.rs"
+harness = false
