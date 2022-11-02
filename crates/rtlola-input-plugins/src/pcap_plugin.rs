@@ -1,4 +1,4 @@
-#![allow(clippy::mutex_atomic)]
+//!
 
 use std::convert::TryFrom;
 use std::error::Error;
@@ -17,7 +17,7 @@ use rtlola_interpreter::monitor::Record;
 use rtlola_interpreter::time::TimeRepresentation;
 use rtlola_interpreter::Value;
 
-use crate::io::EventSource;
+use crate::EventSource;
 
 // ################################
 // Packet parsing functions
@@ -463,7 +463,8 @@ fn get_packet_protocol(packet: &SlicedPacket) -> Value {
     }
 }
 
-pub(crate) struct PcapRecord(Vec<u8>);
+/// Represents a raw network packet
+pub struct PcapRecord(Vec<u8>);
 
 impl Record for PcapRecord {
     type CreationData = IpNetwork;
@@ -652,7 +653,7 @@ pub struct PcapEventSource<InputTime: TimeRepresentation> {
 }
 
 impl<InputTime: TimeRepresentation> PcapEventSource<InputTime> {
-    pub(crate) fn setup(src: &PcapInputSource) -> Result<PcapEventSource<InputTime>, Box<dyn Error>> {
+    pub fn setup(src: &PcapInputSource) -> Result<PcapEventSource<InputTime>, Box<dyn Error>> {
         let capture_handle = match src {
             PcapInputSource::Device { name, .. } => {
                 let all_devices = Device::list()?;

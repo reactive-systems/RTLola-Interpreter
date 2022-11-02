@@ -23,11 +23,8 @@ authors = [
 
 [dependencies]
 rtlola-interpreter = {path="../rtlola-interpreter"}
+rtlola-input-plugins = {path="../rtlola-input-plugins", default-features = false, features=["csv_plugin"]}
 rtlola-frontend = {git="ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git", branch="development"}
-csv = "1.1.6" # For CSV Parsing
-pcap = { version = "0.11.0", optional = true } # pcap file parsing
-etherparse = { version = "0.12.0", optional = true } # Network Packet parser
-ip_network = { version = "0.4.1", optional = true } # IP Address handling
 clap = { version = "4.0.9", features = ["derive", "cargo", "wrap_help"] } # command line parsing
 clap_complete = "4.0.2"
 crossterm = "0.25.0"  # terminal output
@@ -36,4 +33,4 @@ humantime = "2.0"
 
 [features]
 public = ["human-panic"]
-pcap_interface = ["pcap", "etherparse", "ip_network"]
+pcap_interface = ["rtlola-input-plugins/pcap_plugin"]

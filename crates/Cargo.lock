@@ -909,13 +909,10 @@ dependencies = [
  "clap",
  "clap_complete",
  "crossterm",
- "csv",
- "etherparse",
  "human-panic",
  "humantime",
- "ip_network",
- "pcap",
  "rtlola-frontend",
+ "rtlola-input-plugins",
  "rtlola-interpreter",
 ]
 
@@ -951,6 +948,18 @@ dependencies = [
  "rusttyc",
  "serde",
  "uom",
+]
+
+[[package]]
+name = "rtlola-input-plugins"
+version = "0.1.0"
+dependencies = [
+ "csv",
+ "etherparse",
+ "ip_network",
+ "pcap",
+ "rtlola-frontend",
+ "rtlola-interpreter",
 ]
 
 [[package]]

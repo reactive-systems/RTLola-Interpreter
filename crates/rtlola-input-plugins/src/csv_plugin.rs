@@ -1,4 +1,4 @@
-#![allow(clippy::mutex_atomic)]
+//!
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -14,7 +14,7 @@ use rtlola_interpreter::rtlola_mir::{RtLolaMir, Type};
 use rtlola_interpreter::time::TimeRepresentation;
 use rtlola_interpreter::Value;
 
-use crate::io::EventSource;
+use crate::EventSource;
 
 const TIME_COLUMN_NAMES: [&str; 3] = ["time", "ts", "timestamp"];
 
@@ -38,7 +38,8 @@ pub enum CsvInputSourceKind {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct CsvColumnMapping {
+/// Used to map input streams to csv columns
+pub struct CsvColumnMapping {
     /// Maps input streams to csv columns
     name2col: HashMap<String, usize>,
 
@@ -49,7 +50,8 @@ pub(crate) struct CsvColumnMapping {
     time_ix: Option<usize>,
 }
 
-pub(crate) struct CsvRecord(ByteRecord);
+/// The record as read from the csv data
+pub struct CsvRecord(ByteRecord);
 
 impl From<ByteRecord> for CsvRecord {
     fn from(rec: ByteRecord) -> Self {
@@ -148,7 +150,7 @@ pub struct CsvEventSource<InputTime: TimeRepresentation> {
 }
 
 impl<InputTime: TimeRepresentation> CsvEventSource<InputTime> {
-    pub(crate) fn setup(
+    pub fn setup(
         time_col: Option<usize>,
         kind: CsvInputSourceKind,
         ir: &RtLolaMir,
