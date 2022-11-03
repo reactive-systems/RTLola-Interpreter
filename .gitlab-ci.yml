@@ -194,7 +194,9 @@ test:windows:
     - rustc --version
     - cargo --version
   script:
-    - cargo test --all --verbose
+    - cargo test -p rtlola-cli
+    - cargo test -p rtlola-input-plugins --no-default-features --features csv_plugin
+    - cargo test -p rtlola-interpreter --all
 
 # Use cargo to test the project on nightly toolchain
 test:nightly:
