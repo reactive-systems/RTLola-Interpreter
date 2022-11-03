@@ -13,6 +13,13 @@ The CLI crate provides a command line interface to the interpreter.
 
 This library crate provides two APIs to evaluate RTLola specifications through interpretation.
 
+## RTLola Interpreter Input Plugins
+[![Crate](https://img.shields.io/crates/v/rtlola-input-plugins.svg)](https://crates.io/crates/rtlola-input-plugins)
+[![API](https://docs.rs/rtlola-input-plugins/badge.svg)](https://docs.rs/rtlola-input-plugins)
+[![License](https://img.shields.io/crates/l/rtlola-input-plugins)](https://crates.io/crates/rtlola-input-plugins)
+
+This crate contains the different input methods like the csv and pcap parser for the interpreter.
+
 ## RTLola Interpreter CLI
 [![Crate](https://img.shields.io/crates/v/rtlola-cli.svg)](https://crates.io/crates/rtlola-cli)
 [![API](https://docs.rs/rtlola-cli/badge.svg)](https://docs.rs/rtlola-cli)
