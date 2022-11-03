@@ -1,6 +1,6 @@
-//!
+//! An input plugin that parses data in csv format
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::fs::File;
 use std::io::stdin;
@@ -35,6 +35,8 @@ pub enum CsvInputSourceKind {
     StdIn,
     /// Use the specified file as an input channel
     File(PathBuf),
+    /// Use a string as an input channel
+    Buffer(String),
 }
 
 #[derive(Debug, Clone)]
@@ -121,6 +123,7 @@ impl CsvColumnMapping {
 enum ReaderWrapper {
     Std(CSVReader<std::io::Stdin>),
     File(CSVReader<File>),
+    Buffer(CSVReader<VecDeque<u8>>),
 }
 
 impl ReaderWrapper {
@@ -128,6 +131,7 @@ impl ReaderWrapper {
         match self {
             ReaderWrapper::Std(r) => r.read_byte_record(rec),
             ReaderWrapper::File(r) => r.read_byte_record(rec),
+            ReaderWrapper::Buffer(r) => r.read_byte_record(rec),
         }
     }
 
@@ -135,6 +139,7 @@ impl ReaderWrapper {
         match self {
             ReaderWrapper::Std(r) => r.headers(),
             ReaderWrapper::File(r) => r.headers(),
+            ReaderWrapper::Buffer(r) => r.headers(),
         }
     }
 }
@@ -158,8 +163,10 @@ impl<InputTime: TimeRepresentation> CsvEventSource<InputTime> {
         let mut wrapper = match kind {
             CsvInputSourceKind::StdIn => ReaderWrapper::Std(CSVReader::from_reader(stdin())),
             CsvInputSourceKind::File(path) => ReaderWrapper::File(CSVReader::from_path(path)?),
+            CsvInputSourceKind::Buffer(data) => {
+                ReaderWrapper::Buffer(CSVReader::from_reader(VecDeque::from(data.into_bytes())))
+            },
         };
-
         let csv_column_mapping = CsvColumnMapping::from_header(ir.inputs.as_slice(), wrapper.header()?, time_col)?;
 
         if InputTime::requires_timestamp() && csv_column_mapping.time_ix.is_none() {

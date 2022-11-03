@@ -368,7 +368,7 @@ where
     VerdictTime: OutputTimeRepresentation,
 {
     ///setup
-    pub(crate) fn setup(
+    pub fn setup(
         config: Config<SourceTime, VerdictTime>,
         setup_data: Source::CreationData,
     ) -> Monitor<Source, SourceTime, Verdict, VerdictTime> {
