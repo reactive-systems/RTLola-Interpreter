@@ -1,6 +1,6 @@
-#![allow(clippy::mutex_atomic)]
+//! An input plugin that parses data in csv format
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::fs::File;
 use std::io::stdin;
@@ -14,7 +14,7 @@ use rtlola_interpreter::rtlola_mir::{RtLolaMir, Type};
 use rtlola_interpreter::time::TimeRepresentation;
 use rtlola_interpreter::Value;
 
-use crate::io::EventSource;
+use crate::EventSource;
 
 const TIME_COLUMN_NAMES: [&str; 3] = ["time", "ts", "timestamp"];
 
@@ -35,10 +35,13 @@ pub enum CsvInputSourceKind {
     StdIn,
     /// Use the specified file as an input channel
     File(PathBuf),
+    /// Use a string as an input channel
+    Buffer(String),
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct CsvColumnMapping {
+/// Used to map input streams to csv columns
+pub struct CsvColumnMapping {
     /// Maps input streams to csv columns
     name2col: HashMap<String, usize>,
 
@@ -49,7 +52,8 @@ pub(crate) struct CsvColumnMapping {
     time_ix: Option<usize>,
 }
 
-pub(crate) struct CsvRecord(ByteRecord);
+/// The record as read from the csv data
+pub struct CsvRecord(ByteRecord);
 
 impl From<ByteRecord> for CsvRecord {
     fn from(rec: ByteRecord) -> Self {
@@ -119,6 +123,7 @@ impl CsvColumnMapping {
 enum ReaderWrapper {
     Std(CSVReader<std::io::Stdin>),
     File(CSVReader<File>),
+    Buffer(CSVReader<VecDeque<u8>>),
 }
 
 impl ReaderWrapper {
@@ -126,6 +131,7 @@ impl ReaderWrapper {
         match self {
             ReaderWrapper::Std(r) => r.read_byte_record(rec),
             ReaderWrapper::File(r) => r.read_byte_record(rec),
+            ReaderWrapper::Buffer(r) => r.read_byte_record(rec),
         }
     }
 
@@ -133,6 +139,7 @@ impl ReaderWrapper {
         match self {
             ReaderWrapper::Std(r) => r.headers(),
             ReaderWrapper::File(r) => r.headers(),
+            ReaderWrapper::Buffer(r) => r.headers(),
         }
     }
 }
@@ -148,7 +155,7 @@ pub struct CsvEventSource<InputTime: TimeRepresentation> {
 }
 
 impl<InputTime: TimeRepresentation> CsvEventSource<InputTime> {
-    pub(crate) fn setup(
+    pub fn setup(
         time_col: Option<usize>,
         kind: CsvInputSourceKind,
         ir: &RtLolaMir,
@@ -156,8 +163,10 @@ impl<InputTime: TimeRepresentation> CsvEventSource<InputTime> {
         let mut wrapper = match kind {
             CsvInputSourceKind::StdIn => ReaderWrapper::Std(CSVReader::from_reader(stdin())),
             CsvInputSourceKind::File(path) => ReaderWrapper::File(CSVReader::from_path(path)?),
+            CsvInputSourceKind::Buffer(data) => {
+                ReaderWrapper::Buffer(CSVReader::from_reader(VecDeque::from(data.into_bytes())))
+            },
         };
-
         let csv_column_mapping = CsvColumnMapping::from_header(ir.inputs.as_slice(), wrapper.header()?, time_col)?;
 
         if InputTime::requires_timestamp() && csv_column_mapping.time_ix.is_none() {

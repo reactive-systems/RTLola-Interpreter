@@ -3,4 +3,5 @@
 members = [
   "rtlola-interpreter",
   "rtlola-cli",
+  "rtlola-input-plugins"
 ]

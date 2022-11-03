@@ -11,14 +11,16 @@ use std::time::SystemTime;
 use clap::ValueEnum;
 use crossterm::style::Color;
 use rtlola_frontend::RtLolaMir;
+use rtlola_input_plugins::csv_plugin::CsvInputSourceKind;
+#[cfg(feature = "pcap_interface")]
+use rtlola_input_plugins::pcap_plugin::PcapInputSource;
+use rtlola_input_plugins::EventSource;
 use rtlola_interpreter::config::ExecutionMode;
 use rtlola_interpreter::monitor::{RecordInput, TotalIncremental, TracingVerdict};
 use rtlola_interpreter::time::{OutputTimeRepresentation, TimeRepresentation};
 use rtlola_interpreter::QueuedMonitor;
 
-#[cfg(feature = "pcap_interface")]
-use crate::io::PcapInputSource;
-use crate::io::{CsvInputSourceKind, EvalTimeTracer, EventSource, OutputChannel, OutputHandler};
+use crate::output::{EvalTimeTracer, OutputChannel, OutputHandler};
 
 /**
 `Config` combines an RTLola specification in [RtLolaMir] form with various configuration parameters for the interpreter.

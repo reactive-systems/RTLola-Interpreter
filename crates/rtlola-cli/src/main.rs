@@ -1,6 +1,3 @@
-mod config;
-mod io;
-
 use std::error::Error;
 use std::marker::PhantomData;
 use std::path::PathBuf;
@@ -11,6 +8,9 @@ use clap_complete::generate;
 use clap_complete::shells::*;
 #[cfg(feature = "public")]
 use human_panic::setup_panic;
+use rtlola_input_plugins::csv_plugin::{CsvEventSource, CsvInputSourceKind};
+#[cfg(feature = "pcap_interface")]
+use rtlola_input_plugins::pcap_plugin::{PcapEventSource, PcapInputSource};
 use rtlola_interpreter::config::ExecutionMode;
 use rtlola_interpreter::time::{
     parse_float_time, AbsoluteFloat, AbsoluteRfc, DelayTime, OffsetFloat, OffsetNanos, RealTime, RelativeFloat,
@@ -18,9 +18,10 @@ use rtlola_interpreter::time::{
 };
 
 use crate::config::{Config, EventSourceConfig, Statistics, Verbosity};
-use crate::io::{CsvEventSource, CsvInputSourceKind, OutputChannel};
-#[cfg(feature = "pcap_interface")]
-use crate::io::{PcapEventSource, PcapInputSource};
+use crate::output::OutputChannel;
+
+mod config;
+mod output;
 
 #[derive(Parser, Debug, Clone)]
 #[command(

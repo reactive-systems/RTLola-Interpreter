@@ -1,20 +1,15 @@
 //! This module exposes functionality to handle the input and output methods of the CLI.
+#[cfg(feature = "csv_plugin")]
+pub mod csv_plugin;
 
-mod csv_input;
-mod output;
-#[cfg(feature = "pcap_interface")]
-mod pcap_input;
+#[cfg(feature = "pcap_plugin")]
+pub mod pcap_plugin;
 
-pub(crate) use csv_input::{CsvEventSource, CsvInputSourceKind};
-#[cfg(feature = "pcap_interface")]
-pub(crate) use pcap_input::{PcapEventSource, PcapInputSource};
 use rtlola_interpreter::monitor::Record;
 use rtlola_interpreter::time::TimeRepresentation;
 
-pub(crate) use self::output::{EvalTimeTracer, OutputChannel, OutputHandler};
-
-/// A trait that represents the functionality needed for an event source.
-pub(crate) trait EventSource<InputTime: TimeRepresentation> {
+/// The main trait that has to be implemented by an input plugin
+pub trait EventSource<InputTime: TimeRepresentation> {
     type Rec: Record;
 
     /// Return the data needed by the monitor to initialize the input source.
