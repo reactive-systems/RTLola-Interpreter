@@ -317,7 +317,7 @@ impl VerdictRepresentation for TriggersWithInfoValues {
     The field `timed` is a vector, containing all updates of periodic streams since the last event.
 */
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Verdicts<V: VerdictRepresentation, VerdictTime: OutputTimeRepresentation> {
     /// All verdicts caused by timed streams given at each deadline that occurred.
     pub timed: Vec<(VerdictTime::InnerTime, V)>,
