@@ -7,7 +7,7 @@ use std::io::stdin;
 use std::marker::PhantomData;
 use std::path::PathBuf;
 
-use csv::{ByteRecord, Reader as CSVReader, Result as ReaderResult, StringRecord};
+use csv::{ByteRecord, Reader as CSVReader, ReaderBuilder, Result as ReaderResult, StringRecord, Trim};
 use rtlola_frontend::mir::InputStream;
 use rtlola_interpreter::monitor::Record;
 use rtlola_interpreter::rtlola_mir::{RtLolaMir, Type};
@@ -160,11 +160,14 @@ impl<InputTime: TimeRepresentation> CsvEventSource<InputTime> {
         kind: CsvInputSourceKind,
         ir: &RtLolaMir,
     ) -> Result<CsvEventSource<InputTime>, Box<dyn Error>> {
+        let mut reader_builder = ReaderBuilder::new();
+        reader_builder.trim(Trim::All);
+
         let mut wrapper = match kind {
-            CsvInputSourceKind::StdIn => ReaderWrapper::Std(CSVReader::from_reader(stdin())),
-            CsvInputSourceKind::File(path) => ReaderWrapper::File(CSVReader::from_path(path)?),
+            CsvInputSourceKind::StdIn => ReaderWrapper::Std(reader_builder.from_reader(stdin())),
+            CsvInputSourceKind::File(path) => ReaderWrapper::File(reader_builder.from_path(path)?),
             CsvInputSourceKind::Buffer(data) => {
-                ReaderWrapper::Buffer(CSVReader::from_reader(VecDeque::from(data.into_bytes())))
+                ReaderWrapper::Buffer(reader_builder.from_reader(VecDeque::from(data.into_bytes())))
             },
         };
         let csv_column_mapping = CsvColumnMapping::from_header(ir.inputs.as_slice(), wrapper.header()?, time_col)?;
