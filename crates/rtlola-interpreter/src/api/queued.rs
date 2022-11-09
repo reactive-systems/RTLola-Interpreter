@@ -539,8 +539,7 @@ impl<
                 Ok(WorkItem::Event(e, ts)) => {
                     // Received Event
                     last_event.replace(ts.clone());
-                    let Verdicts { timed, event } = monitor.accept_event(e, ts);
-                    let ts = monitor.last_event().expect("the event to be recorded");
+                    let Verdicts { timed, event, ts } = monitor.accept_event(e, ts);
 
                     if !event.is_empty() {
                         let verdict = QueuedVerdict {
