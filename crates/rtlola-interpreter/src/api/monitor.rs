@@ -323,6 +323,8 @@ pub struct Verdicts<V: VerdictRepresentation, VerdictTime: OutputTimeRepresentat
     pub timed: Vec<(VerdictTime::InnerTime, V)>,
     /// The verdict that resulted from evaluation the event.
     pub event: V,
+    /// The time of the event.
+    pub ts: VerdictTime::InnerTime,
 }
 
 /**
@@ -346,8 +348,6 @@ where
 {
     ir: RtLolaMir,
     eval: Evaluator,
-
-    last_event: Option<VerdictTime::InnerTime>,
 
     schedule_manager: ScheduleManager,
 
@@ -393,7 +393,6 @@ where
         Monitor {
             ir: config.ir,
             eval: eval_data.into_evaluator(),
-            last_event: None,
 
             schedule_manager: time_manager,
 
@@ -404,10 +403,6 @@ where
 
             phantom: PhantomData,
         }
-    }
-
-    pub(crate) fn last_event(&self) -> Option<VerdictTime::InnerTime> {
-        self.last_event.clone()
     }
 
     fn eval_deadlines(&mut self, ts: Time, only_before: bool) -> Vec<(Time, Verdict)> {
@@ -583,8 +578,6 @@ where
         tracer.parse_end();
         let ts = self.source_time.convert_from(ts);
 
-        self.last_event = Some(self.output_time.convert_into(ts));
-
         // Evaluate timed streams with due < ts
         let timed = if self.ir.has_time_driven_features() {
             self.eval_deadlines(ts, true)
@@ -606,6 +599,7 @@ where
         Verdicts::<Verdict, VerdictTime> {
             timed,
             event: event_change,
+            ts: self.output_time.convert_into(ts),
         }
     }
 
@@ -614,7 +608,6 @@ where
     */
     pub fn accept_time(&mut self, ts: SourceTime::InnerTime) -> Vec<(VerdictTime::InnerTime, Verdict)> {
         let ts = self.source_time.convert_from(ts);
-        self.last_event = Some(self.output_time.convert_into(ts));
 
         let timed = if self.ir.has_time_driven_features() {
             self.eval_deadlines(ts, false)
@@ -724,7 +717,6 @@ where
         let Monitor {
             ir,
             eval,
-            last_event,
             schedule_manager: time_manager,
             source_time,
             source,
@@ -734,7 +726,6 @@ where
         Monitor {
             ir,
             eval,
-            last_event,
             schedule_manager: time_manager,
             source_time,
             source,
