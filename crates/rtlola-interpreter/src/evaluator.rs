@@ -280,23 +280,23 @@ impl Evaluator {
                 let changes = if o.is_parameterized() {
                     let instances = self.global_store.get_out_instance_collection(out_ix);
                     instances
-                        .fresh()
-                        .map(|p| {
+                        .spawned()
+                        .map(|p| Change::Spawn(p.clone()))
+                        .chain(instances.fresh().map(|p| {
                             Change::Value(Some(p.clone()), self.peek_value(stream, p, 0).expect("Marked as fresh"))
-                        })
-                        .chain(instances.spawned().map(|p| Change::Spawn(p.clone())))
+                        }))
                         .chain(instances.closed().map(|p| Change::Close(p.clone())))
                         .collect()
                 } else if o.is_spawned() {
                     let mut res = Vec::new();
+                    if self.spawned_outputs.contains(out_ix) {
+                        res.push(Change::Spawn(vec![]));
+                    }
                     if self.fresh_outputs.contains(out_ix) {
                         res.push(Change::Value(
                             Some(vec![]),
                             self.peek_value(stream, &[], 0).expect("Marked as fresh"),
                         ));
-                    }
-                    if self.spawned_outputs.contains(out_ix) {
-                        res.push(Change::Spawn(vec![]));
                     }
                     if self.closed_outputs.contains(out_ix) {
                         res.push(Change::Close(vec![]));
