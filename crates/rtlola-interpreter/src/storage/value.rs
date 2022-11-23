@@ -71,14 +71,8 @@ impl std::fmt::Display for Value {
             },
             Str(str) => write!(f, "{}", *str),
             Bytes(b) => {
-                write!(f, "[")?;
-                if let Some(e) = b.first() {
-                    write!(f, "{}", e)?;
-                    for e in &b[1..] {
-                        write!(f, ", {}", e)?;
-                    }
-                }
-                write!(f, "]")
+                let hex = hex::encode_upper(b);
+                write!(f, "{}", hex)
             },
         }
     }
