@@ -91,15 +91,13 @@ impl Value {
     /// * 'source' - A byte slice that holds the value
     /// * 'ty' - the type of the interpretation
     pub fn try_from(source: &[u8], ty: &Type) -> Option<Value> {
-        if let Type::Bytes = ty {
-            return Some(Bytes(source.into()));
-        }
         if let Ok(source) = std::str::from_utf8(source) {
             if source == "#" {
                 return Some(None);
             }
             match ty {
                 Type::Bool => source.parse::<bool>().map(Bool).ok(),
+                Type::Bytes => hex::decode(source).map(|bytes| Bytes(bytes.into_boxed_slice())).ok(),
                 Type::Int(_) => source.parse::<i64>().map(Signed).ok(),
                 Type::UInt(_) => {
                     // TODO: This is just a quickfix!! Think of something more general.
@@ -112,7 +110,7 @@ impl Value {
                 Type::Float(_) => source.parse::<f64>().ok().map(|f| Float(NotNan::new(f).unwrap())),
                 Type::String => Some(Str(source.into())),
                 Type::Tuple(_) => unimplemented!(),
-                Type::Option(_) | Type::Function { args: _, ret: _ } | Type::Bytes => unreachable!(),
+                Type::Option(_) | Type::Function { args: _, ret: _ } => unreachable!(),
             }
         } else {
             Option::None // TODO: error message about non-utf8 encoded string?

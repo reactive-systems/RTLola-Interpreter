@@ -30,6 +30,7 @@ crossbeam-channel = {version="0.5.6", optional = true}
 serde = { version = "1.0.145", features = ["derive"], optional = true}
 regex = "1.2.1"
 humantime = "2.0"
+hex = "0.4.3" # parse hex strings to bytes
 
 either = "1.5.3"
 string_template = "0.2.1" # Format Trigger Messages
