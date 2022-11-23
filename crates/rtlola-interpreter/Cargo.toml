@@ -46,8 +46,8 @@ default = ["queued-api"]
 
 [dev-dependencies]
 tempfile = "3.1.0"
-serde = "1.0.133"
-serde_json = "1.0.74"
+serde = "1.0.145"
+serde_json = "1.0.89"
 csv = "1.1.6"
 junit-report = "0.8.1"
 clap = { version = "4.0.9", features = ["derive", "cargo"] } # command line parsing for custom api test
