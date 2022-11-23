@@ -30,6 +30,7 @@ crossbeam-channel = {version="0.5.6", optional = true}
 serde = { version = "1.0.145", features = ["derive"], optional = true}
 regex = "1.2.1"
 humantime = "2.0"
+hex = "0.4.3" # parse hex strings to bytes
 
 either = "1.5.3"
 string_template = "0.2.1" # Format Trigger Messages
@@ -45,8 +46,8 @@ default = ["queued-api"]
 
 [dev-dependencies]
 tempfile = "3.1.0"
-serde = "1.0.133"
-serde_json = "1.0.74"
+serde = "1.0.145"
+serde_json = "1.0.89"
 csv = "1.1.6"
 junit-report = "0.8.1"
 clap = { version = "4.0.9", features = ["derive", "cargo"] } # command line parsing for custom api test

@@ -71,14 +71,8 @@ impl std::fmt::Display for Value {
             },
             Str(str) => write!(f, "{}", *str),
             Bytes(b) => {
-                write!(f, "[")?;
-                if let Some(e) = b.first() {
-                    write!(f, "{}", e)?;
-                    for e in &b[1..] {
-                        write!(f, ", {}", e)?;
-                    }
-                }
-                write!(f, "]")
+                let hex = hex::encode_upper(b);
+                write!(f, "{}", hex)
             },
         }
     }
@@ -91,15 +85,13 @@ impl Value {
     /// * 'source' - A byte slice that holds the value
     /// * 'ty' - the type of the interpretation
     pub fn try_from(source: &[u8], ty: &Type) -> Option<Value> {
-        if let Type::Bytes = ty {
-            return Some(Bytes(source.into()));
-        }
         if let Ok(source) = std::str::from_utf8(source) {
             if source == "#" {
                 return Some(None);
             }
             match ty {
                 Type::Bool => source.parse::<bool>().map(Bool).ok(),
+                Type::Bytes => hex::decode(source).map(|bytes| Bytes(bytes.into_boxed_slice())).ok(),
                 Type::Int(_) => source.parse::<i64>().map(Signed).ok(),
                 Type::UInt(_) => {
                     // TODO: This is just a quickfix!! Think of something more general.
@@ -112,7 +104,7 @@ impl Value {
                 Type::Float(_) => source.parse::<f64>().ok().map(|f| Float(NotNan::new(f).unwrap())),
                 Type::String => Some(Str(source.into())),
                 Type::Tuple(_) => unimplemented!(),
-                Type::Option(_) | Type::Function { args: _, ret: _ } | Type::Bytes => unreachable!(),
+                Type::Option(_) | Type::Function { args: _, ret: _ } => unreachable!(),
             }
         } else {
             Option::None // TODO: error message about non-utf8 encoded string?
