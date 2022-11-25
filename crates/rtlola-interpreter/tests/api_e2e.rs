@@ -1,3 +1,5 @@
+#![feature(never_type)]
+
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::env;
@@ -202,14 +204,18 @@ impl From<StringRecord> for CsvRecord {
 
 impl Record for CsvRecord {
     type CreationData = HashMap<String, (Type, usize)>;
+    type Error = !;
 
-    fn func_for_input(name: &str, data: Self::CreationData) -> Box<dyn (Fn(&Self) -> Value)> {
+    fn func_for_input(
+        name: &str,
+        data: Self::CreationData,
+    ) -> Result<Box<dyn (Fn(&Self) -> Result<Value, Self::Error>)>, Self::Error> {
         let (ty, idx) = data
             .get(name)
             .map(|(t, i)| (t.clone(), *i))
             .unwrap_or_else(|| panic!("Input {} not found in CSV", name));
-        let res = move |rec: &CsvRecord| value_from_string(&rec.0[idx], &ty).unwrap();
-        Box::new(res)
+        let res = move |rec: &CsvRecord| Ok(value_from_string(&rec.0[idx], &ty).unwrap());
+        Ok(Box::new(res))
     }
 }
 
@@ -312,7 +318,8 @@ impl Test {
             })
             .collect();
 
-        let mut monitor: Monitor<RecordInput<CsvRecord>, _, TriggerMessages, _> = config.monitor_with_data(inputs);
+        let mut monitor: Monitor<RecordInput<CsvRecord>, _, TriggerMessages, _> =
+            config.monitor_with_data(inputs).expect("Failed to create Monitor");
 
         let mut actual = Vec::new();
         for line in csv.records().with_position() {
@@ -320,7 +327,7 @@ impl Test {
             let line = line.into_inner()?;
             let time = timestamp_to_duration(&line[time_idx])?;
 
-            let verdict = monitor.accept_event(line.into(), time);
+            let verdict = monitor.accept_event(line.into(), time).expect("Failed to accept event");
             let triggers = verdict.event.into_iter().map(move |(_, name)| (name, time)).chain(
                 verdict
                     .timed

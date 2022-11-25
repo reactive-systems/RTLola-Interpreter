@@ -144,7 +144,7 @@ impl ReaderWrapper {
     }
 }
 
-type TimeProjection<Time> = Box<dyn Fn(&CsvRecord) -> Time>;
+type TimeProjection<Time> = Box<dyn Fn(&CsvRecord) -> Result<Time, String>>;
 
 ///Parses events in CSV format.
 pub struct CsvEventSource<InputTime: TimeRepresentation> {
@@ -179,14 +179,9 @@ impl<InputTime: TimeRepresentation> CsvEventSource<InputTime> {
         if let Some(time_ix) = csv_column_mapping.time_ix {
             let get_time = Box::new(move |rec: &CsvRecord| {
                 let ts = rec.0.get(time_ix).expect("time index to exist.");
-                let ts_str = match std::str::from_utf8(ts) {
-                    Ok(s) => s,
-                    Err(e) => panic!("Could not parse timestamp: {:?}. Utf8 error: {}", ts, e),
-                };
-                match InputTime::parse(ts_str) {
-                    Ok(t) => t,
-                    Err(e) => panic!("Could not parse timestamp {} into input format: {}", ts_str, e),
-                }
+                let ts_str = std::str::from_utf8(ts)
+                    .map_err(|e| format!("Could not parse timestamp: {:?}. Utf8 error: {}", ts, e))?;
+                InputTime::parse(ts_str)
             });
             Ok(CsvEventSource {
                 reader: wrapper,
@@ -195,7 +190,7 @@ impl<InputTime: TimeRepresentation> CsvEventSource<InputTime> {
                 timer: PhantomData::default(),
             })
         } else {
-            let get_time = Box::new(move |_: &CsvRecord| InputTime::parse("").expect("timestamp to not matter"));
+            let get_time = Box::new(move |_: &CsvRecord| InputTime::parse(""));
             Ok(CsvEventSource {
                 reader: wrapper,
                 csv_column_mapping,
@@ -207,22 +202,26 @@ impl<InputTime: TimeRepresentation> CsvEventSource<InputTime> {
 }
 
 impl<InputTime: TimeRepresentation> EventSource<InputTime> for CsvEventSource<InputTime> {
+    type Error = String;
     type Rec = CsvRecord;
 
-    fn init_data(&self) -> <CsvRecord as Record>::CreationData {
-        self.csv_column_mapping.clone()
+    fn init_data(&self) -> Result<<CsvRecord as Record>::CreationData, String> {
+        Ok(self.csv_column_mapping.clone())
     }
 
-    fn next_event(&mut self) -> Option<(CsvRecord, InputTime::InnerTime)> {
+    fn next_event(&mut self) -> Result<Option<(CsvRecord, InputTime::InnerTime)>, String> {
         let mut res = ByteRecord::new();
-        match self.reader.read_record(&mut res) {
-            Ok(true) => {
-                let record = CsvRecord::from(res);
-                let ts = (*self.get_time)(&record);
-                Some((record, ts))
-            },
-            Ok(false) => None,
-            Err(e) => panic!("Error reading csv file: {}", e),
-        }
+        self.reader
+            .read_record(&mut res)
+            .map_err(|e| format!("Error reading csv file: {}", e))
+            .and_then(|success| {
+                if success {
+                    let record = CsvRecord::from(res);
+                    let ts = (*self.get_time)(&record)?;
+                    Ok(Some((record, ts)))
+                } else {
+                    Ok(None)
+                }
+            })
     }
 }

@@ -660,7 +660,7 @@ impl<InputTime: TimeRepresentation> PcapEventSource<InputTime> {
                 let dev: Device = all_devices
                     .into_iter()
                     .find(|d| d.name == *name)
-                    .unwrap_or_else(|| panic!("Could not find network interface with name: {}", *name));
+                    .ok_or_else(|| format!("Could not find network interface with name: {}", *name))?;
 
                 let capture_handle = Capture::from_device(dev)?.promisc(true).snaplen(65535).open()?;
                 capture_handle.into()
@@ -675,13 +675,12 @@ impl<InputTime: TimeRepresentation> PcapEventSource<InputTime> {
             PcapInputSource::Device { local_network, .. } => local_network,
             PcapInputSource::File { local_network, .. } => local_network,
         };
-        let local_net = IpNetwork::from_str(local_network_range.as_ref()).unwrap_or_else(|e| {
-            eprintln!(
+        let local_net = IpNetwork::from_str(local_network_range.as_ref()).map_err(|e| {
+            format!(
                 "Could not parse local network range: {}. Error: {}",
                 *local_network_range, e
-            );
-            std::process::exit(1);
-        });
+            )
+        })?;
 
         Ok(Self {
             capture_handle,
@@ -692,19 +691,20 @@ impl<InputTime: TimeRepresentation> PcapEventSource<InputTime> {
 }
 
 impl<InputTime: TimeRepresentation> EventSource<InputTime> for PcapEventSource<InputTime> {
+    type Error = String;
     type Rec = PcapRecord;
 
-    fn init_data(&self) -> IpNetwork {
-        self.local_net
+    fn init_data(&self) -> Result<IpNetwork, String> {
+        Ok(self.local_net)
     }
 
-    fn next_event(&mut self) -> Option<(PcapRecord, InputTime::InnerTime)> {
+    fn next_event(&mut self) -> Result<Option<(PcapRecord, InputTime::InnerTime)>, String> {
         let raw_packet: Packet = match self.capture_handle.next_packet() {
             Ok(pkt) => pkt,
             Err(e) => {
-                match e {
-                    PCAPError::NoMorePackets => return None,
-                    _ => panic!("Could not read next packet: {}", e),
+                return match e {
+                    PCAPError::NoMorePackets => Ok(None),
+                    _ => Err(format!("Could not read next packet: {}", e)),
                 }
             },
         };
@@ -717,6 +717,6 @@ impl<InputTime: TimeRepresentation> EventSource<InputTime> for PcapEventSource<I
         let time_str = format!("{}.{:09}", secs, nanos);
         let time = InputTime::parse(&time_str).expect("Could not parse timestamp from packet");
 
-        Some((PcapRecord(p), time))
+        Ok(Some((PcapRecord(p), time)))
     }
 }

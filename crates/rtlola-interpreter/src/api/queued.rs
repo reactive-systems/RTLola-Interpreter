@@ -108,7 +108,7 @@ where
     VerdictTime: OutputTimeRepresentation + 'static,
 {
     ir: RtLolaMir,
-    worker: JoinHandle<()>,
+    worker: Option<JoinHandle<Result<(), Source::Error>>>,
 
     input: Sender<WorkItem<Source, SourceTime>>,
     output: Receiver<QueuedVerdict<Verdict, VerdictTime>>,
@@ -167,7 +167,7 @@ where
 
         QueuedMonitor {
             ir: config.ir,
-            worker,
+            worker: Some(worker),
 
             input: input_send,
             output: output_rcv,
@@ -188,17 +188,33 @@ where
         setup_data: Source::CreationData,
         input: Receiver<WorkItem<Source, SourceTime>>,
         output: Sender<QueuedVerdict<Verdict, VerdictTime>>,
-    ) {
-        let mut worker = W::setup(config, input_names, setup_data, input.clone(), output);
+    ) -> Result<(), Source::Error> {
+        let mut worker = W::setup(config, input_names, setup_data, input.clone(), output)?;
         worker.wait_for_start(&input);
         drop(input);
-        worker.init();
-        worker.process();
+        worker.init()?;
+        worker.process()?;
+        Ok(())
+    }
+
+    fn worker_alive(&mut self) -> Result<(), Source::Error> {
+        if self.worker.is_some() {
+            return if self.worker.as_ref().unwrap().is_finished() {
+                let worker = self.worker.take().unwrap();
+                worker.join().expect("Failed to join on finished thread")
+            } else {
+                Ok(())
+            };
+        } else {
+            panic!("Worker thread died!");
+        }
     }
 
     /// Starts the evaluation process. This method has to be called before any event is accepted.
-    pub fn start(&self) {
+    pub fn start(&mut self) -> Result<(), Source::Error> {
+        self.worker_alive()?;
         self.input.send(WorkItem::Start).expect("Worker thread hung up!");
+        Ok(())
     }
 
     /// This method returns the queue through which the verdicts can be received.
@@ -209,19 +225,25 @@ where
     /**
     Schedules a new event for evaluation. The verdict can be received through the Queue return by the [QueuedMonitor::output_queue].
     */
-    pub fn accept_event(&mut self, ev: Source::Record, ts: SourceTime::InnerTime) {
+    pub fn accept_event(&mut self, ev: Source::Record, ts: SourceTime::InnerTime) -> Result<(), Source::Error> {
+        self.worker_alive()?;
         self.input
             .send(WorkItem::Event(ev, ts))
             .expect("Worker thread hung up!");
+        Ok(())
     }
 
     /// Ends the evaluation process and blocks until all events are processed.
-    pub fn end(self) {
+    pub fn end(self) -> Result<(), Source::Error> {
         let QueuedMonitor { worker, input, .. } = self;
         // Drop the sender of the input queue
         drop(input);
         // wait for worker to finish processing all events left in input queue
-        worker.join().expect("Failed to join on worker thread.");
+        if let Some(worker) = worker {
+            worker.join().expect("Failed to join on worker thread")
+        } else {
+            Ok(())
+        }
     }
 
     /// Returns the underlying representation of the specification as an [RtLolaMir]
@@ -321,7 +343,7 @@ enum WorkItem<Source: Input, SourceTime: TimeRepresentation> {
     Event(Source::Record, SourceTime::InnerTime),
 }
 
-trait Worker<Source, SourceTime, Verdict, VerdictTime>
+trait Worker<Source, SourceTime, Verdict, VerdictTime>: Sized
 where
     Source: Input,
     SourceTime: TimeRepresentation,
@@ -334,7 +356,7 @@ where
         setup_data: Source::CreationData,
         input: Receiver<WorkItem<Source, SourceTime>>,
         output: Sender<QueuedVerdict<Verdict, VerdictTime>>,
-    ) -> Self;
+    ) -> Result<Self, Source::Error>;
 
     fn wait_for_start(&mut self, input: &Receiver<WorkItem<Source, SourceTime>>) {
         // Wait for Start command
@@ -347,9 +369,9 @@ where
         }
     }
 
-    fn init(&mut self);
+    fn init(&mut self) -> Result<(), Source::Error>;
 
-    fn process(&mut self);
+    fn process(&mut self) -> Result<(), Source::Error>;
 
     fn try_send(
         output: &Sender<QueuedVerdict<Verdict, VerdictTime>>,
@@ -397,10 +419,10 @@ impl<
         setup_data: Source::CreationData,
         input: Receiver<WorkItem<Source, SourceTime>>,
         output: Sender<QueuedVerdict<Verdict, VerdictTime>>,
-    ) -> Self {
+    ) -> Result<Self, Source::Error> {
         // setup monitor
         let source_time = config.input_time_representation;
-        let source = Source::new(input_names, setup_data);
+        let source = Source::new(input_names, setup_data)?;
 
         // Setup evaluator
         let dyn_schedule = Rc::new(RefCell::new(DynamicSchedule::new()));
@@ -409,7 +431,7 @@ impl<
             .expect("Error computing schedule for time-driven streams");
         let evaluator = eval_data.into_evaluator();
 
-        OnlineWorker {
+        Ok(OnlineWorker {
             source,
             source_time,
             output_time: None,
@@ -418,15 +440,16 @@ impl<
             evaluator,
             input,
             output,
-        }
+        })
     }
 
-    fn init(&mut self) {
+    fn init(&mut self) -> Result<(), Source::Error> {
         init_start_time::<SourceTime>(self.start_time);
         self.output_time.replace(VerdictTime::default());
+        Ok(())
     }
 
-    fn process(&mut self) {
+    fn process(&mut self) -> Result<(), Source::Error> {
         let output_time = self.output_time.as_mut().expect("Init to be executed before process");
         loop {
             let next_deadline = self.schedule_manager.get_next_due();
@@ -438,7 +461,7 @@ impl<
             let verdict = match item {
                 Ok(WorkItem::Event(e, ts)) => {
                     // Received Event before deadline
-                    let e = self.source.get_event(e);
+                    let e = self.source.get_event(e)?;
                     let ts = self.source_time.convert_from(ts);
 
                     let mut tracer = Verdict::Tracing::default();
@@ -472,7 +495,7 @@ impl<
                 },
                 Err(RecvTimeoutError::Disconnected) => {
                     // Channel closed, we are done here
-                    return;
+                    return Ok(());
                 },
                 Ok(WorkItem::Start) => {
                     // Received second start command -> abort
@@ -513,24 +536,25 @@ impl<
         setup_data: Source::CreationData,
         input: Receiver<WorkItem<Source, SourceTime>>,
         output: Sender<QueuedVerdict<Verdict, VerdictTime>>,
-    ) -> Self {
-        OfflineWorker {
+    ) -> Result<Self, Source::Error> {
+        Ok(OfflineWorker {
             config,
             setup_data,
             monitor: None,
             input,
             output,
-        }
+        })
     }
 
-    fn init(&mut self) {
+    fn init(&mut self) -> Result<(), Source::Error> {
         // Setup evaluator
         let monitor: Monitor<Source, SourceTime, Verdict, VerdictTime> =
-            Monitor::setup(self.config.clone(), self.setup_data.clone());
+            Monitor::setup(self.config.clone(), self.setup_data.clone())?;
         self.monitor.replace(monitor);
+        Ok(())
     }
 
-    fn process(&mut self) {
+    fn process(&mut self) -> Result<(), Source::Error> {
         let monitor = self.monitor.as_mut().expect("Init to be called before process");
         let mut last_event = None;
         let mut done = false;
@@ -539,7 +563,7 @@ impl<
                 Ok(WorkItem::Event(e, ts)) => {
                     // Received Event
                     last_event.replace(ts.clone());
-                    let Verdicts { timed, event, ts } = monitor.accept_event(e, ts);
+                    let Verdicts { timed, event, ts } = monitor.accept_event(e, ts)?;
 
                     if !event.is_empty() {
                         let verdict = QueuedVerdict {
@@ -558,7 +582,7 @@ impl<
                     if let Some(last_event) = last_event.as_ref() {
                         monitor.accept_time(last_event.clone())
                     } else {
-                        return;
+                        return Ok(());
                     }
                 },
                 Ok(WorkItem::Start) => {
@@ -576,6 +600,7 @@ impl<
                 Self::try_send(&self.output, Some(verdict));
             }
         }
+        Ok(())
     }
 }
 
@@ -630,11 +655,13 @@ mod tests {
         "#,
         );
         let queue = monitor.output_queue();
-        monitor.start();
+        monitor.start().expect("Failed to start monitor");
         let v = Value::Unsigned(3);
         let timeout = Duration::from_millis(500);
 
-        monitor.accept_event(vec![v.clone()], start.elapsed());
+        monitor
+            .accept_event(vec![v.clone()], start.elapsed())
+            .expect("Failed to accept event");
         let res = queue.recv_timeout(timeout).unwrap();
 
         assert!(res.kind == VerdictKind::Event);
@@ -654,10 +681,12 @@ mod tests {
 
         let timeout = Duration::from_millis(500);
         let output = monitor.output_queue();
-        monitor.start();
+        monitor.start().expect("Failed to start monitor");
         let n = 25;
         let mut time = Duration::from_secs(45);
-        monitor.accept_event(vec![Value::Unsigned(1)], time);
+        monitor
+            .accept_event(vec![Value::Unsigned(1)], time)
+            .expect("Failed to accept event");
 
         let res: Vec<_> = (0..11).map(|_| output.recv_timeout(timeout).unwrap()).collect();
         assert!(output.is_empty());
@@ -668,7 +697,9 @@ mod tests {
         }));
         for v in 2..=n {
             time += Duration::from_secs(1);
-            monitor.accept_event(vec![Value::Unsigned(v)], time);
+            monitor
+                .accept_event(vec![Value::Unsigned(v)], time)
+                .expect("Failed to accept event");
             if (v - 1) % 4 == 0 {
                 let res = output.recv_timeout(timeout).unwrap();
                 assert_eq!(res.kind, VerdictKind::Timed);
@@ -690,8 +721,10 @@ mod tests {
 
         let timeout = Duration::from_millis(500);
         let output = monitor.output_queue();
-        monitor.start();
-        monitor.accept_event(vec![Value::Signed(15), Value::None], Duration::from_secs(1));
+        monitor.start().expect("Failed to start monitor");
+        monitor
+            .accept_event(vec![Value::Signed(15), Value::None], Duration::from_secs(1))
+            .expect("Failed to accept event");
         let res = output.recv_timeout(timeout).unwrap();
 
         let expected = Total {
@@ -704,7 +737,9 @@ mod tests {
         assert_eq!(res.kind, VerdictKind::Event);
         assert_eq!(sort_total(res.verdict), sort_total(expected));
 
-        monitor.accept_event(vec![Value::Signed(20), Value::Signed(7)], Duration::from_secs(2));
+        monitor
+            .accept_event(vec![Value::Signed(20), Value::Signed(7)], Duration::from_secs(2))
+            .expect("Failed to accept event");
         let res = output.recv_timeout(timeout).unwrap();
 
         let expected = Total {
@@ -720,7 +755,9 @@ mod tests {
         assert_eq!(res.kind, VerdictKind::Event);
         assert_eq!(sort_total(res.verdict), sort_total(expected));
 
-        monitor.accept_event(vec![Value::None, Value::Signed(42)], Duration::from_secs(3));
+        monitor
+            .accept_event(vec![Value::None, Value::Signed(42)], Duration::from_secs(3))
+            .expect("Failed to accept event");
         let res = output.recv_timeout(timeout).unwrap();
 
         let expected = Total {
@@ -749,8 +786,10 @@ mod tests {
 
         let timeout = Duration::from_millis(500);
         let output = monitor.output_queue();
-        monitor.start();
-        monitor.accept_event(vec![Value::Signed(15)], Duration::from_secs(1));
+        monitor.start().expect("Failed to start monitor");
+        monitor
+            .accept_event(vec![Value::Signed(15)], Duration::from_secs(1))
+            .expect("Failed to accept event");
         let res = output.recv_timeout(timeout).unwrap();
 
         let mut expected = vec![
