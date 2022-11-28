@@ -37,7 +37,7 @@ use crate::evaluator::{Evaluator, EvaluatorData};
 use crate::schedule::schedule_manager::ScheduleManager;
 use crate::schedule::DynamicSchedule;
 use crate::storage::Value;
-use crate::{CondDeserialize, CondSerialize, Time};
+use crate::{CondDeserialize, CondSerialize, NoError, Time};
 
 /// An event to be handled by the interpreter
 pub type Event = Vec<Value>;
@@ -475,11 +475,21 @@ pub type ValueProjection<From, E> = Box<dyn (Fn(&From) -> Result<Value, E>)>;
 /// An input method for types that implement the [Record] trait. Useful if you do not want to bother with the order of the input streams in an event.
 /// Assuming the specification has 3 inputs: 'a', 'b' and 'c'. You could implement this trait for your custom 'MyType' as follows:
 /// ```
-/// #![feature(never_type)]
+/// use std::fmt::Formatter;
+///
 /// use rtlola_interpreter::monitor::Record;
 /// use rtlola_interpreter::Value;
 /// #[cfg(feature = "serde")]
 /// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Clone)]
+/// struct MyError(String);
+/// impl std::fmt::Display for MyError {
+///     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+///         write!(f, "An error occurred: {}", self.0)
+///     }
+/// }
+/// impl std::error::Error for MyError {}
 ///
 /// #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 /// struct MyType {
@@ -490,35 +500,40 @@ pub type ValueProjection<From, E> = Box<dyn (Fn(&From) -> Result<Value, E>)>;
 ///
 /// impl MyType {
 ///     // Generate a new value for input stream 'a'
-///     fn a(rec: &Self) -> Result<Value, !> {
+///     fn a(rec: &Self) -> Result<Value, MyError> {
 ///         Ok(Value::from(rec.a))
 ///     }
 ///
 ///     // Generate a new value for input stream 'b'
-///     fn b(rec: &Self) -> Result<Value, !> {
+///     fn b(rec: &Self) -> Result<Value, MyError> {
 ///         Ok(rec.b.map(|b| Value::from(b)).unwrap_or(Value::None))
 ///     }
 ///
 ///     // Generate a new value for input stream 'c'
-///     fn c(rec: &Self) -> Result<Value, !> {
+///     fn c(rec: &Self) -> Result<Value, MyError> {
 ///         Ok(Value::Str(rec.c.clone().into_boxed_str()))
 ///     }
 /// }
 ///
 /// impl Record for MyType {
 ///     type CreationData = ();
-///     type Error = !;
+///     type Error = MyError;
 ///
 ///     fn func_for_input(
 ///         name: &str,
 ///         _data: Self::CreationData,
-///     ) -> Result<Box<dyn (Fn(&MyType) -> Result<Value, !>)>, !> {
-///         Ok(Box::new(match name {
-///             "a" => Self::a,
-///             "b" => Self::b,
-///             "c" => Self::c,
-///             x => panic!("Unexpected input stream {} in specification.", x),
-///         }))
+///     ) -> Result<Box<dyn (Fn(&MyType) -> Result<Value, MyError>)>, MyError> {
+///         match name {
+///             "a" => Ok(Box::new(Self::a)),
+///             "b" => Ok(Box::new(Self::b)),
+///             "c" => Ok(Box::new(Self::c)),
+///             x => {
+///                 Err(MyError(format!(
+///                     "Unexpected input stream {} in specification.",
+///                     x
+///                 )))
+///             },
+///         }
 ///     }
 /// }
 /// ```
@@ -555,7 +570,7 @@ pub struct EventInput<E: Into<Event> + CondSerialize + CondDeserialize> {
 
 impl<E: Into<Event> + Send + CondSerialize + CondDeserialize> Input for EventInput<E> {
     type CreationData = ();
-    type Error = !;
+    type Error = NoError;
     type Record = E;
 
     fn new(_map: HashMap<String, InputReference>, _setup_data: Self::CreationData) -> Result<Self, Self::Error> {
