@@ -1,5 +1,3 @@
-#![feature(never_type)]
-
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::env;
@@ -21,7 +19,7 @@ use ordered_float::NotNan;
 use rtlola_frontend::mir::Type;
 use rtlola_interpreter::monitor::{Monitor, Record, RecordInput, TriggerMessages};
 use rtlola_interpreter::time::RelativeFloat;
-use rtlola_interpreter::{ConfigBuilder, Value};
+use rtlola_interpreter::{ConfigBuilder, NoError, Value};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 // inspired by: https://github.com/johnterickson/cargo2junit/blob/master/src/main.rs
@@ -204,7 +202,7 @@ impl From<StringRecord> for CsvRecord {
 
 impl Record for CsvRecord {
     type CreationData = HashMap<String, (Type, usize)>;
-    type Error = !;
+    type Error = NoError;
 
     fn func_for_input(
         name: &str,
