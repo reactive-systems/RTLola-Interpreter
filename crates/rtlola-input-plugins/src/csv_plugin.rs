@@ -2,6 +2,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
+use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::stdin;
 use std::marker::PhantomData;
@@ -9,7 +10,7 @@ use std::path::PathBuf;
 
 use csv::{ByteRecord, Reader as CSVReader, ReaderBuilder, Result as ReaderResult, StringRecord, Trim};
 use rtlola_frontend::mir::InputStream;
-use rtlola_interpreter::monitor::Record;
+use rtlola_interpreter::monitor::{Record, ValueProjection};
 use rtlola_interpreter::rtlola_mir::{RtLolaMir, Type};
 use rtlola_interpreter::time::TimeRepresentation;
 use rtlola_interpreter::Value;
@@ -52,6 +53,34 @@ pub struct CsvColumnMapping {
     time_ix: Option<usize>,
 }
 
+#[derive(Debug)]
+/// Describes different kinds of CsvParsing Errors
+pub enum CsvError {
+    Io(std::io::Error),
+    Validation(String),
+    Value(String),
+}
+
+impl Display for CsvError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CsvError::Io(e) => write!(f, "Io error occured: {}", e),
+            CsvError::Validation(reason) => write!(f, "Csv validation failed: {}", reason),
+            CsvError::Value(reason) => write!(f, "Failed to parse value: {}", reason),
+        }
+    }
+}
+
+impl Error for CsvError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            CsvError::Io(e) => Some(e),
+            CsvError::Validation(_) => None,
+            CsvError::Value(_) => None,
+        }
+    }
+}
+
 /// The record as read from the csv data
 pub struct CsvRecord(ByteRecord);
 
@@ -63,24 +92,20 @@ impl From<ByteRecord> for CsvRecord {
 
 impl Record for CsvRecord {
     type CreationData = CsvColumnMapping;
+    type Error = CsvError;
 
-    fn func_for_input(name: &str, data: Self::CreationData) -> Box<dyn Fn(&Self) -> Value> {
+    fn func_for_input(name: &str, data: Self::CreationData) -> Result<ValueProjection<Self, Self::Error>, Self::Error> {
         let col_idx = data.name2col[name];
         let ty = data.name2type[name].clone();
         let name = name.to_string();
 
-        Box::new(move |rec| {
+        Ok(Box::new(move |rec| {
             let bytes = rec.0.get(col_idx).expect("column mapping to be correct");
-            match Value::try_from(bytes, &ty) {
-                Some(v) => v,
-                None => {
-                    panic!(
-                        "Could not parse csv item into value. Tried to parse: {:?} for input stream {}",
-                        bytes, name
-                    )
-                },
-            }
-        })
+            Value::try_from(bytes, &ty).ok_or(CsvError::Value(format!(
+                "Could not parse csv item into value. Tried to parse: {:?} for input stream {}",
+                bytes, name
+            )))
+        }))
     }
 }
 
@@ -144,13 +169,13 @@ impl ReaderWrapper {
     }
 }
 
-type TimeProjection<Time> = Box<dyn Fn(&CsvRecord) -> Result<Time, String>>;
+type TimeProjection<Time, E> = Box<dyn Fn(&CsvRecord) -> Result<Time, E>>;
 
 ///Parses events in CSV format.
 pub struct CsvEventSource<InputTime: TimeRepresentation> {
     reader: ReaderWrapper,
     csv_column_mapping: CsvColumnMapping,
-    get_time: TimeProjection<InputTime::InnerTime>,
+    get_time: TimeProjection<InputTime::InnerTime, CsvError>,
     timer: PhantomData<InputTime>,
 }
 
@@ -180,8 +205,9 @@ impl<InputTime: TimeRepresentation> CsvEventSource<InputTime> {
             let get_time = Box::new(move |rec: &CsvRecord| {
                 let ts = rec.0.get(time_ix).expect("time index to exist.");
                 let ts_str = std::str::from_utf8(ts)
-                    .map_err(|e| format!("Could not parse timestamp: {:?}. Utf8 error: {}", ts, e))?;
+                    .map_err(|e| CsvError::Value(format!("Could not parse timestamp: {:?}. Utf8 error: {}", ts, e)))?;
                 InputTime::parse(ts_str)
+                    .map_err(|e| CsvError::Value(format!("Could not parse timestamp to time format: {}", e)))
             });
             Ok(CsvEventSource {
                 reader: wrapper,
@@ -190,7 +216,7 @@ impl<InputTime: TimeRepresentation> CsvEventSource<InputTime> {
                 timer: PhantomData::default(),
             })
         } else {
-            let get_time = Box::new(move |_: &CsvRecord| InputTime::parse(""));
+            let get_time = Box::new(move |_: &CsvRecord| Ok(InputTime::parse("").unwrap()));
             Ok(CsvEventSource {
                 reader: wrapper,
                 csv_column_mapping,
@@ -202,18 +228,18 @@ impl<InputTime: TimeRepresentation> CsvEventSource<InputTime> {
 }
 
 impl<InputTime: TimeRepresentation> EventSource<InputTime> for CsvEventSource<InputTime> {
-    type Error = String;
+    type Error = CsvError;
     type Rec = CsvRecord;
 
-    fn init_data(&self) -> Result<<CsvRecord as Record>::CreationData, String> {
+    fn init_data(&self) -> Result<<CsvRecord as Record>::CreationData, CsvError> {
         Ok(self.csv_column_mapping.clone())
     }
 
-    fn next_event(&mut self) -> Result<Option<(CsvRecord, InputTime::InnerTime)>, String> {
+    fn next_event(&mut self) -> Result<Option<(CsvRecord, InputTime::InnerTime)>, CsvError> {
         let mut res = ByteRecord::new();
         self.reader
             .read_record(&mut res)
-            .map_err(|e| format!("Error reading csv file: {}", e))
+            .map_err(|e| CsvError::Validation(format!("Error reading csv file: {}", e)))
             .and_then(|success| {
                 if success {
                     let record = CsvRecord::from(res);

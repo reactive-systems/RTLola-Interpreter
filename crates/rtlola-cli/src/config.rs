@@ -160,7 +160,7 @@ impl<Source: EventSource<InputTime> + 'static, InputTime: TimeRepresentation, Ou
             InputTime,
             TracingVerdict<EvalTimeTracer, TotalIncremental>,
             OutputTime,
-        > = QueuedMonitor::setup(cfg, source.init_data());
+        > = QueuedMonitor::setup(cfg, source.init_data()?);
 
         let queue = monitor.output_queue();
         let output_handler = match output_channel {
@@ -173,12 +173,12 @@ impl<Source: EventSource<InputTime> + 'static, InputTime: TimeRepresentation, Ou
         };
 
         // start evaluation
-        monitor.start();
-        while let Some((ev, ts)) = source.next_event() {
-            monitor.accept_event(ev, ts);
+        monitor.start()?;
+        while let Some((ev, ts)) = source.next_event()? {
+            monitor.accept_event(ev, ts)?;
         }
         // Wait for all events to be processed
-        monitor.end();
+        monitor.end()?;
         // Wait for the output queue to empty up.
         output_handler.join().expect("Failed to join on output handler");
         Ok(())

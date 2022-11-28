@@ -10,6 +10,8 @@ use std::error::Error;
 use rtlola_interpreter::monitor::Record;
 use rtlola_interpreter::time::TimeRepresentation;
 
+type EventResult<Rec, Time, Error> = Result<Option<(Rec, Time)>, Error>;
+
 /// The main trait that has to be implemented by an input plugin
 pub trait EventSource<InputTime: TimeRepresentation> {
     type Rec: Record;
@@ -20,5 +22,5 @@ pub trait EventSource<InputTime: TimeRepresentation> {
 
     /// Queries the event source for a new Record(Event) in a blocking fashion.
     /// If there are no more records, None is returned.
-    fn next_event(&mut self) -> Result<Option<(Self::Rec, InputTime::InnerTime)>, Self::Error>;
+    fn next_event(&mut self) -> EventResult<Self::Rec, InputTime::InnerTime, Self::Error>;
 }
