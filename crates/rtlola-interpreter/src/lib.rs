@@ -25,6 +25,8 @@
     unused_qualifications
 )]
 
+use std::error::Error;
+use std::fmt::{Display, Formatter};
 // Public exports
 use std::time::Duration;
 
@@ -53,6 +55,16 @@ mod tests;
 
 /// The internal time representation.
 pub type Time = Duration;
+
+/// Represents an error type that never occurs. This can be replaced by the `Never` type once it is stabilized.
+#[derive(Debug, Copy, Clone)]
+pub struct NoError {}
+impl Display for NoError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "This error will never be thrown.")
+    }
+}
+impl Error for NoError {}
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};

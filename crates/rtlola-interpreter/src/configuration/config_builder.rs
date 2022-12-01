@@ -77,7 +77,7 @@ impl<Source: Input, Verdict: VerdictRepresentation, InputTime: TimeRepresentatio
 ///     .offline::<RelativeFloat>()
 ///     .event_input::<Vec<Value>>()
 ///     .with_verdict::<Incremental>()
-///     .monitor();
+///     .monitor().expect("Failed to create monitor.");
 /// ````
 #[derive(Debug, Clone)]
 pub struct ConfigBuilder<S: ConfigState, OutputTime: OutputTimeRepresentation> {
@@ -415,12 +415,15 @@ impl<
     }
 
     /// Create a [Monitor] from the configuration. The entrypoint of the API. The data is provided to the [Input](crate::monitor::Input) source at creation.
-    pub fn monitor_with_data(self, data: Source::CreationData) -> Monitor<Source, InputTime, Verdict, OutputTime> {
+    pub fn monitor_with_data(
+        self,
+        data: Source::CreationData,
+    ) -> Result<Monitor<Source, InputTime, Verdict, OutputTime>, Source::Error> {
         self.build().monitor_with_data(data)
     }
 
     /// Create a [Monitor] from the configuration. The entrypoint of the API.
-    pub fn monitor(self) -> Monitor<Source, InputTime, Verdict, OutputTime>
+    pub fn monitor(self) -> Result<Monitor<Source, InputTime, Verdict, OutputTime>, Source::Error>
     where
         Source: Input<CreationData = ()> + 'static,
     {

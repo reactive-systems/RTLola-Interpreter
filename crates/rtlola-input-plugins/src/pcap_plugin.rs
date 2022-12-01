@@ -2,8 +2,10 @@
 
 use std::convert::TryFrom;
 use std::error::Error;
+use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::net::IpAddr;
+use std::num::TryFromIntError;
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -13,7 +15,7 @@ use etherparse::{
 };
 use ip_network::IpNetwork;
 use pcap::{Activated, Capture, Device, Error as PCAPError, Packet};
-use rtlola_interpreter::monitor::Record;
+use rtlola_interpreter::monitor::{Record, ValueProjection};
 use rtlola_interpreter::time::TimeRepresentation;
 use rtlola_interpreter::Value;
 
@@ -463,17 +465,64 @@ fn get_packet_protocol(packet: &SlicedPacket) -> Value {
     }
 }
 
+/// Represents different kind of errors that might occur.
+#[derive(Debug)]
+pub enum PcapError {
+    UnknownInput(String),
+    UnknownDevice(String, Vec<String>),
+    InvalidLocalNetwork(String, ip_network::IpNetworkParseError),
+    TimeParseError(TryFromIntError),
+    TimeFormatError(String),
+    Pcap(pcap::Error),
+}
+
+impl Display for PcapError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PcapError::UnknownInput(i) => write!(f, "Malformed input name: {}", i),
+            PcapError::UnknownDevice(d, available) => {
+                write!(
+                    f,
+                    "Interface {} was not found. Available interfaces are: {}",
+                    d,
+                    available.join(", ")
+                )
+            },
+            PcapError::InvalidLocalNetwork(name, e) => {
+                write!(f, "Could not parse local network range: {}. Error: {}", *name, e)
+            },
+            PcapError::TimeParseError(e) => write!(f, "Could not parse timestamp from packet: {}", e),
+            PcapError::TimeFormatError(e) => write!(f, "Could not parse timestamp to time format: {}", e),
+            PcapError::Pcap(e) => write!(f, "Could not process packet: {}", e),
+        }
+    }
+}
+
+impl Error for PcapError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            PcapError::UnknownInput(_) => None,
+            PcapError::UnknownDevice(_, _) => None,
+            PcapError::InvalidLocalNetwork(_, e) => Some(e),
+            PcapError::TimeParseError(e) => Some(e),
+            PcapError::TimeFormatError(_) => None,
+            PcapError::Pcap(e) => Some(e),
+        }
+    }
+}
+
 /// Represents a raw network packet
 pub struct PcapRecord(Vec<u8>);
 
 impl Record for PcapRecord {
     type CreationData = IpNetwork;
+    type Error = PcapError;
 
-    fn func_for_input(name: &str, data: Self::CreationData) -> Box<dyn Fn(&Self) -> Value> {
+    fn func_for_input(name: &str, data: Self::CreationData) -> Result<ValueProjection<Self, PcapError>, PcapError> {
         let local_net = data;
         let layers: Vec<&str> = name.split("::").collect();
         if layers.len() > 3 || layers.is_empty() {
-            panic!("Malformed input name: {}", name)
+            return Err(PcapError::UnknownInput(name.to_string()));
         }
 
         let get_packet_direction = move |packet: &SlicedPacket| -> Value {
@@ -496,20 +545,20 @@ impl Record for PcapRecord {
         let inner_fn: Box<dyn Fn(&SlicedPacket) -> Value> = match layers[0] {
             "Ethernet" => {
                 if layers.len() != 2 {
-                    panic!("Malformed input name: {}", name)
+                    return Err(PcapError::UnknownInput(name.to_string()));
                 };
                 match layers[1] {
                     "source" => Box::new(ethernet_source),
                     "destination" => Box::new(ethernet_destination),
                     "type" => Box::new(ethernet_type),
                     _ => {
-                        panic!("Unknown input name: {}", name)
+                        return Err(PcapError::UnknownInput(name.to_string()));
                     },
                 }
             },
             "IPv4" => {
                 if layers.len() < 2 {
-                    panic!("Malformed input name: {}", name)
+                    return Err(PcapError::UnknownInput(name.to_string()));
                 };
                 match layers[1] {
                     "source" => Box::new(ipv4_source),
@@ -525,24 +574,24 @@ impl Record for PcapRecord {
                     "checksum" => Box::new(ipv4_checksum),
                     "flags" => {
                         if layers.len() < 3 {
-                            panic!("Malformed input name: {}", name)
+                            return Err(PcapError::UnknownInput(name.to_string()));
                         }
                         match layers[2] {
                             "df" => Box::new(ipv4_flags_df),
                             "mf" => Box::new(ipv4_flags_mf),
                             _ => {
-                                panic!("Unknown input name: {}", name)
+                                return Err(PcapError::UnknownInput(name.to_string()));
                             },
                         }
                     },
                     _ => {
-                        panic!("Unknown input name: {}", name)
+                        return Err(PcapError::UnknownInput(name.to_string()));
                     },
                 }
             },
             "IPv6" => {
                 if layers.len() < 2 {
-                    panic!("Malformed input name: {}", name)
+                    return Err(PcapError::UnknownInput(name.to_string()));
                 };
                 match layers[1] {
                     "source" => Box::new(ipv6_source),
@@ -552,14 +601,14 @@ impl Record for PcapRecord {
                     "length" => Box::new(ipv6_length),
                     "hop_limit" => Box::new(ipv6_hop_limit),
                     _ => {
-                        panic!("Unknown input name: {}", name)
+                        return Err(PcapError::UnknownInput(name.to_string()));
                     },
                 }
             },
             //"ICMP" => {},
             "TCP" => {
                 if layers.len() < 2 {
-                    panic!("Malformed input name: {}", name)
+                    return Err(PcapError::UnknownInput(name.to_string()));
                 };
                 match layers[1] {
                     "source" => Box::new(tcp_source_port),
@@ -572,7 +621,7 @@ impl Record for PcapRecord {
                     "urgent_pointer" => Box::new(tcp_urgent_pointer),
                     "flags" => {
                         if layers.len() < 3 {
-                            panic!("Malformed input name: {}", name)
+                            return Err(PcapError::UnknownInput(name.to_string()));
                         };
                         match layers[2] {
                             "ns" => Box::new(tcp_flags_ns),
@@ -585,18 +634,18 @@ impl Record for PcapRecord {
                             "ece" => Box::new(tcp_flags_ece),
                             "cwr" => Box::new(tcp_flags_cwr),
                             _ => {
-                                panic!("Unknown input name: {}", name)
+                                return Err(PcapError::UnknownInput(name.to_string()));
                             },
                         }
                     },
                     _ => {
-                        panic!("Unknown input name: {}", name)
+                        return Err(PcapError::UnknownInput(name.to_string()));
                     },
                 }
             },
             "UDP" => {
                 if layers.len() < 2 {
-                    panic!("Malformed input name: {}", name)
+                    return Err(PcapError::UnknownInput(name.to_string()));
                 };
                 match layers[1] {
                     "source" => Box::new(udp_source_port),
@@ -604,7 +653,7 @@ impl Record for PcapRecord {
                     "length" => Box::new(udp_length),
                     "checksum" => Box::new(udp_checksum),
                     _ => {
-                        panic!("Unknown input name: {}", name)
+                        return Err(PcapError::UnknownInput(name.to_string()));
                     },
                 }
             },
@@ -612,13 +661,13 @@ impl Record for PcapRecord {
             "direction" => Box::new(get_packet_direction),
             "protocol" => Box::new(get_packet_protocol),
             _ => {
-                panic!("Unknown input name: {}", name)
+                return Err(PcapError::UnknownInput(name.to_string()));
             },
         };
-        Box::new(move |packet: &PcapRecord| {
+        Ok(Box::new(move |packet: &PcapRecord| {
             let packet = SlicedPacket::from_ethernet(packet.0.as_slice()).expect("Could not parse packet!");
-            inner_fn(&packet)
-        })
+            Ok(inner_fn(&packet))
+        }))
     }
 }
 
@@ -653,20 +702,26 @@ pub struct PcapEventSource<InputTime: TimeRepresentation> {
 }
 
 impl<InputTime: TimeRepresentation> PcapEventSource<InputTime> {
-    pub fn setup(src: &PcapInputSource) -> Result<PcapEventSource<InputTime>, Box<dyn Error>> {
+    pub fn setup(src: &PcapInputSource) -> Result<PcapEventSource<InputTime>, PcapError> {
         let capture_handle = match src {
             PcapInputSource::Device { name, .. } => {
-                let all_devices = Device::list()?;
+                let all_devices = Device::list().map_err(|e| PcapError::Pcap(e))?;
+                let device_names: Vec<_> = all_devices.iter().map(|d| d.name.clone()).collect();
                 let dev: Device = all_devices
                     .into_iter()
-                    .find(|d| d.name == *name)
-                    .unwrap_or_else(|| panic!("Could not find network interface with name: {}", *name));
+                    .find(|d| &d.name == name)
+                    .ok_or_else(|| PcapError::UnknownDevice(name.clone(), device_names))?;
 
-                let capture_handle = Capture::from_device(dev)?.promisc(true).snaplen(65535).open()?;
+                let capture_handle = Capture::from_device(dev)
+                    .map_err(|e| PcapError::Pcap(e))?
+                    .promisc(true)
+                    .snaplen(65535)
+                    .open()
+                    .map_err(|e| PcapError::Pcap(e))?;
                 capture_handle.into()
             },
             PcapInputSource::File { path, .. } => {
-                let capture_handle = Capture::from_file(path)?;
+                let capture_handle = Capture::from_file(path).map_err(|e| PcapError::Pcap(e))?;
                 capture_handle.into()
             },
         };
@@ -675,13 +730,8 @@ impl<InputTime: TimeRepresentation> PcapEventSource<InputTime> {
             PcapInputSource::Device { local_network, .. } => local_network,
             PcapInputSource::File { local_network, .. } => local_network,
         };
-        let local_net = IpNetwork::from_str(local_network_range.as_ref()).unwrap_or_else(|e| {
-            eprintln!(
-                "Could not parse local network range: {}. Error: {}",
-                *local_network_range, e
-            );
-            std::process::exit(1);
-        });
+        let local_net = IpNetwork::from_str(local_network_range.as_ref())
+            .map_err(|e| PcapError::InvalidLocalNetwork(local_network_range.clone(), e))?;
 
         Ok(Self {
             capture_handle,
@@ -692,31 +742,27 @@ impl<InputTime: TimeRepresentation> PcapEventSource<InputTime> {
 }
 
 impl<InputTime: TimeRepresentation> EventSource<InputTime> for PcapEventSource<InputTime> {
+    type Error = PcapError;
     type Rec = PcapRecord;
 
-    fn init_data(&self) -> IpNetwork {
-        self.local_net
+    fn init_data(&self) -> Result<IpNetwork, PcapError> {
+        Ok(self.local_net)
     }
 
-    fn next_event(&mut self) -> Option<(PcapRecord, InputTime::InnerTime)> {
+    fn next_event(&mut self) -> Result<Option<(PcapRecord, InputTime::InnerTime)>, PcapError> {
         let raw_packet: Packet = match self.capture_handle.next_packet() {
             Ok(pkt) => pkt,
-            Err(e) => {
-                match e {
-                    PCAPError::NoMorePackets => return None,
-                    _ => panic!("Could not read next packet: {}", e),
-                }
-            },
+            Err(PCAPError::NoMorePackets) => return Ok(None),
+            Err(e) => return Err(PcapError::Pcap(e)),
         };
         let p = (*raw_packet).to_vec();
 
-        let (secs, nanos) = (
-            u64::try_from(raw_packet.header.ts.tv_sec).unwrap(),
-            u32::try_from(raw_packet.header.ts.tv_usec * 1000).unwrap(),
-        );
+        let (secs, nanos) = u64::try_from(raw_packet.header.ts.tv_sec)
+            .and_then(|secs| u32::try_from(raw_packet.header.ts.tv_usec * 1000).map(|sub_secs| (secs, sub_secs)))
+            .map_err(|e| PcapError::TimeParseError(e))?;
         let time_str = format!("{}.{:09}", secs, nanos);
-        let time = InputTime::parse(&time_str).expect("Could not parse timestamp from packet");
+        let time = InputTime::parse(&time_str).map_err(|e| PcapError::TimeFormatError(e))?;
 
-        Some((PcapRecord(p), time))
+        Ok(Some((PcapRecord(p), time)))
     }
 }

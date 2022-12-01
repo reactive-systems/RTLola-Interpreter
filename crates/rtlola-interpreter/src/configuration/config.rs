@@ -67,12 +67,15 @@ impl<
     }
 
     /// Transforms the configuration into a [Monitor] using the provided data to setup the input source.
-    pub fn monitor_with_data(self, data: Source::CreationData) -> Monitor<Source, SourceTime, Verdict, VerdictTime> {
+    pub fn monitor_with_data(
+        self,
+        data: Source::CreationData,
+    ) -> Result<Monitor<Source, SourceTime, Verdict, VerdictTime>, Source::Error> {
         Monitor::setup(self.config, data)
     }
 
     /// Transforms the configuration into a [Monitor]
-    pub fn monitor(self) -> Monitor<Source, SourceTime, Verdict, VerdictTime>
+    pub fn monitor(self) -> Result<Monitor<Source, SourceTime, Verdict, VerdictTime>, Source::Error>
     where
         Source: Input<CreationData = ()>,
     {
@@ -136,7 +139,7 @@ impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation> Config
     pub fn monitor<Source: Input, Verdict: VerdictRepresentation>(
         self,
         data: Source::CreationData,
-    ) -> Monitor<Source, InputTime, Verdict, OutputTime> {
+    ) -> Result<Monitor<Source, InputTime, Verdict, OutputTime>, Source::Error> {
         Monitor::setup(self, data)
     }
 }
