@@ -654,27 +654,23 @@ impl Evaluator {
         }
 
         let is_parameterized = self.ir.outputs[ix].is_parameterized();
-        match self.is_trigger(output) {
-            None => {
-                // Register value in global store.
-                let instance = if is_parameterized {
-                    self.global_store
-                        .get_out_instance_collection_mut(output)
-                        .instance_mut(parameter)
-                        .expect("tried to eval non existing instance")
-                } else {
-                    self.global_store.get_out_instance_mut(output)
-                };
-                instance.push_value(res.clone());
-                self.fresh_outputs.insert(ix);
-            },
+        // Register value in global store.
+        let instance = if is_parameterized {
+            self.global_store
+                .get_out_instance_collection_mut(output)
+                .instance_mut(parameter)
+                .expect("tried to eval non existing instance")
+        } else {
+            self.global_store.get_out_instance_mut(output)
+        };
+        instance.push_value(res.clone());
+        self.fresh_outputs.insert(ix);
 
-            Some(_) => {
-                // Check if we have to emit a warning.
-                if let Value::Bool(true) = res {
-                    self.fresh_triggers.insert(ix);
-                }
-            },
+        if self.is_trigger(output).is_some() {
+            // Check if we have to emit a trigger.
+            if let Value::Bool(true) = res {
+                self.fresh_triggers.insert(ix);
+            }
         }
 
         // Check linked windows and inform them.
