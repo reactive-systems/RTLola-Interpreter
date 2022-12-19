@@ -570,11 +570,11 @@ version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b7a8e9be5e039e2ff869df49155f1c06bd01ade2117ec783e56ab0932b67a8f"
 dependencies = [
- "num-bigint 0.3.3",
+ "num-bigint",
  "num-complex",
  "num-integer",
  "num-iter",
- "num-rational 0.3.2",
+ "num-rational",
  "num-traits",
 ]
 
@@ -583,17 +583,6 @@ name = "num-bigint"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f6f7833f2cbf2360a6cfd58cd41a53aa7a90bd4c202f5b1c7dd2ed73c57b2c3"
-dependencies = [
- "autocfg",
- "num-integer",
- "num-traits",
-]
-
-[[package]]
-name = "num-bigint"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f93ab6289c7b344a8a9f60f88d80aa20032336fe78da341afc91c8a2341fc75f"
 dependencies = [
  "autocfg",
  "num-integer",
@@ -637,20 +626,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "12ac428b1cb17fce6f731001d307d351ec70a6d202fc2e60f7d4c5e42d8f4f07"
 dependencies = [
  "autocfg",
- "num-bigint 0.3.3",
- "num-integer",
- "num-traits",
- "serde",
-]
-
-[[package]]
-name = "num-rational"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0638a1c9d0a3c0914158145bc76cff373a75a627e6ecbfb71cbe6f453a5a19b0"
-dependencies = [
- "autocfg",
- "num-bigint 0.4.3",
+ "num-bigint",
  "num-integer",
  "num-traits",
  "serde",
@@ -914,9 +890,9 @@ dependencies = [
  "crossterm",
  "human-panic",
  "humantime",
- "rtlola-frontend 0.6.0 (git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development)",
- "rtlola-input-plugins",
- "rtlola-interpreter 0.9.0",
+ "rtlola-frontend",
+ "rtlola-input-plugins 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rtlola-interpreter 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -929,48 +905,12 @@ dependencies = [
  "itertools",
  "lazy_static",
  "num",
- "num-rational 0.3.2",
- "rtlola-hir 0.4.0",
- "rtlola-parser 0.3.0",
- "rtlola-reporting 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "num-rational",
+ "rtlola-hir",
+ "rtlola-parser",
+ "rtlola-reporting",
  "serde",
  "serde_json",
- "uom",
-]
-
-[[package]]
-name = "rtlola-frontend"
-version = "0.6.0"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#8e040a474f4ac3b0df9a29a32ce619fea6ae87f6"
-dependencies = [
- "dot",
- "itertools",
- "lazy_static",
- "num",
- "num-rational 0.3.2",
- "rtlola-hir 0.3.4",
- "rtlola-parser 0.2.1",
- "rtlola-reporting 0.2.1 (git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development)",
- "serde",
- "serde_json",
- "uom",
-]
-
-[[package]]
-name = "rtlola-hir"
-version = "0.3.4"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#8e040a474f4ac3b0df9a29a32ce619fea6ae87f6"
-dependencies = [
- "itertools",
- "lazy_static",
- "num",
- "num-rational 0.4.1",
- "petgraph",
- "rtlola-macros 0.1.1 (git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development)",
- "rtlola-parser 0.2.1",
- "rtlola-reporting 0.2.1 (git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development)",
- "rusttyc 0.4.2",
- "serde",
  "uom",
 ]
 
@@ -983,12 +923,12 @@ dependencies = [
  "itertools",
  "lazy_static",
  "num",
- "num-rational 0.3.2",
+ "num-rational",
  "petgraph",
- "rtlola-macros 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "rtlola-parser 0.3.0",
- "rtlola-reporting 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "rusttyc 0.5.0",
+ "rtlola-macros",
+ "rtlola-parser",
+ "rtlola-reporting",
+ "rusttyc",
  "serde",
  "uom",
 ]
@@ -1001,7 +941,21 @@ dependencies = [
  "etherparse",
  "ip_network",
  "pcap",
- "rtlola-frontend 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rtlola-frontend",
+ "rtlola-interpreter 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "rtlola-input-plugins"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c78bbfdc4796ad6e0d3b86f13a57db0877f35636363d223d31b79abc5dcbdc25"
+dependencies = [
+ "csv",
+ "etherparse",
+ "ip_network",
+ "pcap",
+ "rtlola-frontend",
  "rtlola-interpreter 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -1024,7 +978,7 @@ dependencies = [
  "ordered-float",
  "priority-queue",
  "regex",
- "rtlola-frontend 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rtlola-frontend",
  "rust_decimal",
  "serde",
  "serde_json",
@@ -1049,7 +1003,7 @@ dependencies = [
  "ordered-float",
  "priority-queue",
  "regex",
- "rtlola-frontend 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rtlola-frontend",
  "rust_decimal",
  "string_template",
 ]
@@ -1065,30 +1019,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rtlola-macros"
-version = "0.1.1"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#8e040a474f4ac3b0df9a29a32ce619fea6ae87f6"
-dependencies = [
- "quote",
- "syn",
-]
-
-[[package]]
-name = "rtlola-parser"
-version = "0.2.1"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#8e040a474f4ac3b0df9a29a32ce619fea6ae87f6"
-dependencies = [
- "lazy_static",
- "num",
- "num-rational 0.4.1",
- "pest",
- "pest_derive",
- "rtlola-reporting 0.2.1 (git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development)",
- "serde",
- "uom",
-]
-
-[[package]]
 name = "rtlola-parser"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1096,10 +1026,10 @@ checksum = "468a2743a3861ad17fd28ee74124468718aa7c9a8f5abb1718f2371ee4a94499"
 dependencies = [
  "lazy_static",
  "num",
- "num-rational 0.3.2",
+ "num-rational",
  "pest",
  "pest_derive",
- "rtlola-reporting 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rtlola-reporting",
  "serde",
  "uom",
 ]
@@ -1109,16 +1039,6 @@ name = "rtlola-reporting"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c6a30c3ceffcd9de18ffa43985411e4a1d622b3c5916c873fcb333852233c852"
-dependencies = [
- "codespan-reporting",
- "pest",
- "serde",
-]
-
-[[package]]
-name = "rtlola-reporting"
-version = "0.2.1"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#8e040a474f4ac3b0df9a29a32ce619fea6ae87f6"
 dependencies = [
  "codespan-reporting",
  "pest",
@@ -1155,11 +1075,6 @@ dependencies = [
  "linux-raw-sys",
  "windows-sys 0.42.0",
 ]
-
-[[package]]
-name = "rusttyc"
-version = "0.4.2"
-source = "git+https://github.com/Schwenger/RustTyC.git?branch=context_sensitive#b6990e088c28340c7ed3df26d9b340191c64d8f7"
 
 [[package]]
 name = "rusttyc"
@@ -1411,7 +1326,7 @@ version = "0.31.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b1ee6bfd0a27bf614353809a035cf6880b74239ec6c5e39a7b2860ca16809137"
 dependencies = [
- "num-rational 0.3.2",
+ "num-rational",
  "num-traits",
  "serde",
  "typenum",
