@@ -20,7 +20,7 @@ keywords = ["verification", "interpreter", "monitoring"]
 
 
 [dependencies]
-rtlola-frontend = {git="ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git", branch="development"}
+rtlola-frontend = "0.6.0"
 ordered-float = "3.2.0"
 
 lazy_static = "1.4.0" # static allocation at runtime

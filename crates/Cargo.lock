@@ -914,9 +914,28 @@ dependencies = [
  "crossterm",
  "human-panic",
  "humantime",
- "rtlola-frontend",
+ "rtlola-frontend 0.6.0 (git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development)",
  "rtlola-input-plugins",
  "rtlola-interpreter",
+]
+
+[[package]]
+name = "rtlola-frontend"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae0b9e27a5f6054f64e3b979fbdb25fa2fd720c91a1246f83543713d5ad94aee"
+dependencies = [
+ "dot",
+ "itertools",
+ "lazy_static",
+ "num",
+ "num-rational 0.3.2",
+ "rtlola-hir 0.4.0",
+ "rtlola-parser 0.3.0",
+ "rtlola-reporting 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde",
+ "serde_json",
+ "uom",
 ]
 
 [[package]]
@@ -929,9 +948,9 @@ dependencies = [
  "lazy_static",
  "num",
  "num-rational 0.3.2",
- "rtlola-hir",
- "rtlola-parser",
- "rtlola-reporting",
+ "rtlola-hir 0.3.4",
+ "rtlola-parser 0.2.1",
+ "rtlola-reporting 0.2.1 (git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development)",
  "serde",
  "serde_json",
  "uom",
@@ -947,10 +966,29 @@ dependencies = [
  "num",
  "num-rational 0.4.1",
  "petgraph",
- "rtlola-macros",
- "rtlola-parser",
- "rtlola-reporting",
- "rusttyc",
+ "rtlola-macros 0.1.1 (git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development)",
+ "rtlola-parser 0.2.1",
+ "rtlola-reporting 0.2.1 (git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development)",
+ "rusttyc 0.4.2",
+ "serde",
+ "uom",
+]
+
+[[package]]
+name = "rtlola-hir"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "757b5df74bc2eb5e4f658d825612b4c52e1b403e52f95c0941fd7fb296537d6f"
+dependencies = [
+ "itertools",
+ "lazy_static",
+ "num",
+ "num-rational 0.3.2",
+ "petgraph",
+ "rtlola-macros 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rtlola-parser 0.3.0",
+ "rtlola-reporting 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rusttyc 0.5.0",
  "serde",
  "uom",
 ]
@@ -963,7 +1001,7 @@ dependencies = [
  "etherparse",
  "ip_network",
  "pcap",
- "rtlola-frontend",
+ "rtlola-frontend 0.6.0 (git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development)",
  "rtlola-interpreter",
 ]
 
@@ -986,12 +1024,22 @@ dependencies = [
  "ordered-float",
  "priority-queue",
  "regex",
- "rtlola-frontend",
+ "rtlola-frontend 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rust_decimal",
  "serde",
  "serde_json",
  "string_template",
  "tempfile",
+]
+
+[[package]]
+name = "rtlola-macros"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edb2eb7fa0cabeda58bd1fa79acb708d061968e85aa8d9531d75d6434391177b"
+dependencies = [
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -1013,9 +1061,36 @@ dependencies = [
  "num-rational 0.4.1",
  "pest",
  "pest_derive",
- "rtlola-reporting",
+ "rtlola-reporting 0.2.1 (git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development)",
  "serde",
  "uom",
+]
+
+[[package]]
+name = "rtlola-parser"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "468a2743a3861ad17fd28ee74124468718aa7c9a8f5abb1718f2371ee4a94499"
+dependencies = [
+ "lazy_static",
+ "num",
+ "num-rational 0.3.2",
+ "pest",
+ "pest_derive",
+ "rtlola-reporting 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde",
+ "uom",
+]
+
+[[package]]
+name = "rtlola-reporting"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6a30c3ceffcd9de18ffa43985411e4a1d622b3c5916c873fcb333852233c852"
+dependencies = [
+ "codespan-reporting",
+ "pest",
+ "serde",
 ]
 
 [[package]]
@@ -1063,6 +1138,12 @@ dependencies = [
 name = "rusttyc"
 version = "0.4.2"
 source = "git+https://github.com/Schwenger/RustTyC.git?branch=context_sensitive#b6990e088c28340c7ed3df26d9b340191c64d8f7"
+
+[[package]]
+name = "rusttyc"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "14ae3b1a443c1a8f71f24d05d6d7081e161e5babc225818c5e3223a5afd045cb"
 
 [[package]]
 name = "ryu"
