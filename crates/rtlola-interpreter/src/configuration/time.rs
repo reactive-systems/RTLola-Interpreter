@@ -153,8 +153,7 @@ impl TimeRepresentation for RelativeFloat {
     }
 
     fn to_string(&self, ts: Self::InnerTime) -> String {
-        let dur = self.convert_into(ts);
-        format! {"{}.{:09}", dur.as_secs(), dur.subsec_nanos()}
+        format! {"{}.{:09}", ts.as_secs(), ts.subsec_nanos()}
     }
 
     fn parse(s: &str) -> Result<Duration, String> {
@@ -216,9 +215,8 @@ impl TimeRepresentation for OffsetFloat {
         ts - self.last_time
     }
 
-    fn to_string(&self, ts: Time) -> String {
-        let dur = self.convert_into(ts);
-        format! {"{}.{:09}", dur.as_secs(), dur.subsec_nanos()}
+    fn to_string(&self, ts: Self::InnerTime) -> String {
+        format! {"{}.{:09}", ts.as_secs(), ts.subsec_nanos()}
     }
 
     fn parse(s: &str) -> Result<Duration, String> {
@@ -254,8 +252,7 @@ impl TimeRepresentation for AbsoluteFloat {
     }
 
     fn to_string(&self, ts: Time) -> String {
-        let dur = self.convert_into(ts);
-        format! {"{}.{:09}", dur.as_secs(), dur.subsec_nanos()}
+        format! {"{}.{:09}", ts.as_secs(), ts.subsec_nanos()}
     }
 
     fn parse(s: &str) -> Result<Duration, String> {
@@ -341,12 +338,12 @@ impl TimeRepresentation for DelayTime {
 
     fn convert_into(&self, _ts: Time) -> Self::InnerTime {}
 
-    fn parse(_s: &str) -> Result<(), String> {
-        Ok(())
-    }
-
     fn to_string(&self, _ts: Self::InnerTime) -> String {
         format! {"{}.{:09}", self.current.as_secs(), self.current.subsec_nanos()}
+    }
+
+    fn parse(_s: &str) -> Result<(), String> {
+        Ok(())
     }
 }
 
