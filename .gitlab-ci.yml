@@ -5,7 +5,8 @@ stages:
   - test
   - additional-test
   - bench
-#  - release
+  - release
+  - comparison
 
 variables:
   CARGO_HOME: $CI_PROJECT_DIR/.cargo
@@ -29,7 +30,7 @@ format:cli:
     - docker
   image: rustlang/rust:nightly
   script:
-    - rustc --version && cargo --version      # Print version info for debugging
+    - rustc --version && cargo --version # Print version info for debugging
     - cargo +nightly fmt -p rtlola-cli --verbose -- --check
 
 format:plugins:
@@ -38,7 +39,7 @@ format:plugins:
     - docker
   image: rustlang/rust:nightly
   script:
-    - rustc --version && cargo --version      # Print version info for debugging
+    - rustc --version && cargo --version # Print version info for debugging
     - cargo +nightly fmt -p rtlola-input-plugins --verbose -- --check
 
 # Use cargo to check the source code formatting
@@ -48,7 +49,7 @@ format:interpreter:
     - docker
   image: rustlang/rust:nightly
   script:
-    - rustc --version && cargo --version      # Print version info for debugging
+    - rustc --version && cargo --version # Print version info for debugging
     - cargo +nightly fmt -p rtlola-interpreter --verbose -- --check
 
 # Use cargo to run clippy (Rust linter)
@@ -66,7 +67,7 @@ clippy:cli:
       - $CARGO_HOME
   script:
     - rustup component add clippy
-    - rustc --version && cargo --version      # Print version info for debugging
+    - rustc --version && cargo --version # Print version info for debugging
     - cargo clippy -p rtlola-cli
 
 clippy:plugins:
@@ -83,7 +84,7 @@ clippy:plugins:
       - $CARGO_HOME
   script:
     - rustup component add clippy
-    - rustc --version && cargo --version      # Print version info for debugging
+    - rustc --version && cargo --version # Print version info for debugging
     - cargo clippy -p rtlola-input-plugins
 
 # Use cargo to run clippy (Rust linter)
@@ -101,7 +102,7 @@ clippy:interpreter:
       - $CARGO_HOME
   script:
     - rustup component add clippy
-    - rustc --version && cargo --version      # Print version info for debugging
+    - rustc --version && cargo --version # Print version info for debugging
     - cargo clippy -p rtlola-interpreter
 
 # Check that every ignored test has an accompanying comment
@@ -131,7 +132,7 @@ test:interpreter:
   script:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev
-    - rustc --version && cargo --version      # Print version info for debugging
+    - rustc --version && cargo --version # Print version info for debugging
     - cargo test -p rtlola-interpreter --all --verbose
 
 # Use cargo to test the project on stable toolchain
@@ -150,7 +151,7 @@ test:plugins:
   script:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev
-    - rustc --version && cargo --version      # Print version info for debugging
+    - rustc --version && cargo --version # Print version info for debugging
     - cargo test -p rtlola-input-plugins --all --verbose
 
 # Run the tool by checking the number of triggers fired
@@ -222,9 +223,9 @@ test:nightly:
     - curl -L https://github.com/mozilla/grcov/releases/download/v0.6.1/grcov-linux-x86_64.tar.bz2 | tar jxf -
     - rustup component add llvm-tools-preview
     - (rm -r ./target/debug/coverage/) || true
-    - rustc --version && cargo --version      # Print version info for debugging
+    - rustc --version && cargo --version # Print version info for debugging
     - (cargo test -- -Z unstable-options --format json | $CARGO_HOME/bin/cargo2junit > results.xml) || true # ignore the return code so that we can show the complete output (including ignored tests)
-    - python3 ./rtlola-cli/rtlola-interpreter-e2e-tests.py || true        # count the e2e test for coverage but keep going
+    - python3 ./rtlola-cli/rtlola-interpreter-e2e-tests.py || true # count the e2e test for coverage but keep going
     - ./grcov . --ignore ".cargo/*" --binary-path ./target/debug/ -s . -t html --branch --ignore-not-existing --llvm -o ./target/debug/coverage/
     - cat ./target/debug/coverage/index.html
     - cargo test --all --verbose
@@ -318,7 +319,6 @@ test:wasm:
 # Windows, Linux, and MacOS could resolve to different Cargo.lock files.
 # However, we keep the Cargo.lock files as artifacts.
 
-
 #release-windows:
 #  stage: release
 #  only:
@@ -343,8 +343,6 @@ test:wasm:
 #      - target/x86_64-pc-windows-msvc/release/rtlola-interpreter.exe
 #      - Cargo.lock
 
-
-
 #release-windows-gnu:
 #  stage: release
 #  only:
@@ -366,29 +364,53 @@ test:wasm:
 #      - target/x86_64-pc-windows-gnu/release/rtlola-interpreter.exe
 #      - Cargo.lock
 
-#release-linux:
-#  stage: release
-#  tags:
-#    - docker
-#  image: rust:latest
-#  only:
-#    - tags
-#    - web
-#    - triggers
-#  before_script:
-#    - apt-get update -yqq
-#    - apt-get install -yqq --no-install-recommends musl-dev musl-tools clang
-#    - cd evaluator
-#    - rustup target add x86_64-unknown-linux-musl
-#    - rustc --version && cargo --version      # Print version info for debugging
-#  script:
-#    - cargo build --release --target x86_64-unknown-linux-musl --features public
-#  artifacts:
-#    name: "rtlola-interpreter-linux-${CI_COMMIT_REF_NAME}_${CI_COMMIT_SHORT_SHA}"
-#    paths:
-#      - target/x86_64-unknown-linux-musl/release/rtlola-interpreter
-#      - Cargo.lock
+release-linux:
+  stage: release
+  tags:
+    - docker
+  image: rust:latest
+  rules:
+    - if: $CI_COMMIT_BRANCH == "development"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  cache:
+    key: "cli"
+    policy: pull-push
+    paths:
+      - crates/target/
+      - $CARGO_HOME
+  script:
+    - cd rtlola-cli
+    - rustc --version && cargo --version # Print version info for debugging
+    - cargo update
+    - cargo build --release --features public
+  artifacts:
+    name: "rtlola-cli-linux-${CI_COMMIT_REF_NAME}_${CI_COMMIT_SHORT_SHA}"
+    paths:
+      - crates/target/release/rtlola-cli
 
+comparison-merge-request:
+  stage: comparison
+  needs: ["release-linux"]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  variables:
+    INTERPRETER_REF: $CI_MERGE_REQUEST_REF_PATH
+  trigger:
+    project: group-finkbeiner/tools/RTLola/rtlola-backends-comparison
+    branch: main
+
+comparison-branch:
+  stage: comparison
+  needs: ["release-linux"]
+  rules:
+    - if: $CI_COMMIT_BRANCH == "development"
+    - if: $CI_COMMIT_BRANCH == "main"
+  variables:
+    INTERPRETER_REF: $CI_COMMIT_BRANCH
+  trigger:
+    project: group-finkbeiner/tools/RTLola/rtlola-backends-comparison
+    branch: main
 #release-macos:
 #  stage: release
 #  only:
