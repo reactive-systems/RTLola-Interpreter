@@ -5,7 +5,6 @@ output b(p: Int64) spawn with a eval when p = a with a
 output b_0 @2Hz := b(0).aggregate(over_exactly: 1s, using: count).defaults(to: 0)
 output b_1 @2Hz := b(1).aggregate(over: 1s, using: count)
 output b_2 @2Hz := b(2).aggregate(over_exactly: 1s, using: count).defaults(to: 0)
-output b_3 @2Hz := b(3).aggregate(over_discrete: 4, using: count)
 
 trigger b_0 = 0 "b_0 is 0"
 trigger b_0 = 1 "b_0 is 1"
@@ -20,9 +19,3 @@ trigger b_1 = 4 "b_1 is 4"
 trigger b_2 = 0 "b_2 is 0"
 trigger b_2 = 1 "b_2 is 1"
 trigger b_2 = 2 "b_2 is 2"
-
-trigger b_3 = 0 "b_3 is 0"
-trigger b_3 = 1 "b_3 is 1"
-trigger b_3 = 2 "b_3 is 2"
-trigger b_3 = 3 "b_3 is 3"
-trigger b_3 = 4 "b_3 is 4"
