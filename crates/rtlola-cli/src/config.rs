@@ -54,26 +54,22 @@ pub(crate) struct Config<
 }
 
 /// Used to define the level of statistics that should be computed.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, ValueEnum)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, ValueEnum, Default)]
 pub(crate) enum Statistics {
     /// No statistics will be computed
+    #[default]
     None,
     /// All statistics will be computed
     All,
 }
 
-impl Default for Statistics {
-    fn default() -> Self {
-        Statistics::None
-    }
-}
-
 /// The different verbosities supported by the interpreter.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, ValueEnum)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, ValueEnum, Default)]
 pub enum Verbosity {
     /// Suppresses any kind of logging.
     Silent,
     /// Prints only triggers and runtime warnings.
+    #[default]
     Trigger,
     /// Prints new stream values for every stream.
     Streams,
@@ -89,12 +85,6 @@ impl Display for Verbosity {
             Verbosity::Streams => write!(f, "Stream"),
             Verbosity::Debug => write!(f, "Debug"),
         }
-    }
-}
-
-impl Default for Verbosity {
-    fn default() -> Self {
-        Verbosity::Trigger
     }
 }
 

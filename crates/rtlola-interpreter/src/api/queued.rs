@@ -240,12 +240,12 @@ where
 
     fn worker_alive(&mut self) -> Result<(), QueueError> {
         if self.worker.is_some() {
-            return if self.worker.as_ref().unwrap().is_finished() {
+            if self.worker.as_ref().unwrap().is_finished() {
                 let worker = self.worker.take().unwrap();
                 worker.join().map_err(|e| QueueError::ThreadPanic(format!("{:?}", e)))?
             } else {
                 Ok(())
-            };
+            }
         } else {
             Err(QueueError::ThreadPanic("Worker thread died.".to_string()))
         }

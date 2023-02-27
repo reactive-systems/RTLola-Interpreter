@@ -19,9 +19,10 @@ use rtlola_interpreter::time::OutputTimeRepresentation;
 use crate::config::Verbosity;
 
 /// The possible targets at which the output of the interpreter can be directed.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum OutputChannel {
     /// Write the output to Std-Out
+    #[default]
     StdOut,
     /// Write the output to Std-Err
     StdErr,
@@ -39,12 +40,6 @@ impl From<OutputChannel> for Box<dyn Write> {
                 Box::new(BufWriter::new(file))
             },
         }
-    }
-}
-
-impl Default for OutputChannel {
-    fn default() -> Self {
-        OutputChannel::StdOut
     }
 }
 

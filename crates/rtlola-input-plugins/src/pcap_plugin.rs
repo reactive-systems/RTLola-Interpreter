@@ -705,7 +705,7 @@ impl<InputTime: TimeRepresentation> PcapEventSource<InputTime> {
     pub fn setup(src: &PcapInputSource) -> Result<PcapEventSource<InputTime>, PcapError> {
         let capture_handle = match src {
             PcapInputSource::Device { name, .. } => {
-                let all_devices = Device::list().map_err(|e| PcapError::Pcap(e))?;
+                let all_devices = Device::list().map_err(PcapError::Pcap)?;
                 let device_names: Vec<_> = all_devices.iter().map(|d| d.name.clone()).collect();
                 let dev: Device = all_devices
                     .into_iter()
@@ -713,15 +713,15 @@ impl<InputTime: TimeRepresentation> PcapEventSource<InputTime> {
                     .ok_or_else(|| PcapError::UnknownDevice(name.clone(), device_names))?;
 
                 let capture_handle = Capture::from_device(dev)
-                    .map_err(|e| PcapError::Pcap(e))?
+                    .map_err(PcapError::Pcap)?
                     .promisc(true)
                     .snaplen(65535)
                     .open()
-                    .map_err(|e| PcapError::Pcap(e))?;
+                    .map_err(PcapError::Pcap)?;
                 capture_handle.into()
             },
             PcapInputSource::File { path, .. } => {
-                let capture_handle = Capture::from_file(path).map_err(|e| PcapError::Pcap(e))?;
+                let capture_handle = Capture::from_file(path).map_err(PcapError::Pcap)?;
                 capture_handle.into()
             },
         };
@@ -759,9 +759,9 @@ impl<InputTime: TimeRepresentation> EventSource<InputTime> for PcapEventSource<I
 
         let (secs, nanos) = u64::try_from(raw_packet.header.ts.tv_sec)
             .and_then(|secs| u32::try_from(raw_packet.header.ts.tv_usec * 1000).map(|sub_secs| (secs, sub_secs)))
-            .map_err(|e| PcapError::TimeParseError(e))?;
+            .map_err(PcapError::TimeParseError)?;
         let time_str = format!("{}.{:09}", secs, nanos);
-        let time = InputTime::parse(&time_str).map_err(|e| PcapError::TimeFormatError(e))?;
+        let time = InputTime::parse(&time_str).map_err(PcapError::TimeFormatError)?;
 
         Ok(Some((PcapRecord(p), time)))
     }

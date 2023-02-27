@@ -1519,7 +1519,7 @@ mod tests {
     #[test]
     fn test_sum_window_discrete() {
         let (_, eval, mut time) =
-            setup_time("input a: Int16\noutput b: Int16 @1Hz:= a.aggregate(over_discrete: 6, using: sum)");
+            setup_time("input a: Int16\noutput b: Int16 := a.aggregate(over_discrete: 6, using: sum)");
         let mut eval = eval.into_evaluator();
         time += Duration::from_secs(45);
         let out_ref = StreamReference::Out(0);
@@ -1746,7 +1746,7 @@ mod tests {
             ("med", Value::new_float(15.5)),
         ] {
             let (_, eval, mut time) = setup_time(&format!(
-                "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over_discrete: 10, using: {}).defaults(to:0.0)",
+                "input a: Float32\noutput b: Float32 := a.aggregate(over_discrete: 10, using: {}).defaults(to:0.0)",
                 pctl
             ));
             let mut eval = eval.into_evaluator();
@@ -1947,7 +1947,7 @@ mod tests {
             ("11", Value::new_float(10.0)),
         ] {
             let (_, eval, mut time) = setup_time(&format!(
-                "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over_discrete: {}, using: var).defaults(to:0.0)",
+                "input a: Float32\noutput b: Float32 := a.aggregate(over_discrete: {}, using: var).defaults(to:0.0)",
                 duration
             ));
             let mut eval = eval.into_evaluator();
@@ -1985,7 +1985,7 @@ mod tests {
             ("11", Value::new_float(10.0f64.sqrt())),
         ] {
             let (_, eval, mut time) = setup_time(&format!(
-                "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over_discrete: {}, using: sd).defaults(to:0.0)",
+                "input a: Float32\noutput b: Float32 := a.aggregate(over_discrete: {}, using: sd).defaults(to:0.0)",
                 duration
             ));
             let mut eval = eval.into_evaluator();
@@ -2020,7 +2020,7 @@ mod tests {
             ("med", Value::new_float(23.0), true),
             ("pctl20", Value::new_float(21.5), true),
         ] {
-            let mut spec = String::from("input a: Float32\noutput b @0.5Hz:= a.aggregate(over_discrete: 5, using: ");
+            let mut spec = String::from("input a: Float32\noutput b := a.aggregate(over_discrete: 5, using: ");
             spec += aggr;
             spec += ")";
             if *default {
@@ -2057,7 +2057,7 @@ mod tests {
             ("med", Signed(23), true),
             ("pctl20", Signed(21), true),
         ] {
-            let mut spec = String::from("input a: Int16\noutput b @0.5Hz:= a.aggregate(over_discrete: 5, using: ");
+            let mut spec = String::from("input a: Int16\noutput b := a.aggregate(over_discrete: 5, using: ");
             spec += aggr;
             spec += ")";
             if *default {
@@ -2094,7 +2094,7 @@ mod tests {
             ("med", Unsigned(23), true),
             ("pctl20", Unsigned(21), true),
         ] {
-            let mut spec = String::from("input a: UInt16\noutput b @0.5Hz:= a.aggregate(over_discrete: 5, using: ");
+            let mut spec = String::from("input a: UInt16\noutput b := a.aggregate(over_discrete: 5, using: ");
             spec += aggr;
             spec += ")";
             if *default {
@@ -2652,5 +2652,41 @@ mod tests {
         eval.prepare_evaluation(time);
         eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
         assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(0));
+    }
+
+    #[test]
+    fn test_optional_tuple_access() {
+        let (_, eval, start) = setup(
+            "input a: (UInt, (Bool, Float))\n\
+             output b := a.offset(by: -1).1.0.defaults(to: false)",
+        );
+        let mut eval = eval.into_evaluator();
+        let out_ref = StreamReference::Out(0);
+        let a_ref = StreamReference::In(0);
+        accept_input!(
+            eval,
+            start,
+            a_ref,
+            Tuple(Box::new([
+                Unsigned(42),
+                Tuple(Box::new([Bool(true), Float(NotNan::new(1.5).unwrap())]))
+            ]))
+        );
+
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Bool(false));
+
+        accept_input!(
+            eval,
+            start,
+            a_ref,
+            Tuple(Box::new([
+                Unsigned(13),
+                Tuple(Box::new([Bool(false), Float(NotNan::new(42.0).unwrap())]))
+            ]))
+        );
+
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Bool(true));
     }
 }
