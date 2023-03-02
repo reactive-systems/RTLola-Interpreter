@@ -54,6 +54,66 @@
       "time_info": [
         "0.400000000"
       ]
+    },
+    "discrete is 0": {
+      "expected_count": 1,
+      "time_info": [
+        "0.000000000"
+      ]
+    },
+    "discrete is 1": {
+      "expected_count": 1,
+      "time_info": [
+        "0.100000000"
+      ]
+    },
+    "discrete is 3": {
+      "expected_count": 1,
+      "time_info": [
+        "0.110000000"
+      ]
+    },
+    "discrete is 5": {
+      "expected_count": 1,
+      "time_info": [
+        "0.210000000"
+      ]
+    },
+    "discrete is 7": {
+      "expected_count": 1,
+      "time_info": [
+        "0.300000000"
+      ]
+    },
+    "discrete is 9": {
+      "expected_count": 1,
+      "time_info": [
+        "0.310000000"
+      ]
+    },
+    "discrete is 11": {
+      "expected_count": 1,
+      "time_info": [
+        "0.390000000"
+      ]
+    },
+    "discrete is 13": {
+      "expected_count": 1,
+      "time_info": [
+        "0.410000000"
+      ]
+    },
+    "discrete is 15": {
+      "expected_count": 1,
+      "time_info": [
+        "0.510000000"
+      ]
+    },
+    "discrete is 17": {
+      "expected_count": 1,
+      "time_info": [
+        "0.610000000"
+      ]
     }
   }
 }

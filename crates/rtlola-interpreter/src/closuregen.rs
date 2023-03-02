@@ -377,10 +377,11 @@ impl Expr for Expression {
             TupleAccess(expr, num) => {
                 let f_expr = expr.compile();
                 CompiledExpr::new(move |ctx| {
-                    if let Value::Tuple(args) = f_expr.execute(ctx) {
-                        args[num].clone()
-                    } else {
-                        unreachable!("verified by type checker");
+                    let inner = f_expr.execute(ctx);
+                    match inner {
+                        Value::Tuple(elements) => elements[num].clone(),
+                        Value::None => Value::None,
+                        _ => unreachable!("verified by type checker"),
                     }
                 })
             },
