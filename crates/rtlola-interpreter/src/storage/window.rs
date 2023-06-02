@@ -335,7 +335,6 @@ impl<IV: WindowIv> WindowInstanceTrait for RealTimeWindowInstance<IV> {
         }
         self.buckets
             .iter()
-            .rev()
             .fold(IV::default(ts), |acc, e| acc + e.clone())
             .into()
     }
@@ -354,7 +353,8 @@ impl<IV: WindowIv> WindowInstanceTrait for RealTimeWindowInstance<IV> {
 
         // rounds taken in the ringbuffer since the last update
         let rounds = ((ts.as_nanos() - self.last_update.as_nanos()) / self.total_duration.as_nanos()) as u64;
-        if rounds > 1 {
+        dbg!(rounds);
+        if rounds >= 1 {
             // clear all buckets
             self.clear_all_buckets(ts);
         } else {
@@ -398,15 +398,34 @@ impl<IV: WindowIv> RealTimeWindowInstance<IV> {
     fn get_current_bucket(&self, ts: Time) -> usize {
         assert!(self.active);
         assert!(ts >= self.start_time, "Time does not behave monotonically!");
-        dbg!(ts, self.bucket_duration, ts.as_nanos(), self.bucket_duration.as_nanos(), ts.as_nanos() % self.bucket_duration.as_nanos(), self.buckets.len());
-        (ts.as_nanos() % self.bucket_duration.as_nanos()) as usize
+        let ts = ts.as_nanos() as usize;
+        let window_duration = self.total_duration.as_nanos() as usize;
+        let bucket_duration = self.bucket_duration.as_nanos() as usize;
+        let relative_to_window = ts % window_duration;
+        let idx = relative_to_window / bucket_duration;
+        dbg!(self.buckets.len());
+        dbg!(ts, window_duration, bucket_duration, relative_to_window, idx);
+        dbg!(if ts % bucket_duration == 0 {
+            // A bucket includes time from x < ts <= x + bucket_duration
+            // Consequently, if we hit the "edge" of bucket we have to chose the previous one
+            if idx > 0 {
+                idx - 1
+            } else {
+                self.buckets.len() -1
+            }
+
+        } else {
+            idx
+        })
     }
 
     // clear buckets starting from `start` to `last` including start, excluding end
     fn clear_buckets(&mut self, ts: Time, start: usize, end: usize) {
+        dbg!(&self.buckets);
         self.buckets[start..end]
             .iter_mut()
             .for_each(|x| *x = IV::default(ts));
+        dbg!(&self.buckets);
     }
 
     fn clear_all_buckets(&mut self, ts: Time) {
@@ -429,7 +448,6 @@ impl<G: WindowGeneric> WindowInstanceTrait for PercentileWindow<RealTimeWindowIn
         self.inner
             .buckets
             .iter()
-            .rev()
             .fold(PercentileIv::default(ts), |acc, e| acc + e.clone())
             .percentile_get_value(self.percentile)
     }

@@ -914,7 +914,8 @@ mod tests {
 
     use std::time::{Duration, Instant};
 
-    use ordered_float::NotNan;
+    use ordered_float::{Float, NotNan};
+    use rtlola_frontend::mir::FloatTy::Float64;
     use rtlola_frontend::mir::RtLolaMir;
     use rtlola_frontend::ParserConfig;
 
@@ -935,6 +936,21 @@ mod tests {
     fn setup_time(spec: &str) -> (RtLolaMir, EvaluatorData, Time) {
         let (ir, eval, _) = setup(spec);
         (ir, eval, Time::default())
+    }
+
+    macro_rules! assert_float_eq {
+        ($left:expr, $right:expr) => {
+            if let Value::Float(left) = $left {
+                if let Value::Float(right) = $right {
+                    assert!((left-right).abs() < f64::epsilon(), "Assertion failed: Difference between {} and {} is greater than {}", left, right, f64::epsilon());
+                } else {
+                    panic!("{:?} is not a float.", $right)
+                }
+            } else {
+                panic!("{:?} is not a float.", $left)
+            }
+
+        };
     }
 
     macro_rules! eval_stream_instances {
@@ -1837,7 +1853,7 @@ mod tests {
                 eval.peek_value(in_ref, &Vec::new(), 0).unwrap(),
                 Float(NotNan::new(20.0).unwrap())
             );
-            assert_eq!(
+            assert_float_eq!(
                 eval.peek_value(out_ref, &Vec::new(), 0).unwrap(),
                 exp.as_ref().unwrap().clone()
             );
@@ -2554,7 +2570,7 @@ mod tests {
     }
 
     // p = true -> only gets 42 values
-    // p = false -> get als remaining values
+    // p = false -> get all remaining values
     #[test]
     fn test_close_window_parameterized() {
         let (_, eval, mut time) = setup_time(
