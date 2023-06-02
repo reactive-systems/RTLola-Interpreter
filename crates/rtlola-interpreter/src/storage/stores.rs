@@ -4,7 +4,7 @@ use std::time::Duration;
 use either::Either;
 use rtlola_frontend::mir::{
     InputReference, MemorizationBound, OutputReference, OutputStream, RtLolaMir, Stream, StreamReference, Type,
-    WindowOperation, WindowReference,
+    WindowOperation, WindowReference, SlidingWindow as MirSlidingWindow, DiscreteWindow as MirDiscreteWindow
 };
 
 use super::Value;
@@ -119,42 +119,33 @@ impl InstanceCollection {
 /// The collection of all sliding windows of a parameterized stream
 pub(crate) struct SlidingWindowCollection {
     windows: HashMap<Vec<Value>, SlidingWindow>,
-    duration: Either<Duration, usize>,
-    wait: bool,
-    op: WindowOperation,
-    ty: Type,
+    mirWindow: Either<MirSlidingWindow, MirDiscreteWindow>
 }
 
 impl SlidingWindowCollection {
     /// Creates a new Collection for real-time sliding windows
-    pub(crate) fn new_for_sliding(dur: Duration, wait: bool, op: WindowOperation, ty: &Type) -> Self {
+    pub(crate) fn new_for_sliding(window: &MirSlidingWindow) -> Self {
         SlidingWindowCollection {
             windows: HashMap::new(),
-            duration: Either::Left(dur),
-            wait,
-            op,
-            ty: ty.clone(),
+            mirWindow: Either::Left(window.clone())
         }
     }
 
     /// Creates a new Collection for discrete sliding windows
-    pub(crate) fn new_for_discrete(dur: usize, wait: bool, op: WindowOperation, ty: &Type) -> Self {
+    pub(crate) fn new_for_discrete(window: &MirDiscreteWindow) -> Self {
         SlidingWindowCollection {
             windows: HashMap::new(),
-            duration: Either::Right(dur),
-            wait,
-            op,
-            ty: ty.clone(),
+            mirWindow: Either::Right(window.clone())
         }
     }
 
     /// Creates a new sliding window in the collection
     pub(crate) fn create_window(&mut self, parameters: &[Value], start_time: Time) -> Option<&mut SlidingWindow> {
         if !self.windows.contains_key(parameters) {
-            let window = match self.duration {
-                Either::Left(dur) => SlidingWindow::from_sliding(dur, self.wait, self.op, start_time, &self.ty, false),
-                Either::Right(dur) => {
-                    SlidingWindow::from_discrete(dur, self.wait, self.op, start_time, &self.ty, false)
+            let window = match &self.mirWindow {
+                Either::Left(w) => SlidingWindow::from_sliding(start_time, w, false),
+                Either::Right(w) => {
+                    SlidingWindow::from_discrete(w.duration, w.wait, w.op, start_time, &w.ty, false)
                 },
             };
             self.windows.insert(parameters.to_vec(), window);
@@ -312,12 +303,12 @@ impl GlobalStore {
         let np_windows = np_windows
             .iter()
             .map(|w| {
-                SlidingWindow::from_sliding(w.duration, w.wait, w.op, ts, &w.ty, !ir.stream(w.target).is_spawned())
+                SlidingWindow::from_sliding( ts, w,  !ir.stream(w.target).is_spawned())
             })
             .collect();
         let p_windows = p_windows
             .iter()
-            .map(|w| SlidingWindowCollection::new_for_sliding(w.duration, w.wait, w.op, &w.ty))
+            .map(|w| SlidingWindowCollection::new_for_sliding(w))
             .collect();
         let np_discrete_windows = np_discrete_windows
             .iter()
@@ -327,7 +318,7 @@ impl GlobalStore {
             .collect();
         let p_discrete_windows = p_discrete_windows
             .iter()
-            .map(|w| SlidingWindowCollection::new_for_discrete(w.duration, w.wait, w.op, &w.ty))
+            .map(|w| SlidingWindowCollection::new_for_discrete( w))
             .collect();
 
         GlobalStore {

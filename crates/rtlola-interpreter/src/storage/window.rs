@@ -1,11 +1,13 @@
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::fmt::Debug;
-use std::ops::Add;
+use std::ops::{Add, Div};
 use std::time::Duration;
 
 use ordered_float::NotNan;
-use rtlola_frontend::mir::{Type, WindowOperation as WinOp, WindowOperation};
+use rtlola_frontend::mir::{
+    MemorizationBound, SlidingWindow as MirSlidingWindow, Type, Window, WindowOperation as WinOp,
+};
 
 use super::discrete_window::DiscreteWindowInstance;
 use super::window_aggregations::*;
@@ -15,8 +17,19 @@ use crate::Time;
 const SIZE: usize = 64;
 
 pub(crate) trait WindowInstanceTrait: Debug {
+    /// Computes the current value of a sliding window instance with the given timestamp:
+    /// # Arguments:
+    /// * 'ts' - the current timestamp of the monitor
+    /// Note: You should always call `SlidingWindow::update` before calling `SlidingWindow::get_value()`!
     fn get_value(&self, ts: Time) -> Value;
+    /// Updates the value of the current bucket of a sliding window instance with the current value of the accessed stream:
+    /// # Arguments:
+    /// * 'v' - the current value of the accessed stream
+    /// * 'ts' - the current timestamp of the monitor
     fn accept_value(&mut self, v: Value, ts: Time);
+    /// Updates the buckets of a sliding window instance with the given timestamp:
+    /// # Arguments:
+    /// * 'ts' - the current timestamp of the monitor
     fn update_buckets(&mut self, ts: Time);
     /// Clears the current sliding window state
     fn deactivate(&mut self);
@@ -39,17 +52,17 @@ pub(crate) struct SlidingWindow {
 }
 
 macro_rules! create_window_instance {
-    ($type: ty, $dur: ident, $wait: ident, $ts: ident, $active: ident) => {
+    ($type: ty, $w: ident, $ts: ident, $active: ident) => {
         Self {
-            inner: Box::new(RealTimeWindowInstance::<$type>::new($dur, $wait, $ts, $active)),
+            inner: Box::new(RealTimeWindowInstance::<$type>::new($w, $ts, $active)),
         }
     };
 }
 macro_rules! create_percentile_instance {
-    ($type: ty, $dur: ident, $wait: ident, $ts: ident, $active: ident, $percentile: ident) => {
+    ($type: ty, $w: ident, $ts: ident, $active: ident, $percentile: ident) => {
         Self {
             inner: Box::new(PercentileWindow {
-                inner: RealTimeWindowInstance::<$type>::new($dur, $wait, $ts, $active),
+                inner: RealTimeWindowInstance::<$type>::new($w, $ts, $active),
                 percentile: $percentile,
             }),
         }
@@ -81,61 +94,68 @@ impl SlidingWindow {
     /// * 'ts' - the starting time of the window
     /// * 'ty' - the value type of the aggregated stream
     pub(crate) fn from_sliding(
-        dur: Duration,
-        wait: bool,
-        op: WinOp,
         ts: Time,
-        ty: &Type,
+        window: &MirSlidingWindow,
         active: bool,
     ) -> SlidingWindow {
-        match (op, ty) {
-            (WinOp::Count, _) => create_window_instance!(CountIv, dur, wait, ts, active),
-            (WinOp::Min, Type::UInt(_)) => create_window_instance!(MinIv<WindowUnsigned>, dur, wait, ts, active),
-            (WinOp::Min, Type::Int(_)) => create_window_instance!(MinIv<WindowSigned>, dur, wait, ts, active),
-            (WinOp::Min, Type::Float(_)) => create_window_instance!(MinIv<WindowFloat>, dur, wait, ts, active),
-            (WinOp::Max, Type::UInt(_)) => create_window_instance!(MaxIv<WindowUnsigned>, dur, wait, ts, active),
-            (WinOp::Max, Type::Int(_)) => create_window_instance!(MaxIv<WindowSigned>, dur, wait, ts, active),
-            (WinOp::Max, Type::Float(_)) => create_window_instance!(MaxIv<WindowFloat>, dur, wait, ts, active),
-            (WinOp::Sum, Type::UInt(_)) => create_window_instance!(SumIv<WindowUnsigned>, dur, wait, ts, active),
-            (WinOp::Sum, Type::Int(_)) => create_window_instance!(SumIv<WindowSigned>, dur, wait, ts, active),
-            (WinOp::Sum, Type::Float(_)) => create_window_instance!(SumIv<WindowFloat>, dur, wait, ts, active),
-            (WinOp::Sum, Type::Bool) => create_window_instance!(SumIv<WindowBool>, dur, wait, ts, active),
-            (WinOp::Average, Type::UInt(_)) => create_window_instance!(AvgIv<WindowUnsigned>, dur, wait, ts, active),
-            (WinOp::Average, Type::Int(_)) => create_window_instance!(AvgIv<WindowSigned>, dur, wait, ts, active),
-            (WinOp::Average, Type::Float(_)) => create_window_instance!(AvgIv<WindowFloat>, dur, wait, ts, active),
+        match (window.op, &window.ty) {
+            (WinOp::Count, _) => create_window_instance!(CountIv, window, ts, active),
+            (WinOp::Min, Type::UInt(_)) => create_window_instance!(MinIv<WindowUnsigned>, window, ts, active),
+            (WinOp::Min, Type::Int(_)) => create_window_instance!(MinIv<WindowSigned>, window, ts, active),
+            (WinOp::Min, Type::Float(_)) => create_window_instance!(MinIv<WindowFloat>, window, ts, active),
+            (WinOp::Max, Type::UInt(_)) => create_window_instance!(MaxIv<WindowUnsigned>, window, ts, active),
+            (WinOp::Max, Type::Int(_)) => create_window_instance!(MaxIv<WindowSigned>, window, ts, active),
+            (WinOp::Max, Type::Float(_)) => create_window_instance!(MaxIv<WindowFloat>, window, ts, active),
+            (WinOp::Sum, Type::UInt(_)) => create_window_instance!(SumIv<WindowUnsigned>, window, ts, active),
+            (WinOp::Sum, Type::Int(_)) => create_window_instance!(SumIv<WindowSigned>, window, ts, active),
+            (WinOp::Sum, Type::Float(_)) => create_window_instance!(SumIv<WindowFloat>, window, ts, active),
+            (WinOp::Sum, Type::Bool) => create_window_instance!(SumIv<WindowBool>, window, ts, active),
+            (WinOp::Average, Type::UInt(_)) => create_window_instance!(AvgIv<WindowUnsigned>, window, ts, active),
+            (WinOp::Average, Type::Int(_)) => create_window_instance!(AvgIv<WindowSigned>, window, ts, active),
+            (WinOp::Average, Type::Float(_)) => create_window_instance!(AvgIv<WindowFloat>, window, ts, active),
             (WinOp::Integral, Type::Float(_)) | (WinOp::Integral, Type::Int(_)) | (WinOp::Integral, Type::UInt(_)) => {
-                create_window_instance!(IntegralIv, dur, wait, ts, active)
+                create_window_instance!(IntegralIv, window, ts, active)
             },
-            (WinOp::Conjunction, Type::Bool) => create_window_instance!(ConjIv, dur, wait, ts, active),
-            (WinOp::Disjunction, Type::Bool) => create_window_instance!(DisjIv, dur, wait, ts, active),
-            (_, Type::Option(t)) => Self::from_sliding(dur, wait, op, ts, t, active),
+            (WinOp::Conjunction, Type::Bool) => create_window_instance!(ConjIv, window, ts, active),
+            (WinOp::Disjunction, Type::Bool) => create_window_instance!(DisjIv, window, ts, active),
+            (_, Type::Option(t)) => Self::from_sliding(ts, &MirSlidingWindow{
+                target: window.target,
+                caller: window.caller,
+                duration: window.duration,
+                num_buckets: window.num_buckets,
+                bucket_size: window.bucket_size,
+                wait: window.wait,
+                op: window.op,
+                reference: window.reference,
+                ty: t.as_ref().clone(),
+            }, active),
             (WinOp::Conjunction, _) | (WinOp::Disjunction, _) => {
                 panic!("conjunction and disjunction only defined on bool")
             },
             (WinOp::Min, _) | (WinOp::Max, _) | (WinOp::Sum, _) | (WinOp::Average, _) | (WinOp::Integral, _) => {
                 panic!("arithmetic operation only defined on atomic numerics")
             },
-            (WinOp::Last, Type::Int(_)) => create_window_instance!(LastIv<WindowSigned>, dur, wait, ts, active),
-            (WinOp::Last, Type::UInt(_)) => create_window_instance!(LastIv<WindowUnsigned>, dur, wait, ts, active),
-            (WinOp::Last, Type::Float(_)) => create_window_instance!(LastIv<WindowFloat>, dur, wait, ts, active),
+            (WinOp::Last, Type::Int(_)) => create_window_instance!(LastIv<WindowSigned>, window, ts, active),
+            (WinOp::Last, Type::UInt(_)) => create_window_instance!(LastIv<WindowUnsigned>, window, ts, active),
+            (WinOp::Last, Type::Float(_)) => create_window_instance!(LastIv<WindowFloat>, window, ts, active),
             (WinOp::NthPercentile(x), Type::Int(_)) => {
-                create_percentile_instance!(PercentileIv<WindowSigned>, dur, wait, ts, active, x)
+                create_percentile_instance!(PercentileIv<WindowSigned>, window, ts, active, x)
             },
             (WinOp::NthPercentile(x), Type::UInt(_)) => {
-                create_percentile_instance!(PercentileIv<WindowUnsigned>, dur, wait, ts, active, x)
+                create_percentile_instance!(PercentileIv<WindowUnsigned>, window, ts, active, x)
             },
             (WinOp::NthPercentile(x), Type::Float(_)) => {
-                create_percentile_instance!(PercentileIv<WindowFloat>, dur, wait, ts, active, x)
+                create_percentile_instance!(PercentileIv<WindowFloat>, window, ts, active, x)
             },
-            (WinOp::Variance, Type::Float(_)) => create_window_instance!(VarianceIv, dur, wait, ts, active),
-            (WinOp::StandardDeviation, Type::Float(_)) => create_window_instance!(SdIv, dur, wait, ts, active),
-            (WinOp::Covariance, Type::Float(_)) => create_window_instance!(CovIv, dur, wait, ts, active),
+            (WinOp::Variance, Type::Float(_)) => create_window_instance!(VarianceIv, window, ts, active),
+            (WinOp::StandardDeviation, Type::Float(_)) => create_window_instance!(SdIv, window, ts, active),
+            (WinOp::Covariance, Type::Float(_)) => create_window_instance!(CovIv, window, ts, active),
             (WinOp::Product, _) => unimplemented!("product not implemented"),
-            (WindowOperation::Last, _) => unimplemented!(),
-            (WindowOperation::Variance, _) => unimplemented!(),
-            (WindowOperation::Covariance, _) => unimplemented!(),
-            (WindowOperation::StandardDeviation, _) => unimplemented!(),
-            (WindowOperation::NthPercentile(_), _) => unimplemented!(),
+            (WinOp::Last, _) => unimplemented!(),
+            (WinOp::Variance, _) => unimplemented!(),
+            (WinOp::Covariance, _) => unimplemented!(),
+            (WinOp::StandardDeviation, _) => unimplemented!(),
+            (WinOp::NthPercentile(_), _) => unimplemented!(),
         }
     }
 
@@ -216,11 +236,11 @@ impl SlidingWindow {
             },
             (WinOp::Covariance, Type::Float(_)) => create_discrete_window_instance!(CovIv, size, wait, ts, active),
             (WinOp::Product, _) => unimplemented!("product not implemented"),
-            (WindowOperation::Last, _) => unimplemented!(),
-            (WindowOperation::Variance, _) => unimplemented!(),
-            (WindowOperation::Covariance, _) => unimplemented!(),
-            (WindowOperation::StandardDeviation, _) => unimplemented!(),
-            (WindowOperation::NthPercentile(_), _) => unimplemented!(),
+            (WinOp::Last, _) => unimplemented!(),
+            (WinOp::Variance, _) => unimplemented!(),
+            (WinOp::Covariance, _) => unimplemented!(),
+            (WinOp::StandardDeviation, _) => unimplemented!(),
+            (WinOp::NthPercentile(_), _) => unimplemented!(),
         }
     }
 
@@ -274,56 +294,19 @@ pub(crate) trait WindowIv:
 /// Struct to summarize common logic for the different window aggregations, e.g. iterating over the buckets to compute the result of an aggregation
 #[derive(Debug)]
 pub(crate) struct RealTimeWindowInstance<IV: WindowIv> {
-    buckets: VecDeque<IV>,
-    time_per_bucket: Duration,
+    buckets: Vec<IV>,
     start_time: Time,
-    last_bucket_ix: BIx,
+    last_update: Time,
+    total_duration: Duration,
+    bucket_duration: Duration,
+    current_bucket: usize,
     wait: bool,
-    wait_duration: Duration,
     active: bool,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct BIx {
-    period: usize,
-    ix: usize,
-}
-
-impl BIx {
-    fn new(period: usize, ix: usize) -> BIx {
-        BIx { period, ix }
-    }
-
-    fn buckets_since(self, other: BIx, num_buckets: usize) -> usize {
-        match self.period.cmp(&other.period) {
-            Ordering::Less => panic!("`other` bucket is more recent than `self`."),
-            Ordering::Greater => {
-                let period_diff = self.period - other.period;
-                match self.ix.cmp(&other.ix) {
-                    Ordering::Equal => period_diff * num_buckets,
-                    Ordering::Less => {
-                        let actual_p_diff = period_diff - 1;
-                        let ix_diff = num_buckets - other.ix + self.ix;
-                        actual_p_diff * num_buckets + ix_diff
-                    },
-                    Ordering::Greater => period_diff * num_buckets + (self.ix - other.ix),
-                }
-            },
-            Ordering::Equal => {
-                match self.ix.cmp(&other.ix) {
-                    Ordering::Equal => 0,
-                    Ordering::Less => panic!("`other` bucket is more recent than `self`."),
-                    Ordering::Greater => self.ix - other.ix,
-                }
-            },
-        }
-    }
 }
 
 impl<IV: WindowIv> WindowInstanceTrait for RealTimeWindowInstance<IV> {
     /// Clears the current sliding window state
     fn deactivate(&mut self) {
-        self.last_bucket_ix = BIx::new(0, 0);
         self.active = false;
     }
 
@@ -334,8 +317,10 @@ impl<IV: WindowIv> WindowInstanceTrait for RealTimeWindowInstance<IV> {
 
     /// Restarts the sliding window
     fn activate(&mut self, ts: Time) {
-        self.buckets = VecDeque::from(vec![IV::default(ts); SIZE]);
+        self.clear_all_buckets(ts);
+        self.current_bucket = 0;
         self.start_time = ts;
+        self.last_update = ts;
         self.active = true;
     }
 
@@ -345,7 +330,7 @@ impl<IV: WindowIv> WindowInstanceTrait for RealTimeWindowInstance<IV> {
             return IV::default(ts).into();
         }
         // Reversal is essential for non-commutative operations.
-        if self.wait && ts < self.wait_duration {
+        if self.wait && ts < self.total_duration {
             return Value::None;
         }
         self.buckets
@@ -358,66 +343,74 @@ impl<IV: WindowIv> WindowInstanceTrait for RealTimeWindowInstance<IV> {
     fn accept_value(&mut self, v: Value, ts: Time) {
         assert!(self.active);
         self.update_buckets(ts);
-        let b = self.buckets.get_mut(0).expect("Bug!");
+        let b = self.buckets.get_mut(self.current_bucket).expect("Bug!");
         *b = b.clone() + (v, ts).into(); // TODO: Require add_assign rather than add.
     }
 
     fn update_buckets(&mut self, ts: Time) {
         assert!(self.active);
         let curr = self.get_current_bucket(ts);
-        let last = self.last_bucket_ix;
+        let last = self.current_bucket;
 
-        let diff = curr.buckets_since(last, self.buckets.len());
-        self.invalidate_n(diff, ts);
-        self.last_bucket_ix = curr;
+        // rounds taken in the ringbuffer since the last update
+        let rounds = ((ts.as_nanos() - self.last_update.as_nanos()) / self.total_duration.as_nanos()) as u64;
+        if rounds > 1 {
+            // clear all buckets
+            self.clear_all_buckets(ts);
+        } else {
+            // clear only buckets between curren and last bucket.
+            if curr > last {
+                self.clear_buckets(ts, last+1, curr+1);
+            } else if curr < last {
+                self.clear_buckets(ts, last + 1, self.buckets.len());
+                self.clear_buckets(ts, 0, curr+1);
+            }
+        }
+        self.current_bucket = curr;
+        self.last_update = ts;
     }
 }
 
 impl<IV: WindowIv> RealTimeWindowInstance<IV> {
-    fn new(dur: Duration, wait: bool, ts: Time, active: bool) -> Self {
-        let time_per_bucket = dur / (SIZE as u32);
-        let buckets = VecDeque::from(vec![IV::default(ts); SIZE]);
+    fn new(window: &MirSlidingWindow, ts: Time, active: bool) -> Self {
+        let num_buckets = if let MemorizationBound::Bounded(num_buckets) = window.memory_bound() {
+            num_buckets as usize
+        } else {
+            unreachable!()
+        };
+
+        let buckets = vec![IV::default(ts); num_buckets];
         // last bucket_ix is 1, so we consider all buckets, i.e. from 1 to end and from start to 0,
         // as in use. Whenever we progress by n buckets, we invalidate the pseudo-used ones.
         // This is safe since the value within is the neutral element of the operation.
         Self {
             buckets,
-            time_per_bucket,
+            bucket_duration: window.bucket_size,
+            total_duration: window.duration,
             start_time: ts,
-            last_bucket_ix: BIx::new(0, 0),
-            wait,
-            wait_duration: dur,
+            last_update: ts,
+            current_bucket: 0,
+            wait: window.wait,
             active,
         }
     }
 
-    fn invalidate_n(&mut self, n: usize, ts: Time) {
+    fn get_current_bucket(&self, ts: Time) -> usize {
         assert!(self.active);
-        for _ in 0..n {
-            self.buckets.pop_back();
-            self.buckets.push_front(IV::default(ts));
-        }
-    }
-
-    fn get_current_bucket(&self, ts: Time) -> BIx {
-        assert!(self.active);
-        // let overall_ix = ts.duration_since(self.start_time).div_duration(self.time_per_bucket);
         assert!(ts >= self.start_time, "Time does not behave monotonically!");
-        let overall_ix = Self::quickfix_duration_div(ts - self.start_time, self.time_per_bucket);
-        let overall_ix = overall_ix.floor() as usize;
-        let period = overall_ix / self.buckets.len();
-        let ix = overall_ix % self.buckets.len();
-        BIx { period, ix }
+        dbg!(ts, self.bucket_duration, ts.as_nanos(), self.bucket_duration.as_nanos(), ts.as_nanos() % self.bucket_duration.as_nanos(), self.buckets.len());
+        (ts.as_nanos() % self.bucket_duration.as_nanos()) as usize
     }
 
-    fn quickfix_duration_div(a: Duration, b: Duration) -> f64 {
-        let a_secs = a.as_secs();
-        let a_nanos = a.subsec_nanos();
-        let b_secs = b.as_secs();
-        let b_nanos = b.subsec_nanos();
-        let a = (a_secs as f64) + f64::from(a_nanos) / f64::from(1_000_000_000);
-        let b = (b_secs as f64) + f64::from(b_nanos) / f64::from(1_000_000_000);
-        a / b
+    // clear buckets starting from `start` to `last` including start, excluding end
+    fn clear_buckets(&mut self, ts: Time, start: usize, end: usize) {
+        self.buckets[start..end]
+            .iter_mut()
+            .for_each(|x| *x = IV::default(ts));
+    }
+
+    fn clear_all_buckets(&mut self, ts: Time) {
+        self.clear_buckets(ts, 0, self.buckets.len())
     }
 }
 
@@ -430,7 +423,7 @@ pub(crate) struct PercentileWindow<IC: WindowInstanceTrait> {
 impl<G: WindowGeneric> WindowInstanceTrait for PercentileWindow<RealTimeWindowInstance<PercentileIv<G>>> {
     fn get_value(&self, ts: Time) -> Value {
         // Reversal is essential for non-commutative operations.
-        if self.inner.wait && ts < self.inner.wait_duration {
+        if self.inner.wait && ts < self.inner.total_duration {
             return Value::None;
         }
         self.inner
