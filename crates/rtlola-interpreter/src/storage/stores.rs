@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use either::Either;
 use rtlola_frontend::mir::{
-    InputReference, MemorizationBound, OutputReference, OutputStream, RtLolaMir, Stream, StreamReference, Type,
-    WindowOperation, WindowReference, SlidingWindow as MirSlidingWindow, DiscreteWindow as MirDiscreteWindow
+    DiscreteWindow as MirDiscreteWindow, InputReference, MemorizationBound, OutputReference, OutputStream, RtLolaMir,
+    SlidingWindow as MirSlidingWindow, Stream, StreamReference, Type, WindowOperation, WindowReference,
 };
 
 use super::Value;
@@ -119,7 +119,7 @@ impl InstanceCollection {
 /// The collection of all sliding windows of a parameterized stream
 pub(crate) struct SlidingWindowCollection {
     windows: HashMap<Vec<Value>, SlidingWindow>,
-    mirWindow: Either<MirSlidingWindow, MirDiscreteWindow>
+    mirWindow: Either<MirSlidingWindow, MirDiscreteWindow>,
 }
 
 impl SlidingWindowCollection {
@@ -127,7 +127,7 @@ impl SlidingWindowCollection {
     pub(crate) fn new_for_sliding(window: &MirSlidingWindow) -> Self {
         SlidingWindowCollection {
             windows: HashMap::new(),
-            mirWindow: Either::Left(window.clone())
+            mirWindow: Either::Left(window.clone()),
         }
     }
 
@@ -135,7 +135,7 @@ impl SlidingWindowCollection {
     pub(crate) fn new_for_discrete(window: &MirDiscreteWindow) -> Self {
         SlidingWindowCollection {
             windows: HashMap::new(),
-            mirWindow: Either::Right(window.clone())
+            mirWindow: Either::Right(window.clone()),
         }
     }
 
@@ -144,9 +144,7 @@ impl SlidingWindowCollection {
         if !self.windows.contains_key(parameters) {
             let window = match &self.mirWindow {
                 Either::Left(w) => SlidingWindow::from_sliding(start_time, w, false),
-                Either::Right(w) => {
-                    SlidingWindow::from_discrete(w.duration, w.wait, w.op, start_time, &w.ty, false)
-                },
+                Either::Right(w) => SlidingWindow::from_discrete(w.duration, w.wait, w.op, start_time, &w.ty, false),
             };
             self.windows.insert(parameters.to_vec(), window);
             self.windows.get_mut(parameters)
@@ -259,7 +257,7 @@ impl GlobalStore {
         ) = ir
             .sliding_windows
             .iter()
-            .partition(|w| w.target.is_input() || nps_refs.contains(&w.target));
+            .partition(|w| w.caller.is_input() || nps_refs.contains(&w.caller));
         for (ix, w) in np_windows.iter().enumerate() {
             window_index_map[w.reference.idx()] = Some(ix);
         }
@@ -268,7 +266,7 @@ impl GlobalStore {
         }
         debug_assert!(window_index_map.iter().all(Option::is_some));
         let window_index_map = window_index_map.into_iter().flatten().collect();
-
+        dbg!(&window_index_map);
         //Create discrete window index map
         let mut discrete_window_index_map: Vec<Option<usize>> = vec![None; ir.discrete_windows.len()];
         let (np_discrete_windows, p_discrete_windows): (
@@ -277,7 +275,7 @@ impl GlobalStore {
         ) = ir
             .discrete_windows
             .iter()
-            .partition(|w| w.target.is_input() || nps_refs.contains(&w.target));
+            .partition(|w| w.caller.is_input() || nps_refs.contains(&w.caller));
         for (ix, w) in np_discrete_windows.iter().enumerate() {
             discrete_window_index_map[w.reference.idx()] = Some(ix);
         }
@@ -302,9 +300,7 @@ impl GlobalStore {
             .collect();
         let np_windows = np_windows
             .iter()
-            .map(|w| {
-                SlidingWindow::from_sliding( ts, w,  !ir.stream(w.target).is_spawned())
-            })
+            .map(|w| SlidingWindow::from_sliding(ts, w, !ir.stream(w.caller).is_spawned()))
             .collect();
         let p_windows = p_windows
             .iter()
@@ -313,12 +309,12 @@ impl GlobalStore {
         let np_discrete_windows = np_discrete_windows
             .iter()
             .map(|w| {
-                SlidingWindow::from_discrete(w.duration, w.wait, w.op, ts, &w.ty, !ir.stream(w.target).is_spawned())
+                SlidingWindow::from_discrete(w.duration, w.wait, w.op, ts, &w.ty, !ir.stream(w.caller).is_spawned())
             })
             .collect();
         let p_discrete_windows = p_discrete_windows
             .iter()
-            .map(|w| SlidingWindowCollection::new_for_discrete( w))
+            .map(|w| SlidingWindowCollection::new_for_discrete(w))
             .collect();
 
         GlobalStore {
@@ -376,7 +372,7 @@ impl GlobalStore {
     }
 
     /// Returns the storage of a sliding window instance
-    /// Note: The windows target *must* be a non-parameterized stream
+    /// Note: The windows callee *must* be a non-parameterized stream
     pub(crate) fn get_window(&self, window: WindowReference) -> &SlidingWindow {
         match window {
             WindowReference::Sliding(x) => &self.np_windows[self.window_index_map[x]],
@@ -385,7 +381,7 @@ impl GlobalStore {
     }
 
     /// Returns the storage of a sliding window instance (mutable)
-    /// Note: The windows target *must* be a non-parameterized stream
+    /// Note: The windows callee *must* be a non-parameterized stream
     pub(crate) fn get_window_mut(&mut self, window: WindowReference) -> &mut SlidingWindow {
         match window {
             WindowReference::Sliding(x) => &mut self.np_windows[self.window_index_map[x]],
@@ -394,7 +390,7 @@ impl GlobalStore {
     }
 
     /// Returns the collection of all sliding window instances
-    /// Note: The windows target *must* be a parameterized stream
+    /// Note: The windows callee *must* be a parameterized stream
     pub(crate) fn get_window_collection_mut(&mut self, window: WindowReference) -> &mut SlidingWindowCollection {
         match window {
             WindowReference::Sliding(x) => &mut self.p_windows[self.window_index_map[x]],
@@ -402,7 +398,7 @@ impl GlobalStore {
         }
     }
 
-    /// Marks all instances in the store as not fresh
+    /// Marks all instances in the store as fresh
     pub(crate) fn new_cycle(&mut self) {
         self.p_outputs.iter_mut().for_each(|is| is.new_cycle())
     }

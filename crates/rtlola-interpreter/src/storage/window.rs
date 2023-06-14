@@ -93,11 +93,7 @@ impl SlidingWindow {
     /// * 'op' - the type of the aggregation function
     /// * 'ts' - the starting time of the window
     /// * 'ty' - the value type of the aggregated stream
-    pub(crate) fn from_sliding(
-        ts: Time,
-        window: &MirSlidingWindow,
-        active: bool,
-    ) -> SlidingWindow {
+    pub(crate) fn from_sliding(ts: Time, window: &MirSlidingWindow, active: bool) -> SlidingWindow {
         match (window.op, &window.ty) {
             (WinOp::Count, _) => create_window_instance!(CountIv, window, ts, active),
             (WinOp::Min, Type::UInt(_)) => create_window_instance!(MinIv<WindowUnsigned>, window, ts, active),
@@ -118,17 +114,23 @@ impl SlidingWindow {
             },
             (WinOp::Conjunction, Type::Bool) => create_window_instance!(ConjIv, window, ts, active),
             (WinOp::Disjunction, Type::Bool) => create_window_instance!(DisjIv, window, ts, active),
-            (_, Type::Option(t)) => Self::from_sliding(ts, &MirSlidingWindow{
-                target: window.target,
-                caller: window.caller,
-                duration: window.duration,
-                num_buckets: window.num_buckets,
-                bucket_size: window.bucket_size,
-                wait: window.wait,
-                op: window.op,
-                reference: window.reference,
-                ty: t.as_ref().clone(),
-            }, active),
+            (_, Type::Option(t)) => {
+                Self::from_sliding(
+                    ts,
+                    &MirSlidingWindow {
+                        target: window.target,
+                        caller: window.caller,
+                        duration: window.duration,
+                        num_buckets: window.num_buckets,
+                        bucket_size: window.bucket_size,
+                        wait: window.wait,
+                        op: window.op,
+                        reference: window.reference,
+                        ty: t.as_ref().clone(),
+                    },
+                    active,
+                )
+            },
             (WinOp::Conjunction, _) | (WinOp::Disjunction, _) => {
                 panic!("conjunction and disjunction only defined on bool")
             },
@@ -295,11 +297,12 @@ pub(crate) trait WindowIv:
 #[derive(Debug)]
 pub(crate) struct RealTimeWindowInstance<IV: WindowIv> {
     buckets: Vec<IV>,
-    start_time: Time,
-    last_update: Time,
-    total_duration: Duration,
-    bucket_duration: Duration,
+    start_time: usize,
+    last_update: usize,
+    total_duration: usize,
+    bucket_duration: usize,
     current_bucket: usize,
+    current_bucket_end: usize,
     wait: bool,
     active: bool,
 }
@@ -317,9 +320,12 @@ impl<IV: WindowIv> WindowInstanceTrait for RealTimeWindowInstance<IV> {
 
     /// Restarts the sliding window
     fn activate(&mut self, ts: Time) {
+        println!("Window is activated: {:?}", ts);
         self.clear_all_buckets(ts);
-        self.current_bucket = 0;
+        let ts = ts.as_nanos() as usize;
+        self.current_bucket = self.buckets.len() - 1;
         self.start_time = ts;
+        self.current_bucket_end = ts;
         self.last_update = ts;
         self.active = true;
     }
@@ -330,7 +336,7 @@ impl<IV: WindowIv> WindowInstanceTrait for RealTimeWindowInstance<IV> {
             return IV::default(ts).into();
         }
         // Reversal is essential for non-commutative operations.
-        if self.wait && ts < self.total_duration {
+        if self.wait && (ts.as_nanos() as usize) < self.total_duration {
             return Value::None;
         }
         self.buckets
@@ -344,30 +350,56 @@ impl<IV: WindowIv> WindowInstanceTrait for RealTimeWindowInstance<IV> {
         self.update_buckets(ts);
         let b = self.buckets.get_mut(self.current_bucket).expect("Bug!");
         *b = b.clone() + (v, ts).into(); // TODO: Require add_assign rather than add.
+        dbg!(&self.buckets);
     }
 
     fn update_buckets(&mut self, ts: Time) {
         assert!(self.active);
-        let curr = self.get_current_bucket(ts);
         let last = self.current_bucket;
+        let curr = self.get_current_bucket(ts);
 
-        // rounds taken in the ringbuffer since the last update
-        let rounds = ((ts.as_nanos() - self.last_update.as_nanos()) / self.total_duration.as_nanos()) as u64;
-        dbg!(rounds);
-        if rounds >= 1 {
-            // clear all buckets
-            self.clear_all_buckets(ts);
-        } else {
-            // clear only buckets between curren and last bucket.
-            if curr > last {
-                self.clear_buckets(ts, last+1, curr+1);
-            } else if curr < last {
-                self.clear_buckets(ts, last + 1, self.buckets.len());
-                self.clear_buckets(ts, 0, curr+1);
+        let current_time = ts.as_nanos() as usize;
+        println!("\n##### New Call #####\n");
+        dbg!(
+            curr,
+            last,
+            current_time,
+            self.start_time,
+            self.last_update,
+            self.bucket_duration,
+            self.total_duration,
+            self.current_bucket_end
+        );
+        //
+        // // check if we have to update
+        // // current period of window
+        // let period = (self.last_update - self.start_time) / self.total_duration;
+        //
+        // // current end timestamp of bucket
+        // let bucket_end = self.start_time + period * self.total_duration + (last + 1) * self.bucket_duration;
+        // dbg!(period, bucket_end);
+        //
+        // // rounds taken in the ringbuffer since the last update
+        // let rounds = (current_time - self.last_update) / self.total_duration;
+        // dbg!(rounds);
+        if (current_time > self.current_bucket_end) {
+            // clear passed buckets
+            if (current_time > self.current_bucket_end + self.total_duration - self.bucket_duration) {
+                // we completed a whole round in the ring buffer and clear all buckets
+                self.clear_all_buckets(ts);
+            } else {
+                // we only clear buckets between last / curr
+                if curr > last {
+                    self.clear_buckets(ts, last + 1, curr + 1);
+                } else if curr < last {
+                    self.clear_buckets(ts, last + 1, self.buckets.len());
+                    self.clear_buckets(ts, 0, curr + 1);
+                }
             }
+
+            self.current_bucket = curr;
+            self.current_bucket_end = self.get_current_bucket_end(ts);
         }
-        self.current_bucket = curr;
-        self.last_update = ts;
     }
 }
 
@@ -380,16 +412,16 @@ impl<IV: WindowIv> RealTimeWindowInstance<IV> {
         };
 
         let buckets = vec![IV::default(ts); num_buckets];
-        // last bucket_ix is 1, so we consider all buckets, i.e. from 1 to end and from start to 0,
-        // as in use. Whenever we progress by n buckets, we invalidate the pseudo-used ones.
-        // This is safe since the value within is the neutral element of the operation.
+        let current_ts = ts.as_nanos() as usize;
+        let bucket_duration = window.bucket_size.as_nanos() as usize;
         Self {
             buckets,
-            bucket_duration: window.bucket_size,
-            total_duration: window.duration,
-            start_time: ts,
-            last_update: ts,
-            current_bucket: 0,
+            bucket_duration,
+            total_duration: window.duration.as_nanos() as usize,
+            start_time: current_ts,
+            last_update: current_ts,
+            current_bucket: num_buckets - 1,
+            current_bucket_end: current_ts,
             wait: window.wait,
             active,
         }
@@ -397,35 +429,49 @@ impl<IV: WindowIv> RealTimeWindowInstance<IV> {
 
     fn get_current_bucket(&self, ts: Time) -> usize {
         assert!(self.active);
-        assert!(ts >= self.start_time, "Time does not behave monotonically!");
+        assert!(
+            ts.as_nanos() as usize >= self.start_time,
+            "Time does not behave monotonically!"
+        );
         let ts = ts.as_nanos() as usize;
-        let window_duration = self.total_duration.as_nanos() as usize;
-        let bucket_duration = self.bucket_duration.as_nanos() as usize;
-        let relative_to_window = ts % window_duration;
-        let idx = relative_to_window / bucket_duration;
-        dbg!(self.buckets.len());
-        dbg!(ts, window_duration, bucket_duration, relative_to_window, idx);
-        dbg!(if ts % bucket_duration == 0 {
+        let relative_to_window = (ts - self.start_time) % self.total_duration;
+        let idx = relative_to_window / self.bucket_duration;
+        // dbg!(self.buckets.len());
+        // dbg!(ts, relative_to_window, idx);
+        if ts % self.bucket_duration == 0 {
             // A bucket includes time from x < ts <= x + bucket_duration
             // Consequently, if we hit the "edge" of bucket we have to chose the previous one
             if idx > 0 {
                 idx - 1
             } else {
-                self.buckets.len() -1
+                self.buckets.len() - 1
             }
-
         } else {
             idx
-        })
+        }
+    }
+
+    fn get_current_bucket_end(&mut self, ts: Time) -> usize {
+        let current_time = ts.as_nanos() as usize;
+
+        let period = if current_time % self.total_duration == 0 {
+            // A bucket includes time from x < ts <= x + bucket_duration
+            // Consequently, if we hit the "edge" of bucket we have to chose the previous one
+            let p = (current_time - self.start_time) / self.total_duration;
+            if p > 0 {
+                p - 1
+            } else {
+                0
+            }
+        } else {
+            (current_time - self.start_time) / self.total_duration
+        };
+        self.start_time + period * self.total_duration + (self.current_bucket + 1) * self.bucket_duration
     }
 
     // clear buckets starting from `start` to `last` including start, excluding end
     fn clear_buckets(&mut self, ts: Time, start: usize, end: usize) {
-        dbg!(&self.buckets);
-        self.buckets[start..end]
-            .iter_mut()
-            .for_each(|x| *x = IV::default(ts));
-        dbg!(&self.buckets);
+        self.buckets[start..end].iter_mut().for_each(|x| *x = IV::default(ts));
     }
 
     fn clear_all_buckets(&mut self, ts: Time) {
@@ -442,7 +488,7 @@ pub(crate) struct PercentileWindow<IC: WindowInstanceTrait> {
 impl<G: WindowGeneric> WindowInstanceTrait for PercentileWindow<RealTimeWindowInstance<PercentileIv<G>>> {
     fn get_value(&self, ts: Time) -> Value {
         // Reversal is essential for non-commutative operations.
-        if self.inner.wait && ts < self.inner.total_duration {
+        if self.inner.wait && (ts.as_nanos() as usize) < self.inner.total_duration {
             return Value::None;
         }
         self.inner

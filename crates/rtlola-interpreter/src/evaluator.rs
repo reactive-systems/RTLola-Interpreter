@@ -3,10 +3,7 @@ use std::ops::Not;
 use std::rc::Rc;
 
 use bit_set::BitSet;
-use rtlola_frontend::mir::{
-    ActivationCondition as Activation, InputReference, OutputReference, PacingType, RtLolaMir, Stream, StreamReference,
-    Task, TimeDrivenStream, Trigger, WindowReference,
-};
+use rtlola_frontend::mir::{ActivationCondition as Activation, InputReference, OutputReference, PacingType, RtLolaMir, Stream, StreamAccessKind, StreamReference, Task, TimeDrivenStream, Trigger, Window, WindowReference};
 use string_template::Template;
 
 use crate::api::monitor::{Change, Instance};
@@ -32,6 +29,8 @@ pub(crate) struct EvaluatorData {
     stream_activation_conditions: Vec<ActivationConditionOp>,
     spawn_activation_conditions: Vec<ActivationConditionOp>,
     close_activation_conditions: Vec<ActivationConditionOp>,
+    parameterized_sliding_windows:Vec<bool>,
+    parameterized_discrete_windows:Vec<bool>,
     global_store: GlobalStore,
     fresh_inputs: BitSet,
     fresh_outputs: BitSet,
@@ -65,6 +64,10 @@ pub(crate) struct Evaluator {
     compiled_spawn_exprs: Vec<CompiledExpr>,
     // Accessed by stream index
     compiled_close_exprs: Vec<CompiledExpr>,
+    // Indexed by sliding window reference
+    parameterized_sliding_windows: &'static [bool],
+    // Indexed by sliding window reference
+    parameterized_discrete_windows: &'static [bool],
     global_store: &'static mut GlobalStore,
     fresh_inputs: &'static mut BitSet,
     fresh_outputs: &'static mut BitSet,
@@ -142,6 +145,16 @@ impl EvaluatorData {
         let closed_outputs = BitSet::with_capacity(ir.outputs.len());
         let fresh_triggers = BitSet::with_capacity(ir.outputs.len()); //trigger use their outputreferences
         let mut triggers = vec![None; ir.outputs.len()];
+
+        let parameterized_sliding_windows = ir.sliding_windows.iter().map(|w| match &w.caller {
+            StreamReference::In(_) => false,
+            StreamReference::Out(ix) => ir.outputs[*ix].is_parameterized(),
+        }).collect();
+        let parameterized_discrete_windows = ir.discrete_windows.iter().map(|w| match &w.caller {
+            StreamReference::In(_) => false,
+            StreamReference::Out(ix) => ir.outputs[*ix].is_parameterized(),
+        }).collect();
+
         for t in &ir.triggers {
             triggers[t.reference.out_ix()] = Some(t.clone());
         }
@@ -158,6 +171,8 @@ impl EvaluatorData {
             stream_activation_conditions: stream_acs,
             spawn_activation_conditions: spawn_acs,
             close_activation_conditions: close_acs,
+            parameterized_sliding_windows,
+            parameterized_discrete_windows,
             global_store,
             fresh_inputs,
             fresh_outputs,
@@ -236,6 +251,8 @@ impl EvaluatorData {
             compiled_stream_exprs,
             compiled_spawn_exprs,
             compiled_close_exprs,
+            parameterized_sliding_windows: &leaked_data.parameterized_sliding_windows,
+            parameterized_discrete_windows: &leaked_data.parameterized_discrete_windows,
             global_store: &mut leaked_data.global_store,
             fresh_inputs: &mut leaked_data.fresh_inputs,
             fresh_outputs: &mut leaked_data.fresh_outputs,
@@ -436,6 +453,21 @@ impl Evaluator {
         };
 
         self.spawned_outputs.insert(output);
+        let own_windows = stream
+            .accesses
+            .iter()
+            .flat_map(|(r, s)| {
+                s.iter().filter_map(|(_, kind)| {
+                    match kind {
+                        StreamAccessKind::SlidingWindow(w) | StreamAccessKind::DiscreteWindow(w) => Some(*w),
+                        StreamAccessKind::Fresh
+                        | StreamAccessKind::Get
+                        | StreamAccessKind::Hold
+                        | StreamAccessKind::Offset(_)
+                        | StreamAccessKind::Sync => None,
+                    }
+                })
+            });
         if stream.is_parameterized() {
             debug_assert!(!parameter_values.is_empty());
             let instances = self.global_store.get_out_instance_collection_mut(output);
@@ -445,9 +477,9 @@ impl Evaluator {
             }
             instances.create_instance(parameter_values.as_slice());
 
-            //activate windows over this stream
-            for (_, win_ref) in &stream.aggregated_by {
-                let windows = self.global_store.get_window_collection_mut(*win_ref);
+            //activate windows of this stream
+            for win_ref in own_windows {
+                let windows = self.global_store.get_window_collection_mut(win_ref);
                 let window = windows.get_or_create(parameter_values.as_slice(), ts);
                 window.activate(ts);
             }
@@ -460,9 +492,9 @@ impl Evaluator {
             }
             inst.activate();
 
-            //activate windows over this stream
-            for (_, win_ref) in &stream.aggregated_by {
-                let window = self.global_store.get_window_mut(*win_ref);
+            //activate windows of this stream
+            for win_ref in own_windows {
+                let window = self.global_store.get_window_mut(win_ref);
                 debug_assert!(!window.is_active());
                 window.activate(ts);
             }
@@ -676,7 +708,7 @@ impl Evaluator {
         // Check linked windows and inform them.
         let extended = &self.ir.outputs[ix];
         for (_sr, win) in &extended.aggregated_by {
-            let window = if is_parameterized {
+            let window = if self.window_is_parameterized(*win) {
                 self.global_store
                     .get_window_collection_mut(*win)
                     .window_mut(parameter)
@@ -721,6 +753,13 @@ impl Evaluator {
                     self.global_store.get_out_instance(ix).get_value(offset)
                 }
             },
+        }
+    }
+
+    fn window_is_parameterized(&self, window: WindowReference) -> bool {
+        match window {
+            WindowReference::Sliding(idx) => self.parameterized_sliding_windows[idx],
+            WindowReference::Discrete(idx) => self.parameterized_discrete_windows[idx],
         }
     }
 
@@ -942,14 +981,19 @@ mod tests {
         ($left:expr, $right:expr) => {
             if let Value::Float(left) = $left {
                 if let Value::Float(right) = $right {
-                    assert!((left-right).abs() < f64::epsilon(), "Assertion failed: Difference between {} and {} is greater than {}", left, right, f64::epsilon());
+                    assert!(
+                        (left - right).abs() < f64::epsilon(),
+                        "Assertion failed: Difference between {} and {} is greater than {}",
+                        left,
+                        right,
+                        f64::epsilon()
+                    );
                 } else {
                     panic!("{:?} is not a float.", $right)
                 }
             } else {
                 panic!("{:?} is not a float.", $left)
             }
-
         };
     }
 
@@ -1890,11 +1934,11 @@ mod tests {
             time += Duration::from_secs(1);
             // 66 secs have passed. All values should be within the window.
             eval_stream_timed!(eval, 0, vec![], time);
-            assert_eq!(
+            assert_float_eq!(
                 eval.peek_value(in_ref, &Vec::new(), 0).unwrap(),
                 Float(NotNan::new(20.0).unwrap())
             );
-            assert_eq!(
+            assert_float_eq!(
                 eval.peek_value(out_ref, &Vec::new(), 0).unwrap(),
                 exp.as_ref().unwrap().clone()
             );
@@ -1921,15 +1965,15 @@ mod tests {
         // 66 secs have passed. All values should be within the window.
         eval_stream_timed!(eval, 1, vec![], time);
         let expected = Float(NotNan::new(17.5 / 6.0).unwrap());
-        assert_eq!(
+        assert_float_eq!(
             eval.peek_value(in_ref, &Vec::new(), 0).unwrap(),
             Float(NotNan::new(20.0).unwrap())
         );
-        assert_eq!(
+        assert_float_eq!(
             eval.peek_value(in_ref_2, &Vec::new(), 0).unwrap(),
             Float(NotNan::new(20.0).unwrap())
         );
-        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
+        assert_float_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
     }
 
     #[test]

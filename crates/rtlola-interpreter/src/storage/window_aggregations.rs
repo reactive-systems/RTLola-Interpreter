@@ -226,7 +226,6 @@ impl Add for IntegralIv {
         }
 
         let start_volume = self.volume + other.volume;
-        dbg!(other.start_time, self.end_time);
         assert!(other.start_time >= self.end_time, "Time does not behave monotonically!");
         let time_diff = other.start_time - self.end_time;
         let time_diff_secs = (time_diff.as_secs() as f64) + (f64::from(time_diff.subsec_nanos())) / (100_000_000f64);
