@@ -198,7 +198,7 @@ impl Expr for Expression {
                         CompiledExpr::new(move |ctx| {
                             let arg = f_arg.execute(ctx);
                             match arg {
-                                Value::Float(f) => Value::new_float(f.$fn()),
+                                Value::Float(f) => Value::try_from(f.$fn()).unwrap(),
                                 _ => unreachable!(),
                             }
                         })
@@ -235,7 +235,7 @@ impl Expr for Expression {
                         CompiledExpr::new(move |ctx| {
                             let arg = f_arg.execute(ctx);
                             match arg {
-                                Value::Float(f) => Value::new_float(f.abs()),
+                                Value::Float(f) => Value::try_from(f.abs()).unwrap(),
                                 Value::Signed(i) => Value::Signed(i.abs()),
                                 v => unreachable!("wrong Value type of {:?}, for function abs", v),
                             }
@@ -308,7 +308,7 @@ impl Expr for Expression {
                                     unreachable!(
                                         "Value type of {:?} does not match convert from type {:?}",
                                         v,
-                                        Value::new_float(0.0)
+                                        Value::try_from(0.0).unwrap()
                                     )
                                 },
                             }
@@ -318,7 +318,7 @@ impl Expr for Expression {
                         CompiledExpr::new(move |ctx| {
                             let v = f_expr.execute(ctx);
                             match v {
-                                Value::$from(v) => Value::new_float(v as $ty),
+                                Value::$from(v) => Value::try_from(v as $ty).unwrap(),
                                 v => {
                                     unreachable!(
                                         "Value type of {:?} does not match convert from type {:?}",

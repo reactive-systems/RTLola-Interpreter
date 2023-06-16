@@ -20,6 +20,7 @@
 //! * [TriggersWithInfoValues]: For each event a list of violated triggers with their specified corresponding values is returned.
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomData;
@@ -36,7 +37,7 @@ use crate::configuration::time::{init_start_time, OutputTimeRepresentation, Rela
 use crate::evaluator::{Evaluator, EvaluatorData};
 use crate::schedule::schedule_manager::ScheduleManager;
 use crate::schedule::DynamicSchedule;
-use crate::storage::Value;
+use crate::storage::{Value, ValueConvertError};
 use crate::{CondDeserialize, CondSerialize, NoError, Time};
 
 /// An event to be handled by the interpreter
@@ -469,6 +470,40 @@ pub trait Record: Send {
     fn func_for_input(name: &str, data: Self::CreationData) -> Result<ValueProjection<Self, Self::Error>, Self::Error>;
 }
 
+#[derive(Debug)]
+/// A generic Error to be used
+pub enum RecordError{
+    /// Could not find an associated struct field for the input stream.
+    InputStreamUnknown(String),
+    /// The value of the struct field is not supported by the interpreter.
+    ///
+    /// *Help*: ```TryFrom<YourType> for Value``` has to be implemented.
+    ValueNotSupported(ValueConvertError),
+}
+
+impl Display for RecordError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self{
+            RecordError::InputStreamUnknown(name) => write!(f, "No struct field found for input stream {name}."),
+            RecordError::ValueNotSupported(val) => write!(f, "The type of {val:?} is not supported by the interpreter."),
+        }
+    }
+}
+
+impl Error for RecordError {}
+
+impl From<ValueConvertError> for RecordError {
+    fn from(value: ValueConvertError) -> Self {
+        RecordError::ValueNotSupported(value)
+    }
+}
+
+impl From<Infallible> for RecordError {
+    fn from(_value: Infallible) -> Self {
+        unreachable!()
+    }
+}
+
 /// A function Type that projects a reference to `From` to a `Value`
 pub type ValueProjection<From, E> = Box<dyn (Fn(&From) -> Result<Value, E>)>;
 
@@ -476,20 +511,12 @@ pub type ValueProjection<From, E> = Box<dyn (Fn(&From) -> Result<Value, E>)>;
 /// Assuming the specification has 3 inputs: 'a', 'b' and 'c'. You could implement this trait for your custom 'MyType' as follows:
 /// ```
 /// use std::fmt::Formatter;
+/// use crossterm::event::MediaKeyCode::Record;
 ///
-/// use rtlola_interpreter::monitor::Record;
+/// use rtlola_interpreter::monitor::{Record, RecordError};
 /// use rtlola_interpreter::Value;
 /// #[cfg(feature = "serde")]
 /// use serde::{Deserialize, Serialize};
-///
-/// #[derive(Debug, Clone)]
-/// struct MyError(String);
-/// impl std::fmt::Display for MyError {
-///     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-///         write!(f, "An error occurred: {}", self.0)
-///     }
-/// }
-/// impl std::error::Error for MyError {}
 ///
 /// #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 /// struct MyType {
@@ -517,7 +544,7 @@ pub type ValueProjection<From, E> = Box<dyn (Fn(&From) -> Result<Value, E>)>;
 ///
 /// impl Record for MyType {
 ///     type CreationData = ();
-///     type Error = MyError;
+///     type Error = RecordError;
 ///
 ///     fn func_for_input(
 ///         name: &str,
@@ -528,11 +555,8 @@ pub type ValueProjection<From, E> = Box<dyn (Fn(&From) -> Result<Value, E>)>;
 ///             "b" => Ok(Box::new(Self::b)),
 ///             "c" => Ok(Box::new(Self::c)),
 ///             x => {
-///                 Err(MyError(format!(
-///                     "Unexpected input stream {} in specification.",
-///                     x
-///                 )))
-///             },
+///                 Err(RecordError::InputStreamUnknown(x.to_string()))
+///             }
 ///         }
 ///     }
 /// }

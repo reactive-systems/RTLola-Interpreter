@@ -3,5 +3,6 @@
 members = [
   "rtlola-interpreter",
   "rtlola-cli",
-  "rtlola-input-plugins"
+  "rtlola-input-plugins",
+  "rtlola-interpreter-macros"
 ]

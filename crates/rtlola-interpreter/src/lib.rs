@@ -43,6 +43,7 @@ pub use crate::api::queued::QueuedMonitor;
 pub use crate::configuration::config_builder::ConfigBuilder;
 pub use crate::configuration::{config, time};
 pub use crate::storage::Value;
+pub use crate::storage::ValueConvertError;
 
 mod api;
 mod closuregen;
