@@ -528,13 +528,14 @@ impl Display for ValueConvertError {
         match self {
             ValueConvertError::TypeMismatch(val) => write!(f, "Failed to convert Value: {val}"),
             ValueConvertError::FloatIsNan => write!(f, "The given Float is not a number (NaN)"),
-            ValueConvertError::ValueNotSupported(v) => write!(f, "The value {v:?} is not supported by the interpreter."),
+            ValueConvertError::ValueNotSupported(v) => {
+                write!(f, "The value {v:?} is not supported by the interpreter.")
+            },
         }
     }
 }
 
-impl Error for ValueConvertError{}
-
+impl Error for ValueConvertError {}
 
 #[cfg(test)]
 mod tests {

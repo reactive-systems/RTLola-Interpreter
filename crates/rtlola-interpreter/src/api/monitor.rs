@@ -472,7 +472,7 @@ pub trait Record: Send {
 
 #[derive(Debug)]
 /// A generic Error to be used
-pub enum RecordError{
+pub enum RecordError {
     /// Could not find an associated struct field for the input stream.
     InputStreamUnknown(String),
     /// The value of the struct field is not supported by the interpreter.
@@ -483,9 +483,11 @@ pub enum RecordError{
 
 impl Display for RecordError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self{
+        match self {
             RecordError::InputStreamUnknown(name) => write!(f, "No struct field found for input stream {name}."),
-            RecordError::ValueNotSupported(val) => write!(f, "The type of {val:?} is not supported by the interpreter."),
+            RecordError::ValueNotSupported(val) => {
+                write!(f, "The type of {val:?} is not supported by the interpreter.")
+            },
         }
     }
 }
@@ -511,7 +513,6 @@ pub type ValueProjection<From, E> = Box<dyn (Fn(&From) -> Result<Value, E>)>;
 /// Assuming the specification has 3 inputs: 'a', 'b' and 'c'. You could implement this trait for your custom 'MyType' as follows:
 /// ```
 /// use std::fmt::Formatter;
-/// use crossterm::event::MediaKeyCode::Record;
 ///
 /// use rtlola_interpreter::monitor::{Record, RecordError};
 /// use rtlola_interpreter::Value;
@@ -527,17 +528,17 @@ pub type ValueProjection<From, E> = Box<dyn (Fn(&From) -> Result<Value, E>)>;
 ///
 /// impl MyType {
 ///     // Generate a new value for input stream 'a'
-///     fn a(rec: &Self) -> Result<Value, MyError> {
+///     fn a(rec: &Self) -> Result<Value, RecordError> {
 ///         Ok(Value::from(rec.a))
 ///     }
 ///
 ///     // Generate a new value for input stream 'b'
-///     fn b(rec: &Self) -> Result<Value, MyError> {
+///     fn b(rec: &Self) -> Result<Value, RecordError> {
 ///         Ok(rec.b.map(|b| Value::from(b)).unwrap_or(Value::None))
 ///     }
 ///
 ///     // Generate a new value for input stream 'c'
-///     fn c(rec: &Self) -> Result<Value, MyError> {
+///     fn c(rec: &Self) -> Result<Value, RecordError> {
 ///         Ok(Value::Str(rec.c.clone().into_boxed_str()))
 ///     }
 /// }
@@ -549,14 +550,12 @@ pub type ValueProjection<From, E> = Box<dyn (Fn(&From) -> Result<Value, E>)>;
 ///     fn func_for_input(
 ///         name: &str,
 ///         _data: Self::CreationData,
-///     ) -> Result<Box<dyn (Fn(&MyType) -> Result<Value, MyError>)>, MyError> {
+///     ) -> Result<Box<dyn (Fn(&MyType) -> Result<Value, RecordError>)>, RecordError> {
 ///         match name {
 ///             "a" => Ok(Box::new(Self::a)),
 ///             "b" => Ok(Box::new(Self::b)),
 ///             "c" => Ok(Box::new(Self::c)),
-///             x => {
-///                 Err(RecordError::InputStreamUnknown(x.to_string()))
-///             }
+///             x => Err(RecordError::InputStreamUnknown(x.to_string())),
 ///         }
 ///     }
 /// }
@@ -845,7 +844,7 @@ mod tests {
         assert_eq!(res.outputs[0][0], (None, Some(Value::Bool(true))));
         assert_eq!(res.outputs[1][0], (None, Some(Value::Unsigned(3))));
         assert_eq!(res.outputs[2][0], (None, Some(Value::Signed(-5))));
-        assert_eq!(res.outputs[3][0], (None, Some(Value::new_float(-123.456))));
+        assert_eq!(res.outputs[3][0], (None, Some(Value::try_from(-123.456).unwrap())));
         assert_eq!(res.outputs[4][0], (None, Some(Value::Str("foobar".into()))));
     }
 
