@@ -475,10 +475,15 @@ pub trait Record: Send {
 pub enum RecordError {
     /// Could not find an associated struct field for the input stream.
     InputStreamUnknown(String),
+    /// The HashMap contains an entry for all input stream names that where not found by any record of the enum.
+    /// The corresponding errors of the records for each stream are given as the result of the map.
+    InputStreamNotFound(HashMap<String, Vec<Self>>),
     /// The value of the struct field is not supported by the interpreter.
     ///
     /// *Help*: ```TryFrom<YourType> for Value``` has to be implemented.
     ValueNotSupported(ValueConvertError),
+    /// An unknown error occurred
+    Other(Box<dyn Error + Send + 'static>),
 }
 
 impl Display for RecordError {
@@ -488,11 +493,33 @@ impl Display for RecordError {
             RecordError::ValueNotSupported(val) => {
                 write!(f, "The type of {val:?} is not supported by the interpreter.")
             },
+            RecordError::Other(e) => {
+                write!(f, "RecordError: {e}.")
+            },
+            RecordError::InputStreamNotFound(map) => {
+                for (missing, errs) in map {
+                    writeln!(f, "Input stream {missing} could not be resolved for enum:")?;
+                    for e in errs {
+                        writeln!(f, "{e}")?;
+                    }
+                }
+                Ok(())
+            }
         }
     }
 }
 
-impl Error for RecordError {}
+impl Error for RecordError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            RecordError::InputStreamUnknown(_) | RecordError::ValueNotSupported(_) => None,
+            RecordError::Other(e) => Some(e.as_ref()),
+            RecordError::InputStreamNotFound(map) => {
+                map.iter().first().map(|(_, e)|)
+            }
+        }
+    }
+}
 
 impl From<ValueConvertError> for RecordError {
     fn from(value: ValueConvertError) -> Self {
@@ -573,7 +600,7 @@ impl<Inner: Record> Input for RecordInput<Inner> {
     fn new(map: HashMap<String, InputReference>, setup_data: Self::CreationData) -> Result<Self, Self::Error> {
         let mut translators: Vec<Option<_>> = (0..map.len()).map(|_| None).collect();
         for (input_name, index) in map {
-            translators[index] = Some(Inner::func_for_input(input_name.as_str(), setup_data.clone())?)
+            translators[index] = Some(Inner::func_for_input(input_name.as_str(), setup_data.clone())?);
         }
         let translators = translators.into_iter().map(Option::unwrap).collect();
         Ok(Self { translators })
@@ -581,6 +608,27 @@ impl<Inner: Record> Input for RecordInput<Inner> {
 
     fn get_event(&self, rec: Inner) -> Result<Event, Self::Error> {
         self.translators.iter().map(|f| f(&rec)).collect()
+    }
+}
+
+impl<Inner: Record> RecordInput<Inner> {
+    /// creates a new RecordInput that includes a default function for all input streams, where the record failed to provide one.
+    /// A HashMap of errors is returned that maps input stream names to an error.
+    pub fn new_ignore_undefined(map: HashMap<String, InputReference>, setup_data: <Self as Input>::CreationData) -> (Self, HashMap<String, <Self as Input>::Error>) {
+        let mut translators: Vec<Option<_>> = (0..map.len()).map(|_| None).collect();
+        let mut errs = HashMap::with_capacity(map.len());
+        let default_fn = Box::new(|_r: &Inner| Ok(Value::None));
+        for (input_name, index) in map {
+            match Inner::func_for_input(input_name.as_str(), setup_data.clone()) {
+                Ok(f) => translators[index] = Some(f),
+                Err(e) => {
+                    errs.insert(input_name.clone(), e);
+                    translators[index] = Some(default_fn.clone())
+                },
+            }
+        }
+        let translators = translators.into_iter().map(Option::unwrap).collect();
+        (Self { translators }, errs)
     }
 }
 

@@ -9,6 +9,7 @@ edition = "2021"
 syn = {version="2.0", features=["derive"]}
 quote = "1.0"
 proc-macro-error = "1.0.4"
+proc-macro2 = "1.0.60"
 deluxe = "0.5.0"
 
 [dev-dependencies]
