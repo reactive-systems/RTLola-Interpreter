@@ -1,0 +1,36 @@
+error: Only variants with a single unnamed field are supported!
+  --> examples/should-fail/reject_enum.rs:22:5
+   |
+22 |     A(A, B),
+   |     ^^^^^^^
+
+error: Only variants with a single unnamed field are supported!
+  --> examples/should-fail/reject_enum.rs:41:5
+   |
+41 | /     C{
+42 | |         a: A,
+43 | |         b: B,
+44 | |     },
+   | |_____^
+
+error: Only variants with a single unnamed field are supported!
+  --> examples/should-fail/reject_enum.rs:52:5
+   |
+52 |     C,
+   |     ^
+
+error[E0277]: the trait bound `C: Record` is not satisfied
+  --> examples/should-fail/reject_enum.rs:28:10
+   |
+28 | #[derive(Input)]
+   |          ^^^^^ the trait `Record` is not implemented for `C`
+   |
+   = help: the following other types implement trait `Record`:
+             A
+             B
+note: required by a bound in `RecordInput`
+  --> $WORKSPACE/rtlola-interpreter/src/api/monitor.rs
+   |
+   | pub struct RecordInput<Inner: Record> {
+   |                               ^^^^^^ required by this bound in `RecordInput`
+   = note: this error originates in the derive macro `Input` (in Nightly builds, run with -Z macro-backtrace for more info)

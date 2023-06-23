@@ -1,12 +1,11 @@
 extern crate proc_macro;
 use std::collections::HashMap;
 
-use deluxe;
 use proc_macro::TokenStream;
 use proc_macro2::Span as Span2;
 use proc_macro_error::__export::proc_macro2::Span;
 use proc_macro_error::{abort, proc_macro_error};
-use quote::quote;
+use quote::{format_ident, quote};
 use syn::{parse_macro_input, Data, DeriveInput, Fields, Ident, Type};
 
 #[derive(deluxe::ExtractAttributes, Debug, Clone)]
@@ -25,6 +24,8 @@ struct RecordItemAttr {
 
 #[proc_macro_derive(Record, attributes(record))]
 #[proc_macro_error]
+/// A derive macro that implements the [Record](rtlola_interpreter::monitor::Record) trait for a struct based on its field names.
+/// For an example look at `simple.rs` and `custom_names.rs` in the example folder.
 pub fn derive_record_impl(input: TokenStream) -> TokenStream {
     // Parse the input tokens into a syntax tree
     let mut input: DeriveInput = parse_macro_input!(input as DeriveInput);
@@ -72,7 +73,7 @@ pub fn derive_record_impl(input: TokenStream) -> TokenStream {
             deluxe::extract_attributes(&mut f).map(|attr: RecordItemAttr| {
                 attr.custom_name
                     .map(|id| id.to_string())
-                    .unwrap_or_else(|| format!("{prefix}{}", f.ident.as_ref().unwrap().to_string()))
+                    .unwrap_or_else(|| format!("{prefix}{}", f.ident.as_ref().unwrap()))
             })
         })
         .collect::<Result<Vec<String>, _>>()
@@ -96,11 +97,13 @@ pub fn derive_record_impl(input: TokenStream) -> TokenStream {
             }
         }
     };
-    return proc_macro::TokenStream::from(record_impl);
+    proc_macro::TokenStream::from(record_impl)
 }
 
-#[proc_macro_derive(Input, attributes(input))]
+#[proc_macro_derive(Input)]
 #[proc_macro_error]
+/// A derive macro that implements the [Input](rtlola_interpreter::monitor::Input) trait for an enum who's variants have a single unnamed field that implements [Record](rtlola_interpreter::monitor::Record) trait.
+/// For an example look at `enum.rs` in the example folder.
 pub fn derive_input_impl(input: TokenStream) -> TokenStream {
     // Parse the input tokens into a syntax tree
     let input: DeriveInput = parse_macro_input!(input as DeriveInput);
@@ -137,29 +140,28 @@ pub fn derive_input_impl(input: TokenStream) -> TokenStream {
         .iter()
         .map(|(ident, ty)| {
             (
-                Ident::new(
-                    &format!("{}_record_in", ident.to_string().to_lowercase()),
-                    Span2::call_site(),
-                ),
+                format_ident!("{ident}_record_in"),
                 quote! {rtlola_interpreter::monitor::RecordInput<#ty>},
             )
         })
         .unzip();
-    let variant_paths: Vec<_> = variants.keys().map(|id| {
-        let inner_name = Ident::new("rec", Span::call_site());
-        quote!{#name::#id(#inner_name)}
-    }).collect();
+    let struct_field_errs: Vec<Ident> = variants.keys().map(|var| format_ident!("{var}_errs")).collect();
 
-    let variant_strings: Vec<String> = variants.keys().map(Ident::to_string).collect();
+    let variant_paths: Vec<_> = variants
+        .keys()
+        .map(|id| {
+            let inner_name = Ident::new("rec", Span::call_site());
+            quote! {#name::#id(#inner_name)}
+        })
+        .collect();
 
-    let trait_ident = Ident::new(&format!("{name}DerivedInput"), Span::call_site());
+    let (variant_found, variant_missing): (Vec<Ident>, Vec<Ident>) = variants
+        .keys()
+        .map(|var| (format_ident!("{var}_found"), format_ident!("{var}_missing")))
+        .unzip();
 
     let input_impl = quote! {
-        #vis trait #trait_ident{
-            type Input;
-        }
-
-        impl #impl_generics #trait_ident for #name #ty_generics #where_clause {
+        impl #impl_generics rtlola_interpreter::monitor::DerivedInput for #name #ty_generics #where_clause {
             type Input = #struct_name;
         }
 
@@ -175,15 +177,42 @@ pub fn derive_input_impl(input: TokenStream) -> TokenStream {
             type CreationData = ();
 
             fn new(map: std::collections::HashMap<String, rtlola_interpreter::rtlola_frontend::mir::InputReference>, setup_data: Self::CreationData) -> Result<Self, Self::Error> {
+                let all_streams: std::collections::HashSet<String> = map.keys().cloned().collect();
+                let mut all_found = std::collections::HashSet::with_capacity(map.len());
+
                 #(
-                    let #struct_field_names: #struct_field_types = rtlola_interpreter::monitor::RecordInput::new_ignore_undefined(map.clone(), ()).0;
+                    let (#struct_field_names, mut #struct_field_errs) = rtlola_interpreter::monitor::RecordInput::new_ignore_undefined(map.clone(), ());
+                    let #variant_missing: std::collections::HashSet<String> = #struct_field_errs.keys().cloned().collect();
+                    let #variant_found = all_streams.difference(&#variant_missing).cloned();
+                    all_found.extend(#variant_found);
                 )*
 
-                Ok(TestInputInput {
-                    #(
-                        #struct_field_names,
-                    )*
-                })
+                let errs: std::collections::HashMap<String, Vec<Self::Error>> = all_streams
+                    .difference(&all_found)
+                    .map(|missing| {
+                        let mut record_errs: Vec<Self::Error> = vec![];
+
+                        #(
+                             #struct_field_errs.remove(missing.as_str()).map(
+                                |e: <#struct_field_types as rtlola_interpreter::monitor::Input>::Error| {
+                                    record_errs.push(rtlola_interpreter::monitor::RecordError::from(e))
+                                },
+                            );
+                        )*
+
+                        ((*missing).clone(), record_errs)
+                    })
+                    .collect();
+
+                if errs.is_empty() {
+                    Ok( #struct_name{
+                        #(
+                            #struct_field_names,
+                        )*
+                    })
+                } else {
+                    Err(rtlola_interpreter::monitor::RecordError::InputStreamNotFound(errs))
+                }
             }
 
             /// This function converts a record to an event.
@@ -196,5 +225,5 @@ pub fn derive_input_impl(input: TokenStream) -> TokenStream {
             }
         }
     };
-    return proc_macro::TokenStream::from(input_impl);
+    proc_macro::TokenStream::from(input_impl)
 }
