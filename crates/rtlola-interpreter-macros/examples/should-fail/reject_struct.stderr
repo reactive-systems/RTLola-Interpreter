@@ -1,0 +1,14 @@
+error: Record can only be derived for Structs!
+ --> examples/should-fail/reject_struct.rs:4:1
+  |
+4 | / enum RejectEnum {
+5 | |     A,
+6 | |     B
+7 | | }
+  | |_^
+
+error: Record can only be derived for Structs with named fields!
+  --> examples/should-fail/reject_struct.rs:10:21
+   |
+10 | struct RejectStruct (String, usize);
+   |                     ^^^^^^^^^^^^^^^

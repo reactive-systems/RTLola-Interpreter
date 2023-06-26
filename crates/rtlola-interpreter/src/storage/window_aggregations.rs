@@ -209,7 +209,7 @@ impl WindowIv for IntegralIv {
 
 impl From<IntegralIv> for Value {
     fn from(iv: IntegralIv) -> Value {
-        Value::new_float(iv.volume)
+        Value::try_from(iv.volume).unwrap()
     }
 }
 
@@ -520,7 +520,7 @@ impl<G: WindowGeneric> PercentileIv<G> {
         let denominator = match &values[0] {
             Value::Unsigned(_) => Value::Unsigned(2),
             Value::Signed(_) => Value::Signed(2),
-            Value::Float(_) => Value::new_float(2.0),
+            Value::Float(_) => Value::try_from(2.0).unwrap(),
             _ => unreachable!("Type error."),
         };
 
@@ -592,7 +592,7 @@ pub(crate) struct VarianceIv {
 impl WindowIv for VarianceIv {
     fn default(_ts: Time) -> VarianceIv {
         VarianceIv {
-            count: Value::new_float(0.0),
+            count: Value::try_from(0.0).unwrap(),
             var: Value::None,
             mean: Value::None,
         }
@@ -608,8 +608,8 @@ impl From<VarianceIv> for Value {
 impl From<(Value, Time)> for VarianceIv {
     fn from(v: (Value, Time)) -> VarianceIv {
         VarianceIv {
-            count: Value::new_float(1.0),
-            var: Value::new_float(0.0),
+            count: Value::try_from(1.0).unwrap(),
+            var: Value::try_from(0.0).unwrap(),
             mean: v.0,
         }
     }
@@ -637,7 +637,7 @@ impl Add for VarianceIv {
         let mean_diff = o_mean - mean.clone();
         let new_var = var
             + o_var
-            + (mean_diff.clone().pow(Value::new_float(2.0)) * count.clone() * o_count.clone()
+            + (mean_diff.clone().pow(Value::try_from(2.0).unwrap()) * count.clone() * o_count.clone()
                 / (count.clone() + o_count.clone()));
         let new_mean = mean + mean_diff * (o_count.clone() / (count.clone() + o_count.clone()));
 
@@ -666,7 +666,7 @@ impl WindowIv for SdIv {
 impl From<SdIv> for Value {
     fn from(iv: SdIv) -> Value {
         let v: Value = iv.viv.into();
-        v.pow(Value::new_float(0.5))
+        v.pow(Value::try_from(0.5).unwrap())
     }
 }
 
@@ -703,7 +703,7 @@ pub(crate) struct CovIv {
 impl WindowIv for CovIv {
     fn default(_ts: Time) -> CovIv {
         CovIv {
-            count: Value::new_float(0.0),
+            count: Value::try_from(0.0).unwrap(),
             co_moment: Value::None,
             mean_x: Value::None,
             mean_y: Value::None,
@@ -724,8 +724,8 @@ impl From<(Value, Time)> for CovIv {
             _ => unreachable!("covariance expects tuple input, ensured by type checker"),
         };
         CovIv {
-            count: Value::new_float(1.0),
-            co_moment: Value::new_float(0.0),
+            count: Value::try_from(1.0).unwrap(),
+            co_moment: Value::try_from(0.0).unwrap(),
             mean_x: x,
             mean_y: y,
         }

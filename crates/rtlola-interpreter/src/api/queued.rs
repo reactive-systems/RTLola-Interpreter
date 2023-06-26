@@ -714,7 +714,7 @@ mod tests {
         assert_eq!(res.outputs[0][0], (None, Some(Value::Bool(true))));
         assert_eq!(res.outputs[1][0], (None, Some(Value::Unsigned(3))));
         assert_eq!(res.outputs[2][0], (None, Some(Value::Signed(-5))));
-        assert_eq!(res.outputs[3][0], (None, Some(Value::new_float(-123.456))));
+        assert_eq!(res.outputs[3][0], (None, Some(Value::try_from(-123.456).unwrap())));
         assert_eq!(res.outputs[4][0], (None, Some(Value::Str("foobar".into()))));
     }
 

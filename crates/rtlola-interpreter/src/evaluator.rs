@@ -1044,7 +1044,7 @@ mod tests {
         peek_assert_eq!(eval, start, 0, vec![], Bool(true));
         peek_assert_eq!(eval, start, 1, vec![], Unsigned(3));
         peek_assert_eq!(eval, start, 2, vec![], Signed(-5));
-        peek_assert_eq!(eval, start, 3, vec![], Value::new_float(-123.456));
+        peek_assert_eq!(eval, start, 3, vec![], Value::try_from(-123.456).unwrap());
         peek_assert_eq!(eval, start, 4, vec![], Str("foobar".into()));
     }
 
@@ -1453,12 +1453,12 @@ mod tests {
 
         // No time has passed. No values should be within the window. We should see the default value.
         eval_stream_timed!(eval, 0, vec![], time);
-        let expected = Value::new_float(-3.0);
+        let expected = Value::try_from(-3.0).unwrap();
         assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
 
         let n = 25;
         for v in 1..=n {
-            accept_input_timed!(eval, in_ref, Value::new_float(v as f64), time);
+            accept_input_timed!(eval, in_ref, Value::try_from(v as f64).unwrap(), time);
             time += Duration::from_secs(1);
         }
         time += Duration::from_secs(1);
@@ -1466,7 +1466,7 @@ mod tests {
         // 71 secs have passed. All values should be within the window.
         eval_stream_timed!(eval, 0, vec![], time);
         let n = n as f64;
-        let expected = Value::new_float(((n * n + n) / 2.0) / 25.0);
+        let expected = Value::try_from(((n * n + n) / 2.0) / 25.0).unwrap();
         assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
     }
 
@@ -1609,12 +1609,12 @@ mod tests {
     #[test]
     fn test_percentile_float() {
         for (pctl, exp) in &[
-            ("pctl25", Value::new_float(13.0)),
-            ("pctl75", Value::new_float(18.0)),
-            ("pctl10", Value::new_float(11.5)),
-            ("pctl5", Value::new_float(11.0)),
-            ("pctl90", Value::new_float(19.5)),
-            ("med", Value::new_float(15.5)),
+            ("pctl25", Value::try_from(13.0)),
+            ("pctl75", Value::try_from(18.0)),
+            ("pctl10", Value::try_from(11.5)),
+            ("pctl5", Value::try_from(11.0)),
+            ("pctl90", Value::try_from(19.5)),
+            ("med", Value::try_from(15.5)),
         ] {
             let (_, eval, mut time) = setup_time(&format!(
                 "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over: 10s, using: {}).defaults(to:0.0)",
@@ -1636,19 +1636,22 @@ mod tests {
                 eval.peek_value(in_ref, &Vec::new(), 0).unwrap(),
                 Float(NotNan::new(20.0).unwrap())
             );
-            assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
+            assert_eq!(
+                eval.peek_value(out_ref, &Vec::new(), 0).unwrap(),
+                exp.as_ref().unwrap().clone()
+            );
         }
     }
 
     #[test]
     fn test_percentile_float_unordered_input() {
         for (pctl, exp) in &[
-            ("pctl25", Value::new_float(13.0)),
-            ("pctl75", Value::new_float(18.0)),
-            ("pctl10", Value::new_float(11.5)),
-            ("pctl5", Value::new_float(11.0)),
-            ("pctl90", Value::new_float(19.5)),
-            ("med", Value::new_float(15.5)),
+            ("pctl25", Value::try_from(13.0)),
+            ("pctl75", Value::try_from(18.0)),
+            ("pctl10", Value::try_from(11.5)),
+            ("pctl5", Value::try_from(11.0)),
+            ("pctl90", Value::try_from(19.5)),
+            ("med", Value::try_from(15.5)),
         ] {
             let (_, eval, mut time) = setup_time(&format!(
                 "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over: 10s, using: {}).defaults(to:0.0)",
@@ -1671,7 +1674,10 @@ mod tests {
                 eval.peek_value(in_ref, &Vec::new(), 0).unwrap(),
                 Float(NotNan::new(15.0).unwrap())
             );
-            assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
+            assert_eq!(
+                eval.peek_value(out_ref, &Vec::new(), 0).unwrap(),
+                exp.as_ref().unwrap().clone()
+            );
         }
     }
 
@@ -1738,12 +1744,12 @@ mod tests {
     #[test]
     fn test_percentile_discrete_float_unordered_input() {
         for (pctl, exp) in &[
-            ("pctl25", Value::new_float(13.0)),
-            ("pctl75", Value::new_float(18.0)),
-            ("pctl10", Value::new_float(11.5)),
-            ("pctl5", Value::new_float(11.0)),
-            ("pctl90", Value::new_float(19.5)),
-            ("med", Value::new_float(15.5)),
+            ("pctl25", Value::try_from(13.0)),
+            ("pctl75", Value::try_from(18.0)),
+            ("pctl10", Value::try_from(11.5)),
+            ("pctl5", Value::try_from(11.0)),
+            ("pctl90", Value::try_from(19.5)),
+            ("med", Value::try_from(15.5)),
         ] {
             let (_, eval, mut time) = setup_time(&format!(
                 "input a: Float32\noutput b: Float32 := a.aggregate(over_discrete: 10, using: {}).defaults(to:0.0)",
@@ -1766,7 +1772,10 @@ mod tests {
                 eval.peek_value(in_ref, &Vec::new(), 0).unwrap(),
                 Float(NotNan::new(15.0).unwrap())
             );
-            assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
+            assert_eq!(
+                eval.peek_value(out_ref, &Vec::new(), 0).unwrap(),
+                exp.as_ref().unwrap().clone()
+            );
         }
     }
 
@@ -1797,16 +1806,16 @@ mod tests {
     #[test]
     fn test_var_window() {
         for (duration, exp) in &[
-            ("2", Value::new_float(0.25)),
-            ("3", Value::new_float(2.0 / 3.0)),
-            ("4", Value::new_float(1.25)),
-            ("5", Value::new_float(2.0)),
-            ("6", Value::new_float(17.5 / 6.0)),
-            ("7", Value::new_float(4.0)),
-            ("8", Value::new_float(5.25)),
-            ("9", Value::new_float(60.0 / 9.0)),
-            ("10", Value::new_float(8.25)),
-            ("11", Value::new_float(10.0)),
+            ("2", Value::try_from(0.25)),
+            ("3", Value::try_from(2.0 / 3.0)),
+            ("4", Value::try_from(1.25)),
+            ("5", Value::try_from(2.0)),
+            ("6", Value::try_from(17.5 / 6.0)),
+            ("7", Value::try_from(4.0)),
+            ("8", Value::try_from(5.25)),
+            ("9", Value::try_from(60.0 / 9.0)),
+            ("10", Value::try_from(8.25)),
+            ("11", Value::try_from(10.0)),
         ] {
             let (_, eval, mut time) = setup_time(&format!(
                 "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over: {}s, using: var).defaults(to:0.0)",
@@ -1828,23 +1837,26 @@ mod tests {
                 eval.peek_value(in_ref, &Vec::new(), 0).unwrap(),
                 Float(NotNan::new(20.0).unwrap())
             );
-            assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
+            assert_eq!(
+                eval.peek_value(out_ref, &Vec::new(), 0).unwrap(),
+                exp.as_ref().unwrap().clone()
+            );
         }
     }
 
     #[test]
     fn test_sd_window() {
         for (duration, exp) in &[
-            ("2", Value::new_float(0.25f64.sqrt())),
-            ("3", Value::new_float((2.0 / 3.0f64).sqrt())),
-            ("4", Value::new_float(1.25f64.sqrt())),
-            ("5", Value::new_float(2.0f64.sqrt())),
-            ("6", Value::new_float((17.5 / 6.0f64).sqrt())),
-            ("7", Value::new_float(4.0f64.sqrt())),
-            ("8", Value::new_float(5.25f64.sqrt())),
-            ("9", Value::new_float((60.0 / 9.0f64).sqrt())),
-            ("10", Value::new_float(8.25f64.sqrt())),
-            ("11", Value::new_float(10.0f64.sqrt())),
+            ("2", Value::try_from(0.25f64.sqrt())),
+            ("3", Value::try_from((2.0 / 3.0f64).sqrt())),
+            ("4", Value::try_from(1.25f64.sqrt())),
+            ("5", Value::try_from(2.0f64.sqrt())),
+            ("6", Value::try_from((17.5 / 6.0f64).sqrt())),
+            ("7", Value::try_from(4.0f64.sqrt())),
+            ("8", Value::try_from(5.25f64.sqrt())),
+            ("9", Value::try_from((60.0 / 9.0f64).sqrt())),
+            ("10", Value::try_from(8.25f64.sqrt())),
+            ("11", Value::try_from(10.0f64.sqrt())),
         ] {
             let (_, eval, mut time) = setup_time(&format!(
                 "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over: {}s, using: sd).defaults(to:0.0)",
@@ -1866,7 +1878,10 @@ mod tests {
                 eval.peek_value(in_ref, &Vec::new(), 0).unwrap(),
                 Float(NotNan::new(20.0).unwrap())
             );
-            assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
+            assert_eq!(
+                eval.peek_value(out_ref, &Vec::new(), 0).unwrap(),
+                exp.as_ref().unwrap().clone()
+            );
         }
     }
 
@@ -1881,8 +1896,8 @@ mod tests {
         let in_ref_2 = StreamReference::In(1);
         let n = 20;
         for v in 1..=n {
-            accept_input_timed!(eval, in_ref, Value::new_float(v as f64), time);
-            accept_input_timed!(eval, in_ref_2, Value::new_float(v as f64), time);
+            accept_input_timed!(eval, in_ref, Value::try_from(v as f64).unwrap(), time);
+            accept_input_timed!(eval, in_ref_2, Value::try_from(v as f64).unwrap(), time);
             eval_stream_timed!(eval, 0, vec![], time);
             time += Duration::from_secs(1);
         }
@@ -1912,8 +1927,8 @@ mod tests {
         let in_ref_2 = StreamReference::In(1);
         let n = 20;
         for v in 1..=n {
-            accept_input_timed!(eval, in_ref, Value::new_float(v as f64), time);
-            accept_input_timed!(eval, in_ref_2, Value::new_float(16.0), time);
+            accept_input_timed!(eval, in_ref, Value::try_from(v as f64).unwrap(), time);
+            accept_input_timed!(eval, in_ref_2, Value::try_from(16.0).unwrap(), time);
             eval_stream_timed!(eval, 0, vec![], time);
             time += Duration::from_secs(1);
         }
@@ -1935,16 +1950,16 @@ mod tests {
     #[test]
     fn test_var_discrete() {
         for (duration, exp) in &[
-            ("2", Value::new_float(0.25)),
-            ("3", Value::new_float(2.0 / 3.0)),
-            ("4", Value::new_float(1.25)),
-            ("5", Value::new_float(2.0)),
-            ("6", Value::new_float(17.5 / 6.0)),
-            ("7", Value::new_float(4.0)),
-            ("8", Value::new_float(5.25)),
-            ("9", Value::new_float(60.0 / 9.0)),
-            ("10", Value::new_float(8.25)),
-            ("11", Value::new_float(10.0)),
+            ("2", Value::try_from(0.25)),
+            ("3", Value::try_from(2.0 / 3.0)),
+            ("4", Value::try_from(1.25)),
+            ("5", Value::try_from(2.0)),
+            ("6", Value::try_from(17.5 / 6.0)),
+            ("7", Value::try_from(4.0)),
+            ("8", Value::try_from(5.25)),
+            ("9", Value::try_from(60.0 / 9.0)),
+            ("10", Value::try_from(8.25)),
+            ("11", Value::try_from(10.0)),
         ] {
             let (_, eval, mut time) = setup_time(&format!(
                 "input a: Float32\noutput b: Float32 := a.aggregate(over_discrete: {}, using: var).defaults(to:0.0)",
@@ -1966,23 +1981,26 @@ mod tests {
                 eval.peek_value(in_ref, &Vec::new(), 0).unwrap(),
                 Float(NotNan::new(20.0).unwrap())
             );
-            assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
+            assert_eq!(
+                eval.peek_value(out_ref, &Vec::new(), 0).unwrap(),
+                exp.as_ref().unwrap().clone()
+            );
         }
     }
 
     #[test]
     fn test_sd_discrete() {
         for (duration, exp) in &[
-            ("2", Value::new_float(0.25f64.sqrt())),
-            ("3", Value::new_float((2.0 / 3.0f64).sqrt())),
-            ("4", Value::new_float(1.25f64.sqrt())),
-            ("5", Value::new_float(2.0f64.sqrt())),
-            ("6", Value::new_float((17.5 / 6.0f64).sqrt())),
-            ("7", Value::new_float(4.0f64.sqrt())),
-            ("8", Value::new_float(5.25f64.sqrt())),
-            ("9", Value::new_float((60.0 / 9.0f64).sqrt())),
-            ("10", Value::new_float(8.25f64.sqrt())),
-            ("11", Value::new_float(10.0f64.sqrt())),
+            ("2", Value::try_from(0.25f64.sqrt())),
+            ("3", Value::try_from((2.0 / 3.0f64).sqrt())),
+            ("4", Value::try_from(1.25f64.sqrt())),
+            ("5", Value::try_from(2.0f64.sqrt())),
+            ("6", Value::try_from((17.5 / 6.0f64).sqrt())),
+            ("7", Value::try_from(4.0f64.sqrt())),
+            ("8", Value::try_from(5.25f64.sqrt())),
+            ("9", Value::try_from((60.0 / 9.0f64).sqrt())),
+            ("10", Value::try_from(8.25f64.sqrt())),
+            ("11", Value::try_from(10.0f64.sqrt())),
         ] {
             let (_, eval, mut time) = setup_time(&format!(
                 "input a: Float32\noutput b: Float32 := a.aggregate(over_discrete: {}, using: sd).defaults(to:0.0)",
@@ -2004,21 +2022,24 @@ mod tests {
                 eval.peek_value(in_ref, &Vec::new(), 0).unwrap(),
                 Float(NotNan::new(20.0).unwrap())
             );
-            assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
+            assert_eq!(
+                eval.peek_value(out_ref, &Vec::new(), 0).unwrap(),
+                exp.as_ref().unwrap().clone()
+            );
         }
     }
 
     #[test]
     fn test_cases_window_discrete_float() {
         for (aggr, exp, default) in &[
-            ("sum", Value::new_float(115.0), false),
-            ("min", Value::new_float(21.0), true),
-            ("max", Value::new_float(25.0), true),
-            ("avg", Value::new_float(23.0), true),
-            ("integral", Value::new_float(92.0), false),
-            ("last", Value::new_float(25.0), true),
-            ("med", Value::new_float(23.0), true),
-            ("pctl20", Value::new_float(21.5), true),
+            ("sum", Value::try_from(115.0), false),
+            ("min", Value::try_from(21.0), true),
+            ("max", Value::try_from(25.0), true),
+            ("avg", Value::try_from(23.0), true),
+            ("integral", Value::try_from(92.0), false),
+            ("last", Value::try_from(25.0), true),
+            ("med", Value::try_from(23.0), true),
+            ("pctl20", Value::try_from(21.5), true),
         ] {
             let mut spec = String::from("input a: Float32\noutput b := a.aggregate(over_discrete: 5, using: ");
             spec += aggr;
@@ -2033,13 +2054,13 @@ mod tests {
             let in_ref = StreamReference::In(0);
             let n = 25;
             for v in 1..=n {
-                accept_input_timed!(eval, in_ref, Value::new_float(v as f64), time);
+                accept_input_timed!(eval, in_ref, Value::try_from(v as f64).unwrap(), time);
                 time += Duration::from_secs(1);
             }
             time += Duration::from_secs(1);
             // 71 secs have passed. All values should be within the window.
             eval_stream_timed!(eval, 0, vec![], time);
-            let expected = exp.clone();
+            let expected = exp.as_ref().unwrap().clone();
             assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
         }
     }
@@ -2052,7 +2073,7 @@ mod tests {
             ("min", Signed(21), true),
             ("max", Signed(25), true),
             ("avg", Signed(23), true),
-            ("integral", Value::new_float(92.0), false),
+            ("integral", Value::try_from(92.0).unwrap(), false),
             ("last", Signed(25), true),
             ("med", Signed(23), true),
             ("pctl20", Signed(21), true),
@@ -2089,7 +2110,7 @@ mod tests {
             ("min", Unsigned(21), true),
             ("max", Unsigned(25), true),
             ("avg", Unsigned(23), true),
-            ("integral", Value::new_float(92.0), false),
+            ("integral", Value::try_from(92.0).unwrap(), false),
             ("last", Unsigned(25), true),
             ("med", Unsigned(23), true),
             ("pctl20", Unsigned(21), true),

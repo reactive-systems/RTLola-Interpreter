@@ -31,6 +31,7 @@ use std::fmt::{Display, Formatter};
 use std::time::Duration;
 
 // Reexport Frontend
+pub use rtlola_frontend;
 pub use rtlola_frontend::mir as rtlola_mir;
 
 // Serialize and Deserialize traits for serde support
@@ -42,7 +43,7 @@ pub use crate::api::queued;
 pub use crate::api::queued::QueuedMonitor;
 pub use crate::configuration::config_builder::ConfigBuilder;
 pub use crate::configuration::{config, time};
-pub use crate::storage::Value;
+pub use crate::storage::{Value, ValueConvertError};
 
 mod api;
 mod closuregen;
