@@ -1,8 +1,6 @@
 use std::cmp::Ordering;
-use std::collections::VecDeque;
 use std::fmt::Debug;
-use std::ops::{Add, Div};
-use std::time::Duration;
+use std::ops::Add;
 
 use ordered_float::NotNan;
 use rtlola_frontend::mir::{
@@ -13,8 +11,6 @@ use super::discrete_window::DiscreteWindowInstance;
 use super::window_aggregations::*;
 use super::Value;
 use crate::Time;
-
-const SIZE: usize = 64;
 
 pub(crate) trait WindowInstanceTrait: Debug {
     /// Computes the current value of a sliding window instance with the given timestamp:
@@ -298,7 +294,6 @@ pub(crate) trait WindowIv:
 pub(crate) struct RealTimeWindowInstance<IV: WindowIv> {
     buckets: Vec<IV>,
     start_time: usize,
-    last_update: usize,
     total_duration: usize,
     bucket_duration: usize,
     current_bucket: usize,
@@ -326,7 +321,6 @@ impl<IV: WindowIv> WindowInstanceTrait for RealTimeWindowInstance<IV> {
         self.current_bucket = self.buckets.len() - 1;
         self.start_time = ts;
         self.current_bucket_end = ts;
-        self.last_update = ts;
         self.active = true;
     }
 
@@ -336,7 +330,7 @@ impl<IV: WindowIv> WindowInstanceTrait for RealTimeWindowInstance<IV> {
             return IV::default(ts).into();
         }
         // Reversal is essential for non-commutative operations.
-        if self.wait && (ts.as_nanos() as usize) < self.total_duration {
+        if self.wait && (ts.as_nanos() as usize) - self.start_time < self.total_duration {
             return Value::None;
         }
         self.buckets
@@ -346,26 +340,30 @@ impl<IV: WindowIv> WindowInstanceTrait for RealTimeWindowInstance<IV> {
     }
 
     fn accept_value(&mut self, v: Value, ts: Time) {
-        assert!(self.active);
+        println!("##### Accept Value: {} #####", &v);
+        if !self.active {
+            // ignore value if window has not started yet
+            return;
+        }
         self.update_buckets(ts);
         let b = self.buckets.get_mut(self.current_bucket).expect("Bug!");
         *b = b.clone() + (v, ts).into(); // TODO: Require add_assign rather than add.
         dbg!(&self.buckets);
+        println!("##### Accept Value End #####");
     }
 
     fn update_buckets(&mut self, ts: Time) {
+        println!("\n##### Update Buckets {ts:?} #####\n");
         assert!(self.active);
         let last = self.current_bucket;
         let curr = self.get_current_bucket(ts);
 
         let current_time = ts.as_nanos() as usize;
-        println!("\n##### New Call #####\n");
         dbg!(
             curr,
             last,
             current_time,
             self.start_time,
-            self.last_update,
             self.bucket_duration,
             self.total_duration,
             self.current_bucket_end
@@ -382,24 +380,30 @@ impl<IV: WindowIv> WindowInstanceTrait for RealTimeWindowInstance<IV> {
         // // rounds taken in the ringbuffer since the last update
         // let rounds = (current_time - self.last_update) / self.total_duration;
         // dbg!(rounds);
-        if (current_time > self.current_bucket_end) {
+        if current_time > self.current_bucket_end {
+            println!("Clear Buckets");
             // clear passed buckets
-            if (current_time > self.current_bucket_end + self.total_duration - self.bucket_duration) {
+            if current_time > self.current_bucket_end + self.total_duration - self.bucket_duration {
                 // we completed a whole round in the ring buffer and clear all buckets
                 self.clear_all_buckets(ts);
             } else {
                 // we only clear buckets between last / curr
-                if curr > last {
-                    self.clear_buckets(ts, last + 1, curr + 1);
-                } else if curr < last {
-                    self.clear_buckets(ts, last + 1, self.buckets.len());
-                    self.clear_buckets(ts, 0, curr + 1);
+                match curr.cmp(&last) {
+                    Ordering::Less => {
+                        self.clear_buckets(ts, last + 1, self.buckets.len());
+                        self.clear_buckets(ts, 0, curr + 1);
+                    },
+                    Ordering::Greater => {
+                        self.clear_buckets(ts, last + 1, curr + 1);
+                    },
+                    Ordering::Equal => {},
                 }
             }
 
             self.current_bucket = curr;
             self.current_bucket_end = self.get_current_bucket_end(ts);
         }
+        dbg!(&self.buckets);
     }
 }
 
@@ -419,7 +423,6 @@ impl<IV: WindowIv> RealTimeWindowInstance<IV> {
             bucket_duration,
             total_duration: window.duration.as_nanos() as usize,
             start_time: current_ts,
-            last_update: current_ts,
             current_bucket: num_buckets - 1,
             current_bucket_end: current_ts,
             wait: window.wait,
@@ -436,9 +439,9 @@ impl<IV: WindowIv> RealTimeWindowInstance<IV> {
         let ts = ts.as_nanos() as usize;
         let relative_to_window = (ts - self.start_time) % self.total_duration;
         let idx = relative_to_window / self.bucket_duration;
-        // dbg!(self.buckets.len());
-        // dbg!(ts, relative_to_window, idx);
-        if ts % self.bucket_duration == 0 {
+        dbg!(self.buckets.len());
+        dbg!(ts, relative_to_window, idx);
+        if relative_to_window % self.bucket_duration == 0 {
             // A bucket includes time from x < ts <= x + bucket_duration
             // Consequently, if we hit the "edge" of bucket we have to chose the previous one
             if idx > 0 {
@@ -454,7 +457,7 @@ impl<IV: WindowIv> RealTimeWindowInstance<IV> {
     fn get_current_bucket_end(&mut self, ts: Time) -> usize {
         let current_time = ts.as_nanos() as usize;
 
-        let period = if current_time % self.total_duration == 0 {
+        let period = if (current_time - self.start_time) % self.total_duration == 0 {
             // A bucket includes time from x < ts <= x + bucket_duration
             // Consequently, if we hit the "edge" of bucket we have to chose the previous one
             let p = (current_time - self.start_time) / self.total_duration;
@@ -487,8 +490,11 @@ pub(crate) struct PercentileWindow<IC: WindowInstanceTrait> {
 
 impl<G: WindowGeneric> WindowInstanceTrait for PercentileWindow<RealTimeWindowInstance<PercentileIv<G>>> {
     fn get_value(&self, ts: Time) -> Value {
+        if !self.is_active() {
+            return PercentileIv::<G>::default(ts).into();
+        }
         // Reversal is essential for non-commutative operations.
-        if self.inner.wait && (ts.as_nanos() as usize) < self.inner.total_duration {
+        if self.inner.wait && (ts.as_nanos() as usize) - self.inner.start_time < self.inner.total_duration {
             return Value::None;
         }
         self.inner

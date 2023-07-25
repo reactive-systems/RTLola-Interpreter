@@ -1,16 +1,20 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ops::Not;
 use std::rc::Rc;
 
 use bit_set::BitSet;
-use rtlola_frontend::mir::{ActivationCondition as Activation, InputReference, OutputReference, PacingType, RtLolaMir, Stream, StreamAccessKind, StreamReference, Task, TimeDrivenStream, Trigger, Window, WindowReference};
+use rtlola_frontend::mir::{
+    ActivationCondition as Activation, InputReference, Origin, OutputReference, PacingType, RtLolaMir, Stream,
+    StreamAccessKind, StreamReference, Task, TimeDrivenStream, Trigger, WindowReference,
+};
 use string_template::Template;
 
 use crate::api::monitor::{Change, Instance};
 use crate::closuregen::{CompiledExpr, Expr};
 use crate::monitor::Tracer;
 use crate::schedule::{DynamicSchedule, EvaluationTask};
-use crate::storage::{GlobalStore, InstanceStore, Value};
+use crate::storage::{GlobalStore, InstanceStore, Value, WindowParameterization};
 use crate::Time;
 
 /// Enum to describe the activation condition of a stream; If the activation condition is described by a conjunction, the evaluator uses a bitset representation.
@@ -29,8 +33,7 @@ pub(crate) struct EvaluatorData {
     stream_activation_conditions: Vec<ActivationConditionOp>,
     spawn_activation_conditions: Vec<ActivationConditionOp>,
     close_activation_conditions: Vec<ActivationConditionOp>,
-    parameterized_sliding_windows:Vec<bool>,
-    parameterized_discrete_windows:Vec<bool>,
+    stream_windows: HashMap<StreamReference, Vec<(Origin, WindowReference)>>,
     global_store: GlobalStore,
     fresh_inputs: BitSet,
     fresh_outputs: BitSet,
@@ -64,10 +67,7 @@ pub(crate) struct Evaluator {
     compiled_spawn_exprs: Vec<CompiledExpr>,
     // Accessed by stream index
     compiled_close_exprs: Vec<CompiledExpr>,
-    // Indexed by sliding window reference
-    parameterized_sliding_windows: &'static [bool],
-    // Indexed by sliding window reference
-    parameterized_discrete_windows: &'static [bool],
+    stream_windows: &'static HashMap<StreamReference, Vec<(Origin, WindowReference)>>,
     global_store: &'static mut GlobalStore,
     fresh_inputs: &'static mut BitSet,
     fresh_outputs: &'static mut BitSet,
@@ -88,9 +88,9 @@ pub(crate) struct Evaluator {
 
 pub(crate) struct EvaluationContext<'e> {
     ts: Time,
-    pub(crate) global_store: &'e mut GlobalStore,
-    pub(crate) fresh_inputs: &'e BitSet,
-    pub(crate) fresh_outputs: &'e BitSet,
+    global_store: &'e mut GlobalStore,
+    fresh_inputs: &'e BitSet,
+    fresh_outputs: &'e BitSet,
     pub(crate) parameter: Vec<Value>,
 }
 
@@ -146,14 +146,27 @@ impl EvaluatorData {
         let fresh_triggers = BitSet::with_capacity(ir.outputs.len()); //trigger use their outputreferences
         let mut triggers = vec![None; ir.outputs.len()];
 
-        let parameterized_sliding_windows = ir.sliding_windows.iter().map(|w| match &w.caller {
-            StreamReference::In(_) => false,
-            StreamReference::Out(ix) => ir.outputs[*ix].is_parameterized(),
-        }).collect();
-        let parameterized_discrete_windows = ir.discrete_windows.iter().map(|w| match &w.caller {
-            StreamReference::In(_) => false,
-            StreamReference::Out(ix) => ir.outputs[*ix].is_parameterized(),
-        }).collect();
+        let stream_windows = ir
+            .outputs
+            .iter()
+            .map(|o| {
+                let windows = o
+                    .accesses
+                    .iter()
+                    .flat_map(|(_, a)| a)
+                    .filter_map(|(origin, kind)| {
+                        if let StreamAccessKind::SlidingWindow(w) = kind {
+                            Some((*origin, *w))
+                        } else if let StreamAccessKind::DiscreteWindow(w) = kind {
+                            Some((*origin, *w))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                (o.reference, windows)
+            })
+            .collect();
 
         for t in &ir.triggers {
             triggers[t.reference.out_ix()] = Some(t.clone());
@@ -171,8 +184,7 @@ impl EvaluatorData {
             stream_activation_conditions: stream_acs,
             spawn_activation_conditions: spawn_acs,
             close_activation_conditions: close_acs,
-            parameterized_sliding_windows,
-            parameterized_discrete_windows,
+            stream_windows,
             global_store,
             fresh_inputs,
             fresh_outputs,
@@ -251,8 +263,7 @@ impl EvaluatorData {
             compiled_stream_exprs,
             compiled_spawn_exprs,
             compiled_close_exprs,
-            parameterized_sliding_windows: &leaked_data.parameterized_sliding_windows,
-            parameterized_discrete_windows: &leaked_data.parameterized_discrete_windows,
+            stream_windows: &leaked_data.stream_windows,
             global_store: &mut leaked_data.global_store,
             fresh_inputs: &mut leaked_data.fresh_inputs,
             fresh_outputs: &mut leaked_data.fresh_outputs,
@@ -399,7 +410,7 @@ impl Evaluator {
         self.fresh_inputs.insert(input);
         let extended = &self.ir.inputs[input];
         for (_sr, win) in &extended.aggregated_by {
-            self.global_store.get_window_mut(*win).accept_value(v.clone(), ts)
+            self.extend_window(&[], *win, v.clone(), ts);
         }
     }
 
@@ -453,21 +464,12 @@ impl Evaluator {
         };
 
         self.spawned_outputs.insert(output);
-        let own_windows = stream
-            .accesses
+        let own_windows: Vec<WindowReference> = self.stream_windows[&stream.reference]
             .iter()
-            .flat_map(|(r, s)| {
-                s.iter().filter_map(|(_, kind)| {
-                    match kind {
-                        StreamAccessKind::SlidingWindow(w) | StreamAccessKind::DiscreteWindow(w) => Some(*w),
-                        StreamAccessKind::Fresh
-                        | StreamAccessKind::Get
-                        | StreamAccessKind::Hold
-                        | StreamAccessKind::Offset(_)
-                        | StreamAccessKind::Sync => None,
-                    }
-                })
-            });
+            .filter(|(_, w)| self.window_parameterization(*w).is_spawned())
+            .map(|(_, win)| *win)
+            .collect();
+
         if stream.is_parameterized() {
             debug_assert!(!parameter_values.is_empty());
             let instances = self.global_store.get_out_instance_collection_mut(output);
@@ -476,12 +478,18 @@ impl Evaluator {
                 return;
             }
             instances.create_instance(parameter_values.as_slice());
-
             //activate windows of this stream
             for win_ref in own_windows {
                 let windows = self.global_store.get_window_collection_mut(win_ref);
                 let window = windows.get_or_create(parameter_values.as_slice(), ts);
                 window.activate(ts);
+            }
+            //create window that aggregate over this stream
+            for (_, win_ref) in &stream.aggregated_by {
+                let windows = self.global_store.get_window_collection_mut(*win_ref);
+                let window = windows.get_or_create(parameter_values.as_slice(), ts);
+                // Todo: We for now assume that these windows are not spawned, hence start at time 0
+                window.activate(Time::ZERO);
             }
         } else {
             debug_assert!(parameter_values.is_empty());
@@ -495,9 +503,15 @@ impl Evaluator {
             //activate windows of this stream
             for win_ref in own_windows {
                 let window = self.global_store.get_window_mut(win_ref);
-                debug_assert!(!window.is_active());
                 window.activate(ts);
             }
+            //create window that aggregate over this stream
+            // for (_, win_ref) in &stream.aggregated_by {
+            //     let windows =  self.global_store.get_window_collection_mut(*win_ref);
+            //     let window = windows.get_or_create(parameter_values.as_slice(), ts);
+            //     // Todo: We for now assume that these windows are not spawned, hence start at time 0
+            //     window.activate(Time::ZERO);
+            // }
         }
 
         // Schedule instance evaluation if stream is periodic
@@ -625,16 +639,20 @@ impl Evaluator {
         // We need to copy the references first because updating needs exclusive access to `self`.
         let windows = &self.ir.sliding_windows;
         for win in windows {
-            let target = self.ir.stream(win.target);
-            if target.is_parameterized() {
-                self.global_store
-                    .get_window_collection_mut(win.reference)
-                    .update_all(ts);
-            } else {
-                let window = self.global_store.get_window_mut(win.reference);
-                if window.is_active() {
-                    window.update(ts);
-                }
+            let parameterization = self.window_parameterization(win.reference);
+            match parameterization {
+                WindowParameterization::None { .. } => {
+                    let window = self.global_store.get_window_mut(win.reference);
+                    if window.is_active() {
+                        window.update(ts);
+                    }
+                },
+                WindowParameterization::Caller | WindowParameterization::Target => {
+                    self.global_store
+                        .get_window_collection_mut(win.reference)
+                        .update_all(ts);
+                },
+                WindowParameterization::Both => unimplemented!(),
             }
         }
     }
@@ -708,15 +726,30 @@ impl Evaluator {
         // Check linked windows and inform them.
         let extended = &self.ir.outputs[ix];
         for (_sr, win) in &extended.aggregated_by {
-            let window = if self.window_is_parameterized(*win) {
+            self.extend_window(parameter, *win, res.clone(), ts);
+        }
+    }
+
+    fn window_parameterization(&self, win: WindowReference) -> WindowParameterization {
+        self.global_store.window_parameterization(win)
+    }
+
+    fn extend_window(&mut self, own_parameter: &[Value], win: WindowReference, value: Value, ts: Time) {
+        match self.window_parameterization(win) {
+            WindowParameterization::None { .. } => self.global_store.get_window_mut(win).accept_value(value, ts),
+            WindowParameterization::Caller => {
                 self.global_store
-                    .get_window_collection_mut(*win)
-                    .window_mut(parameter)
+                    .get_window_collection_mut(win)
+                    .accept_value_all(value, ts)
+            },
+            WindowParameterization::Target => {
+                self.global_store
+                    .get_window_collection_mut(win)
+                    .window_mut(own_parameter)
                     .expect("tried to extend non existing window")
-            } else {
-                self.global_store.get_window_mut(*win)
-            };
-            window.accept_value(res.clone(), ts);
+                    .accept_value(value, ts)
+            },
+            WindowParameterization::Both => unimplemented!(),
         }
     }
 
@@ -753,13 +786,6 @@ impl Evaluator {
                     self.global_store.get_out_instance(ix).get_value(offset)
                 }
             },
-        }
-    }
-
-    fn window_is_parameterized(&self, window: WindowReference) -> bool {
-        match window {
-            WindowReference::Sliding(idx) => self.parameterized_sliding_windows[idx],
-            WindowReference::Discrete(idx) => self.parameterized_discrete_windows[idx],
         }
     }
 
@@ -874,21 +900,28 @@ impl<'e> EvaluationContext<'e> {
         }
     }
 
-    pub(crate) fn lookup_window(&mut self, window_ref: WindowReference, parameter: &[Value]) -> Value {
-        let window = if parameter.is_empty() {
-            self.global_store.get_window(window_ref)
-        } else {
-            let window_collection = self.global_store.get_window_collection_mut(window_ref);
-            let window = window_collection.window(parameter);
-            if let Some(w) = window {
-                w
-            } else {
-                window_collection
-                    .create_window(parameter, self.ts)
-                    .expect("window did not exists before.")
-            }
-        };
-        window.get_value(self.ts)
+    pub(crate) fn lookup_window(&mut self, window_ref: WindowReference, target_parameter: &[Value]) -> Value {
+        let parameterization = self.global_store.window_parameterization(window_ref);
+        match parameterization {
+            WindowParameterization::None { .. } => self.global_store.get_window(window_ref).get_value(self.ts),
+            WindowParameterization::Caller => {
+                self.global_store
+                    .get_window_collection_mut(window_ref)
+                    .window(self.parameter.as_slice())
+                    .expect("Own window to exist")
+                    .get_value(self.ts)
+            },
+            WindowParameterization::Target => {
+                let window_collection = self.global_store.get_window_collection_mut(window_ref);
+                let window = window_collection.window(target_parameter);
+                if let Some(w) = window {
+                    w.get_value(self.ts)
+                } else {
+                    window_collection.default_value(self.ts)
+                }
+            },
+            WindowParameterization::Both => unimplemented!(),
+        }
     }
 }
 
@@ -954,7 +987,6 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use ordered_float::{Float, NotNan};
-    use rtlola_frontend::mir::FloatTy::Float64;
     use rtlola_frontend::mir::RtLolaMir;
     use rtlola_frontend::ParserConfig;
 
@@ -979,8 +1011,8 @@ mod tests {
 
     macro_rules! assert_float_eq {
         ($left:expr, $right:expr) => {
-            if let Value::Float(left) = $left {
-                if let Value::Float(right) = $right {
+            if let Float(left) = $left {
+                if let Float(right) = $right {
                     assert!(
                         (left - right).abs() < f64::epsilon(),
                         "Assertion failed: Difference between {} and {} is greater than {}",
@@ -2435,7 +2467,7 @@ mod tests {
         let d_ref = StreamReference::Out(2);
         let in_ref = StreamReference::In(0);
 
-        //Intance b(false) is spawned
+        //Instance b(false) is spawned
         time += Duration::from_millis(500);
         accept_input_timed!(eval, in_ref, Signed(15), time);
         spawn_stream_timed!(eval, time, b_ref);
@@ -2444,8 +2476,8 @@ mod tests {
         eval_stream_instances_timed!(eval, time, b_ref);
         assert_eq!(eval.peek_value(b_ref, &[Bool(false)], 0).unwrap(), Signed(15));
 
-        //Intance b(false) gets new value
-        //Intance b(true) is spawned
+        //Instance b(false) gets new value
+        //Instance b(true) is spawned
         //Timed streams are evaluated
         time += Duration::from_millis(500);
         accept_input_timed!(eval, in_ref, Signed(42), time);
@@ -2459,8 +2491,8 @@ mod tests {
         eval_stream_timed!(eval, d_ref.out_ix(), vec![], time);
         assert_eq!(eval.peek_value(d_ref, &[], 0).unwrap(), Signed(42));
 
-        //Intance b(false) gets new value
-        //Intance b(true) gets new value
+        //Instance b(false) gets new value
+        //Instance b(true) gets new value
         //Timed streams are evaluated
         time += Duration::from_secs(1);
         accept_input_timed!(eval, in_ref, Signed(42), time);

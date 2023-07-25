@@ -213,7 +213,7 @@ impl<InputTime: TimeRepresentation> CsvEventSource<InputTime> {
                 reader: wrapper,
                 csv_column_mapping,
                 get_time,
-                timer: PhantomData::default(),
+                timer: PhantomData,
             })
         } else {
             let get_time = Box::new(move |_: &CsvRecord| Ok(InputTime::parse("").unwrap()));
@@ -221,7 +221,7 @@ impl<InputTime: TimeRepresentation> CsvEventSource<InputTime> {
                 reader: wrapper,
                 csv_column_mapping,
                 get_time,
-                timer: PhantomData::default(),
+                timer: PhantomData,
             })
         }
     }

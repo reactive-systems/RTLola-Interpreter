@@ -56,8 +56,8 @@ impl<
     pub fn new(config: Config<SourceTime, VerdictTime>) -> Self {
         Self {
             config,
-            input: PhantomData::default(),
-            verdict: PhantomData::default(),
+            input: PhantomData,
+            verdict: PhantomData,
         }
     }
 
@@ -117,7 +117,7 @@ impl Config<RelativeFloat, RelativeFloat> {
             ir,
             mode: ExecutionMode::Offline,
             input_time_representation: RelativeFloat::default(),
-            output_time_representation: PhantomData::<RelativeFloat>::default(),
+            output_time_representation: PhantomData,
             start_time: None,
         }
     }
@@ -130,7 +130,7 @@ impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation> Config
             ir,
             mode: ExecutionMode::Offline,
             input_time_representation: InputTime::default(),
-            output_time_representation: PhantomData::default(),
+            output_time_representation: PhantomData,
             start_time: None,
         }
     }

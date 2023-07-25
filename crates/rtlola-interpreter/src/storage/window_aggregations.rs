@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 use std::ops::Add;
+use ordered_float::NotNan;
 
 use crate::storage::window::{WindowGeneric, WindowIv};
 use crate::storage::Value;
@@ -583,33 +584,33 @@ impl<G: WindowGeneric> Add for PercentileIv<G> {
 
 #[derive(Clone, Debug)]
 pub(crate) struct VarianceIv {
-    count: Value,
-    var: Value,
-    mean: Value,
+    count: usize,
+    var: Option<NotNan<f64>>,
+    mean: Option<NotNan<f64>>,
 }
 
 impl WindowIv for VarianceIv {
     fn default(_ts: Time) -> VarianceIv {
         VarianceIv {
-            count: Value::try_from(0.0).unwrap(),
-            var: Value::None,
-            mean: Value::None,
+            count: 0,
+            var: None,
+            mean: None,
         }
     }
 }
 
 impl From<VarianceIv> for Value {
     fn from(iv: VarianceIv) -> Value {
-        iv.var / iv.count
+        Value::Float(iv.var.unwrap() / (iv.count as f64))
     }
 }
 
 impl From<(Value, Time)> for VarianceIv {
     fn from(v: (Value, Time)) -> VarianceIv {
         VarianceIv {
-            count: Value::try_from(1.0).unwrap(),
-            var: Value::try_from(0.0).unwrap(),
-            mean: v.0,
+            count: 1,
+            var: Some(NotNan::new(0.0).unwrap()),
+            mean: Some(NotNan::new(v.0.try_into().unwrap()).unwrap()),
         }
     }
 }
@@ -618,10 +619,10 @@ impl Add for VarianceIv {
     type Output = VarianceIv;
 
     fn add(self, other: VarianceIv) -> VarianceIv {
-        if self.mean == Value::None {
+        if self.mean.is_none() {
             return other;
         }
-        if other.mean == Value::None {
+        if other.mean.is_none() {
             return self;
         }
 
@@ -633,18 +634,18 @@ impl Add for VarianceIv {
             mean: o_mean,
         } = other;
 
-        let mean_diff = o_mean - mean.clone();
-        let new_var = var
-            + o_var
-            + (mean_diff.clone().pow(Value::try_from(2.0).unwrap()) * count.clone() * o_count.clone()
-                / (count.clone() + o_count.clone()));
-        let new_mean = mean + mean_diff * (o_count.clone() / (count.clone() + o_count.clone()));
+        let mean_diff = o_mean.unwrap() - mean.clone().unwrap();
+        let new_var = var.unwrap()
+            + o_var.unwrap()
+            + (mean_diff.clone().powf(2.0)) * (count.clone() * o_count.clone()) as f64
+                / (count.clone() + o_count.clone()) as f64;
+        let new_mean = mean.unwrap() + mean_diff * (o_count.clone() as f64 / (count.clone() + o_count.clone()) as f64);
 
         let new_count = count + o_count;
         VarianceIv {
             count: new_count,
-            var: new_var,
-            mean: new_mean,
+            var: Some(new_var),
+            mean: Some(new_mean),
         }
     }
 }

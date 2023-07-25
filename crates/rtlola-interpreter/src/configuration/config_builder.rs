@@ -93,7 +93,7 @@ impl ConfigBuilder<ConfigureIR, RelativeFloat> {
     /// Creates a new configuration to be used with the API.
     pub fn new() -> Self {
         ConfigBuilder {
-            output_time_representation: PhantomData::default(),
+            output_time_representation: PhantomData,
             start_time: None,
             state: ConfigureIR {},
         }
@@ -117,7 +117,7 @@ impl<S: ConfigState, OutputTime: OutputTimeRepresentation> ConfigBuilder<S, Outp
             state,
         } = self;
         ConfigBuilder {
-            output_time_representation: PhantomData::default(),
+            output_time_representation: PhantomData,
             start_time,
             state,
         }
@@ -257,7 +257,7 @@ impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation>
                 ir,
                 input_time_representation,
                 mode,
-                source: PhantomData::default(),
+                source: PhantomData,
             },
         }
     }
@@ -284,7 +284,7 @@ impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation>
                 ir,
                 input_time_representation,
                 mode,
-                source: PhantomData::default(),
+                source: PhantomData,
             },
         }
     }
@@ -309,7 +309,7 @@ impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation>
                 ir,
                 input_time_representation,
                 mode,
-                source: PhantomData::default(),
+                source: PhantomData,
             },
         }
     }
