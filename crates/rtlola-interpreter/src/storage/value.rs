@@ -5,6 +5,8 @@ use std::ops;
 
 use ordered_float::NotNan;
 use rtlola_frontend::mir::Type;
+use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -383,6 +385,17 @@ impl TryFrom<f32> for Value {
     fn try_from(value: f32) -> Result<Self, Self::Error> {
         let val = NotNan::try_from(value as f64).map_err(|_| ValueConvertError::FloatIsNan)?;
         Ok(Float(val))
+    }
+}
+
+impl TryFrom<Decimal> for Value {
+    type Error = ValueConvertError;
+
+    fn try_from(value: Decimal) -> Result<Self, Self::Error> {
+        value
+            .to_f64()
+            .ok_or(ValueConvertError::ValueNotSupported(Box::new(value)))
+            .and_then(Value::try_from)
     }
 }
 

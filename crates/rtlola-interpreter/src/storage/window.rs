@@ -315,7 +315,6 @@ impl<IV: WindowIv> WindowInstanceTrait for RealTimeWindowInstance<IV> {
 
     /// Restarts the sliding window
     fn activate(&mut self, ts: Time) {
-        println!("Window is activated: {:?}", ts);
         self.clear_all_buckets(ts);
         let ts = ts.as_nanos() as usize;
         self.current_bucket = self.buckets.len() - 1;
@@ -340,7 +339,6 @@ impl<IV: WindowIv> WindowInstanceTrait for RealTimeWindowInstance<IV> {
     }
 
     fn accept_value(&mut self, v: Value, ts: Time) {
-        println!("##### Accept Value: {} #####", &v);
         if !self.active {
             // ignore value if window has not started yet
             return;
@@ -348,40 +346,15 @@ impl<IV: WindowIv> WindowInstanceTrait for RealTimeWindowInstance<IV> {
         self.update_buckets(ts);
         let b = self.buckets.get_mut(self.current_bucket).expect("Bug!");
         *b = b.clone() + (v, ts).into(); // TODO: Require add_assign rather than add.
-        dbg!(&self.buckets);
-        println!("##### Accept Value End #####");
     }
 
     fn update_buckets(&mut self, ts: Time) {
-        println!("\n##### Update Buckets {ts:?} #####\n");
         assert!(self.active);
         let last = self.current_bucket;
         let curr = self.get_current_bucket(ts);
 
         let current_time = ts.as_nanos() as usize;
-        dbg!(
-            curr,
-            last,
-            current_time,
-            self.start_time,
-            self.bucket_duration,
-            self.total_duration,
-            self.current_bucket_end
-        );
-        //
-        // // check if we have to update
-        // // current period of window
-        // let period = (self.last_update - self.start_time) / self.total_duration;
-        //
-        // // current end timestamp of bucket
-        // let bucket_end = self.start_time + period * self.total_duration + (last + 1) * self.bucket_duration;
-        // dbg!(period, bucket_end);
-        //
-        // // rounds taken in the ringbuffer since the last update
-        // let rounds = (current_time - self.last_update) / self.total_duration;
-        // dbg!(rounds);
         if current_time > self.current_bucket_end {
-            println!("Clear Buckets");
             // clear passed buckets
             if current_time > self.current_bucket_end + self.total_duration - self.bucket_duration {
                 // we completed a whole round in the ring buffer and clear all buckets
@@ -403,7 +376,6 @@ impl<IV: WindowIv> WindowInstanceTrait for RealTimeWindowInstance<IV> {
             self.current_bucket = curr;
             self.current_bucket_end = self.get_current_bucket_end(ts);
         }
-        dbg!(&self.buckets);
     }
 }
 
@@ -439,8 +411,6 @@ impl<IV: WindowIv> RealTimeWindowInstance<IV> {
         let ts = ts.as_nanos() as usize;
         let relative_to_window = (ts - self.start_time) % self.total_duration;
         let idx = relative_to_window / self.bucket_duration;
-        dbg!(self.buckets.len());
-        dbg!(ts, relative_to_window, idx);
         if relative_to_window % self.bucket_duration == 0 {
             // A bucket includes time from x < ts <= x + bucket_duration
             // Consequently, if we hit the "edge" of bucket we have to chose the previous one

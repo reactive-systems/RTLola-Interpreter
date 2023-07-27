@@ -1,6 +1,9 @@
 use std::marker::PhantomData;
 use std::ops::Add;
+
 use ordered_float::NotNan;
+use rust_decimal::prelude::*;
+use rust_decimal::Decimal;
 
 use crate::storage::window::{WindowGeneric, WindowIv};
 use crate::storage::Value;
@@ -585,23 +588,26 @@ impl<G: WindowGeneric> Add for PercentileIv<G> {
 #[derive(Clone, Debug)]
 pub(crate) struct VarianceIv {
     count: usize,
-    var: Option<NotNan<f64>>,
-    mean: Option<NotNan<f64>>,
+    var: Decimal,
+    sum: Decimal,
 }
 
 impl WindowIv for VarianceIv {
     fn default(_ts: Time) -> VarianceIv {
         VarianceIv {
             count: 0,
-            var: None,
-            mean: None,
+            var: Decimal::zero(),
+            sum: Decimal::zero(),
         }
     }
 }
 
 impl From<VarianceIv> for Value {
     fn from(iv: VarianceIv) -> Value {
-        Value::Float(iv.var.unwrap() / (iv.count as f64))
+        if iv.count == 0 {
+            return Value::Float(NotNan::from(0));
+        }
+        Value::try_from(iv.var / Decimal::from(iv.count)).expect("")
     }
 }
 
@@ -609,8 +615,8 @@ impl From<(Value, Time)> for VarianceIv {
     fn from(v: (Value, Time)) -> VarianceIv {
         VarianceIv {
             count: 1,
-            var: Some(NotNan::new(0.0).unwrap()),
-            mean: Some(NotNan::new(v.0.try_into().unwrap()).unwrap()),
+            var: 0.0.try_into().unwrap(),
+            sum: Decimal::from_f64(v.0.try_into().unwrap()).unwrap(),
         }
     }
 }
@@ -619,33 +625,31 @@ impl Add for VarianceIv {
     type Output = VarianceIv;
 
     fn add(self, other: VarianceIv) -> VarianceIv {
-        if self.mean.is_none() {
+        if self.count == 0 {
             return other;
         }
-        if other.mean.is_none() {
+        if other.count == 0 {
             return self;
         }
 
-        let VarianceIv { count, var, mean } = self;
+        let VarianceIv { count, var, sum } = self;
 
         let VarianceIv {
             count: o_count,
             var: o_var,
-            mean: o_mean,
+            sum: o_sum,
         } = other;
 
-        let mean_diff = o_mean.unwrap() - mean.clone().unwrap();
-        let new_var = var.unwrap()
-            + o_var.unwrap()
-            + (mean_diff.clone().powf(2.0)) * (count.clone() * o_count.clone()) as f64
-                / (count.clone() + o_count.clone()) as f64;
-        let new_mean = mean.unwrap() + mean_diff * (o_count.clone() as f64 / (count.clone() + o_count.clone()) as f64);
+        let mean_diff = (o_sum / (Decimal::from(o_count))) - (sum / Decimal::from(count));
+
+        let new_var =
+            var + o_var + mean_diff * mean_diff * (Decimal::from(count * o_count)) / (Decimal::from(count + o_count));
 
         let new_count = count + o_count;
         VarianceIv {
             count: new_count,
-            var: Some(new_var),
-            mean: Some(new_mean),
+            var: new_var,
+            sum: sum + o_sum,
         }
     }
 }

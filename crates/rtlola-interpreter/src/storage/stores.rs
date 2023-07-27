@@ -569,10 +569,7 @@ impl GlobalStore {
     /// Note: The windows callee *must* be a non-parameterized stream
     pub(crate) fn get_window_mut(&mut self, window: WindowReference) -> &mut SlidingWindow {
         match window {
-            WindowReference::Sliding(x) => {
-                dbg!(self.window_parameterization[x]);
-                &mut self.np_windows[self.window_index_map[x]]
-            },
+            WindowReference::Sliding(x) => &mut self.np_windows[self.window_index_map[x]],
             WindowReference::Discrete(x) => &mut self.np_discrete_windows[self.discrete_window_index_map[x]],
         }
     }

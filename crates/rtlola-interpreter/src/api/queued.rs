@@ -631,7 +631,15 @@ impl<
                     // Channel closed, we are done here
                     done = true;
                     if let Some(last_event) = last_event.as_ref() {
-                        monitor.accept_time(last_event.clone());
+                        let timed = monitor.accept_time(last_event.clone());
+                        for (ts, v) in timed {
+                            let verdict = QueuedVerdict {
+                                kind: VerdictKind::Timed,
+                                ts,
+                                verdict: v,
+                            };
+                            Self::try_send(&self.output, Some(verdict))?;
+                        }
                     } else {
                         return Ok(());
                     }
