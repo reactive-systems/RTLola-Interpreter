@@ -116,35 +116,22 @@ impl InstanceCollection {
     }
 }
 
-// #[derive(Debug, Clone, Hash, Eq, PartialEq, Default)]
-// struct WindowParameter {
-//     caller: Option<Vec<Value>>,
-//     target: Option<Vec<Value>>,
-// }
-//
-// impl WindowParameter {
-//     fn parameterized_caller(paras: Vec<Value>) -> Self {
-//         Self{
-//             caller: Some(paras),
-//             .. Default::default()
-//         }
-//     }
-//     fn parameterized_target(paras: Vec<Value>) -> Self {
-//         Self{
-//             target: Some(paras),
-//             .. Default::default()
-//         }
-//     }
-// }
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Represents the parameterization of the window
 pub(crate) enum WindowParameterization {
+    /// The window is not parameterized. Yet it might be spawned.
     None {
         /// whether the window is spawned nonetheless
         is_spawned: bool,
     },
+    /// The caller of the window is parameterized.
+    /// An instance of the window has to be created whenever a new instance of the caller spawns, as these windows could be on different timelines.
     Caller,
+    /// The target of the window is parameterized.
+    /// An instance of the windows has the be created whenever a new instance of the target spawns, as we can only determine at runtime over which instance exactly the caller aggregates.
     Target,
+    /// Both the target and caller of the window are parameterized.
+    /// An instance has the be created for all instances of the caller and the target.
     Both,
 }
 
@@ -276,13 +263,9 @@ pub(crate) struct GlobalStore {
     /// A typical access looks like this: `np_windows[window_index_map[window_index]]`
     np_windows: Vec<SlidingWindow>,
 
-    /// windows where the caller is parameterized, access by the index stored in the window_index_map.
-    /// A typical access looks like this: `caller_p_windows[window_index_map[window_index]]`
-    caller_p_windows: Vec<SlidingWindowCollection>,
-
-    /// windows where the target is parameterized, access by the index stored in the window_index_map.
-    /// A typical access looks like this: `target_p_windows[window_index_map[window_index]]`
-    target_p_windows: Vec<SlidingWindowCollection>,
+    /// windows that are parameterized by caller or target but not both. Access by the index stored in the window_index_map.
+    /// A typical access looks like this: `p_windows[window_index_map[window_index]]`
+    p_windows: Vec<SlidingWindowCollection>,
 
     /// Transforms a discrete window reference into the respective index of the discrete window vectors ((non-)parametrized).
     discrete_window_index_map: Vec<usize>,
@@ -294,13 +277,9 @@ pub(crate) struct GlobalStore {
     /// A typical access looks like this: `np_discrete_windows[discrete_window_index_map[window_index]]`
     np_discrete_windows: Vec<SlidingWindow>,
 
-    /// discrete windows where the caller is parametrized, access the index stored in the discrete_window_index_map.
+    /// discrete windows that are parameterized by caller or target but not both. access the index stored in the discrete_window_index_map.
     /// A typical access looks like this: `caller_p_discrete_windows[discrete_window_index_map[window_index]]`
-    caller_p_discrete_windows: Vec<SlidingWindowCollection>,
-
-    /// discrete windows where the target is parametrized, access the index stored in the discrete_window_index_map.
-    /// A typical access looks like this: `target_p_discrete_windows[discrete_window_index_map[window_index]]`
-    target_p_discrete_windows: Vec<SlidingWindowCollection>,
+    p_discrete_windows: Vec<SlidingWindowCollection>,
 }
 
 impl GlobalStore {
@@ -330,8 +309,7 @@ impl GlobalStore {
         let mut window_parameterization: Vec<Option<WindowParameterization>> = vec![None; ir.sliding_windows.len()];
 
         let mut np_sliding_windows: Vec<&MirSlidingWindow> = vec![];
-        let mut caller_p_sliding_windows: Vec<&MirSlidingWindow> = vec![];
-        let mut target_p_sliding_windows: Vec<&MirSlidingWindow> = vec![];
+        let mut p_sliding_windows: Vec<&MirSlidingWindow> = vec![];
         for window in ir.sliding_windows.iter() {
             let caller = ir.output(window.caller);
             let origin = *caller
@@ -359,16 +337,16 @@ impl GlobalStore {
                     )
                 },
                 (true, false) => {
-                    target_p_sliding_windows.push(window);
-                    (target_p_sliding_windows.len() - 1, WindowParameterization::Target)
+                    p_sliding_windows.push(window);
+                    (p_sliding_windows.len() - 1, WindowParameterization::Target)
                 },
                 (false, true) => {
                     if origin == Origin::Eval
                         || origin == Origin::Filter
                         || (origin == Origin::Close && caller.close.has_self_reference)
                     {
-                        caller_p_sliding_windows.push(window);
-                        (caller_p_sliding_windows.len() - 1, WindowParameterization::Caller)
+                        p_sliding_windows.push(window);
+                        (p_sliding_windows.len() - 1, WindowParameterization::Caller)
                     } else {
                         np_sliding_windows.push(window);
                         (
@@ -393,8 +371,7 @@ impl GlobalStore {
         let mut discrete_window_parameterization: Vec<Option<WindowParameterization>> =
             vec![None; ir.discrete_windows.len()];
         let mut np_discrete_windows: Vec<&MirDiscreteWindow> = vec![];
-        let mut caller_p_discrete_windows: Vec<&MirDiscreteWindow> = vec![];
-        let mut target_p_discrete_windows: Vec<&MirDiscreteWindow> = vec![];
+        let mut p_discrete_windows: Vec<&MirDiscreteWindow> = vec![];
         for window in ir.discrete_windows.iter() {
             let caller = ir.output(window.caller);
             let origin = *caller
@@ -422,16 +399,16 @@ impl GlobalStore {
                     )
                 },
                 (true, false) => {
-                    target_p_discrete_windows.push(window);
-                    (target_p_discrete_windows.len() - 1, WindowParameterization::Target)
+                    p_discrete_windows.push(window);
+                    (p_discrete_windows.len() - 1, WindowParameterization::Target)
                 },
                 (false, true) => {
                     if origin == Origin::Eval
                         || origin == Origin::Filter
                         || (origin == Origin::Close && caller.close.has_self_reference)
                     {
-                        caller_p_discrete_windows.push(window);
-                        (caller_p_discrete_windows.len() - 1, WindowParameterization::Caller)
+                        p_discrete_windows.push(window);
+                        (p_discrete_windows.len() - 1, WindowParameterization::Caller)
                     } else {
                         np_discrete_windows.push(window);
                         (
@@ -468,11 +445,7 @@ impl GlobalStore {
             .iter()
             .map(|w| SlidingWindow::from_sliding(ts, w, !window_parameterization[w.reference.idx()].is_spawned()))
             .collect();
-        let caller_p_windows = caller_p_sliding_windows
-            .iter()
-            .map(|w| SlidingWindowCollection::new_for_sliding(w))
-            .collect();
-        let target_p_windows = target_p_sliding_windows
+        let p_windows = p_sliding_windows
             .iter()
             .map(|w| SlidingWindowCollection::new_for_sliding(w))
             .collect();
@@ -489,11 +462,7 @@ impl GlobalStore {
                 )
             })
             .collect();
-        let caller_p_discrete_windows = caller_p_discrete_windows
-            .iter()
-            .map(|w| SlidingWindowCollection::new_for_discrete(w))
-            .collect();
-        let target_p_discrete_windows = target_p_discrete_windows
+        let p_discrete_windows = p_discrete_windows
             .iter()
             .map(|w| SlidingWindowCollection::new_for_discrete(w))
             .collect();
@@ -506,13 +475,11 @@ impl GlobalStore {
             window_index_map,
             window_parameterization,
             np_windows,
-            caller_p_windows,
-            target_p_windows,
+            p_windows,
             discrete_window_index_map,
             discrete_window_parameterization,
             np_discrete_windows,
-            caller_p_discrete_windows,
-            target_p_discrete_windows,
+            p_discrete_windows,
         }
     }
 
@@ -582,8 +549,9 @@ impl GlobalStore {
                     WindowParameterization::None { .. } => {
                         panic!("Requested a window collection for a non parameterized window")
                     },
-                    WindowParameterization::Caller => &mut self.caller_p_windows[self.window_index_map[x]],
-                    WindowParameterization::Target => &mut self.target_p_windows[self.window_index_map[x]],
+                    WindowParameterization::Caller | WindowParameterization::Target => {
+                        &mut self.p_windows[self.window_index_map[x]]
+                    },
                     WindowParameterization::Both => unimplemented!(),
                 }
             },
@@ -592,11 +560,8 @@ impl GlobalStore {
                     WindowParameterization::None { .. } => {
                         panic!("Requested a window collection for a non parameterized discrete window")
                     },
-                    WindowParameterization::Caller => {
-                        &mut self.caller_p_discrete_windows[self.discrete_window_index_map[x]]
-                    },
-                    WindowParameterization::Target => {
-                        &mut self.target_p_discrete_windows[self.discrete_window_index_map[x]]
+                    WindowParameterization::Caller | WindowParameterization::Target => {
+                        &mut self.p_discrete_windows[self.discrete_window_index_map[x]]
                     },
                     WindowParameterization::Both => unimplemented!(),
                 }

@@ -3,6 +3,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::ops;
 
+use num_traits::FromPrimitive;
 use ordered_float::NotNan;
 use rtlola_frontend::mir::Type;
 use rust_decimal::prelude::ToPrimitive;
@@ -322,6 +323,12 @@ impl From<bool> for Value {
     }
 }
 
+impl From<i16> for Value {
+    fn from(i: i16) -> Self {
+        Signed(i as i64)
+    }
+}
+
 impl From<i32> for Value {
     fn from(i: i32) -> Self {
         Signed(i as i64)
@@ -331,6 +338,12 @@ impl From<i32> for Value {
 impl From<i64> for Value {
     fn from(i: i64) -> Self {
         Signed(i)
+    }
+}
+
+impl From<u16> for Value {
+    fn from(u: u16) -> Self {
+        Unsigned(u as u64)
     }
 }
 
@@ -519,6 +532,18 @@ impl TryInto<Vec<u8>> for Value {
     fn try_into(self) -> Result<Vec<u8>, Self::Error> {
         if let Bytes(v) = self {
             Ok(v.to_vec())
+        } else {
+            Err(ValueConvertError::TypeMismatch(self))
+        }
+    }
+}
+
+impl TryInto<Decimal> for Value {
+    type Error = ValueConvertError;
+
+    fn try_into(self) -> Result<Decimal, Self::Error> {
+        if let Float(v) = self {
+            Decimal::from_f64(v.into()).ok_or(ValueConvertError::TypeMismatch(self))
         } else {
             Err(ValueConvertError::TypeMismatch(self))
         }

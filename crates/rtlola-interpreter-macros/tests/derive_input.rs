@@ -138,13 +138,17 @@ fn missing() {
     .collect();
 
     let res = <Rec as DerivedInput>::Input::new(map, ());
-    let Err(RecordError::InputStreamNotFound(errs)) = res else { panic!("Expected error reporting unknown stream!") };
+    let Err(RecordError::InputStreamNotFound(errs)) = res else {
+        panic!("Expected error reporting unknown stream!")
+    };
     assert_eq!(errs.len(), 1);
     let (name, reasons) = errs.into_iter().next().unwrap();
     assert_eq!(name.as_str(), "unknown");
 
     for reason in reasons {
-        let RecordError::InputStreamUnknown(name) = reason else { panic!("Expected stream unknown error from record") };
+        let RecordError::InputStreamUnknown(name) = reason else {
+            panic!("Expected stream unknown error from record")
+        };
         assert_eq!(name.as_str(), "unknown");
     }
 }
