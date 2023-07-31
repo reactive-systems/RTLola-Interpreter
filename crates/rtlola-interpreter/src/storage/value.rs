@@ -83,35 +83,56 @@ impl Display for Value {
 }
 
 impl Value {
-    // TODO: -> Result<Option, ConversionError>
     /// Returns the interpreted values of an byte representation, if possible:
     /// # Arguments
     /// * 'source' - A byte slice that holds the value
     /// * 'ty' - the type of the interpretation
-    pub fn try_from_bytes(source: &[u8], ty: &Type) -> Option<Value> {
+    pub fn try_from_bytes(source: &[u8], ty: &Type) -> Result<Value, ValueConvertError> {
         if let Ok(source) = std::str::from_utf8(source) {
             if source == "#" {
-                return Some(None);
+                return Ok(None);
             }
             match ty {
-                Type::Bool => source.parse::<bool>().map(Bool).ok(),
-                Type::Bytes => hex::decode(source).map(|bytes| Bytes(bytes.into_boxed_slice())).ok(),
-                Type::Int(_) => source.parse::<i64>().map(Signed).ok(),
+                Type::Bool => {
+                    source
+                        .parse::<bool>()
+                        .map(Bool)
+                        .map_err(|_| ValueConvertError::ParseError(ty.clone(), source.to_string()))
+                },
+                Type::Bytes => {
+                    hex::decode(source)
+                        .map(|bytes| Bytes(bytes.into_boxed_slice()))
+                        .map_err(|_| ValueConvertError::ParseError(ty.clone(), source.to_string()))
+                },
+                Type::Int(_) => {
+                    source
+                        .parse::<i64>()
+                        .map(Signed)
+                        .map_err(|_| ValueConvertError::ParseError(ty.clone(), source.to_string()))
+                },
                 Type::UInt(_) => {
                     // TODO: This is just a quickfix!! Think of something more general.
                     if source == "0.0" {
-                        Some(Unsigned(0))
+                        Ok(Unsigned(0))
                     } else {
-                        source.parse::<u64>().map(Unsigned).ok()
+                        source
+                            .parse::<u64>()
+                            .map(Unsigned)
+                            .map_err(|_| ValueConvertError::ParseError(ty.clone(), source.to_string()))
                     }
                 },
-                Type::Float(_) => source.parse::<f64>().ok().map(|f| Float(NotNan::new(f).unwrap())),
-                Type::String => Some(Str(source.into())),
+                Type::Float(_) => {
+                    source
+                        .parse::<f64>()
+                        .map_err(|_| ValueConvertError::ParseError(ty.clone(), source.to_string()))
+                        .and_then(Value::try_from)
+                },
+                Type::String => Ok(Str(source.into())),
                 Type::Tuple(_) => unimplemented!(),
                 Type::Option(_) | Type::Function { args: _, ret: _ } => unreachable!(),
             }
         } else {
-            Option::None // TODO: error message about non-utf8 encoded string?
+            Err(ValueConvertError::NotUtf8(source.to_vec()))
         }
     }
 
@@ -555,6 +576,10 @@ impl TryInto<Decimal> for Value {
 pub enum ValueConvertError {
     /// The target type could not be created from the given value.
     TypeMismatch(Value),
+    /// Given bytes are expected to be utf-8 coded.
+    NotUtf8(Vec<u8>),
+    /// Could not parse value given as string into type.
+    ParseError(Type, String),
     /// The given value is not supported by the interpreter.
     ValueNotSupported(Box<dyn std::fmt::Debug + Send>),
     /// The given float is NaN.
@@ -565,6 +590,8 @@ impl Display for ValueConvertError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             ValueConvertError::TypeMismatch(val) => write!(f, "Failed to convert Value: {val}"),
+            ValueConvertError::NotUtf8(bytes) => write!(f, "UTF-8 decoding failed for bytes: {bytes:?}"),
+            ValueConvertError::ParseError(ty, val) => write!(f, "Failed to parse Value of type {ty} from: {val}"),
             ValueConvertError::FloatIsNan => write!(f, "The given Float is not a number (NaN)"),
             ValueConvertError::ValueNotSupported(v) => {
                 write!(f, "The value {v:?} is not supported by the interpreter.")

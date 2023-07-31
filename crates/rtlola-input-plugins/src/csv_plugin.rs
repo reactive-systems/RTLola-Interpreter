@@ -101,10 +101,11 @@ impl Record for CsvRecord {
 
         Ok(Box::new(move |rec| {
             let bytes = rec.0.get(col_idx).expect("column mapping to be correct");
-            Value::try_from_bytes(bytes, &ty).ok_or(CsvError::Value(format!(
-                "Could not parse csv item into value. Tried to parse: {:?} for input stream {}",
-                bytes, name
-            )))
+            Value::try_from_bytes(bytes, &ty).map_err(|e| {
+                CsvError::Value(format!(
+                    "Could not parse csv item into value. {e} for input stream {name}"
+                ))
+            })
         }))
     }
 }

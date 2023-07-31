@@ -132,6 +132,7 @@ pub(crate) enum WindowParameterization {
     Target,
     /// Both the target and caller of the window are parameterized.
     /// An instance has the be created for all instances of the caller and the target.
+    #[allow(dead_code)]
     Both,
 }
 
