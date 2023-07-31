@@ -85,3 +85,19 @@ fn custom() {
         Value::Str("Hello World!".to_string().into_boxed_str())
     );
 }
+
+#[test]
+fn ignore() {
+    #[derive(Record)]
+    struct TestCustomNames {
+        a: usize,
+        b: f64,
+        #[record(ignore)]
+        #[allow(dead_code)]
+        c: String,
+    }
+
+    assert!(TestCustomNames::func_for_input("a", ()).is_ok());
+    assert!(TestCustomNames::func_for_input("b", ()).is_ok());
+    assert!(TestCustomNames::func_for_input("c", ()).is_err());
+}

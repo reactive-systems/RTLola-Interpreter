@@ -488,6 +488,8 @@ pub enum RecordError {
     ///
     /// *Help*: ```TryFrom<YourType> for Value``` has to be implemented.
     ValueNotSupported(ValueConvertError),
+    /// The variant of the enum identified by the string was ignored when deriving the Input, yet it was received as an input.
+    VariantIgnored(String),
     /// An unknown error occurred
     Other(Box<dyn Error + Send + 'static>),
 }
@@ -501,6 +503,9 @@ impl Display for RecordError {
             },
             RecordError::Other(e) => {
                 write!(f, "RecordError: {e}.")
+            },
+            RecordError::VariantIgnored(variant) => {
+                write!(f, "Received ignored variant: {variant}.")
             },
             RecordError::InputStreamNotFound(map) => {
                 for (missing, errs) in map {
@@ -518,7 +523,9 @@ impl Display for RecordError {
 impl Error for RecordError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            RecordError::InputStreamUnknown(_) | RecordError::ValueNotSupported(_) => None,
+            RecordError::InputStreamUnknown(_) | RecordError::ValueNotSupported(_) | RecordError::VariantIgnored(_) => {
+                None
+            },
             RecordError::Other(e) => Some(e.as_ref()),
             RecordError::InputStreamNotFound(map) =>
             {
