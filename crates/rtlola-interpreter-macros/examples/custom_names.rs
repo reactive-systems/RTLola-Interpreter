@@ -9,6 +9,9 @@ struct TestCustomNames {
     b: f64,
     #[record(custom_name = Different)]
     c: String,
+    #[record(ignore)]
+    #[allow(dead_code)]
+    d: Vec<String>,
 }
 
 #[derive(Record)]

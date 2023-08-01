@@ -61,6 +61,78 @@ fn simple() {
 }
 
 #[test]
+fn ignore() {
+    #[derive(Record)]
+    #[record(prefix)]
+    struct Msg1 {
+        a: usize,
+        b: f64,
+    }
+
+    #[derive(Record)]
+    #[record(prefix)]
+    struct Msg2 {
+        c: String,
+        d: i64,
+    }
+
+    #[derive(Input)]
+    enum Rec {
+        Var1(Msg1),
+        Var2(Msg2),
+        #[input(ignore)]
+        #[allow(dead_code)]
+        Var3,
+        #[input(ignore)]
+        #[allow(dead_code)]
+        Var4(String),
+        #[input(ignore)]
+        Var5 {
+            #[allow(dead_code)]
+            x: usize,
+        },
+    }
+
+    let map: HashMap<String, InputReference> = vec![
+        ("Msg1_a".to_string(), 0),
+        ("Msg1_b".to_string(), 1),
+        ("Msg2_c".to_string(), 2),
+        ("Msg2_d".to_string(), 3),
+    ]
+    .into_iter()
+    .collect();
+
+    let input = <Rec as DerivedInput>::Input::new(map, ()).unwrap();
+
+    let t1 = Rec::Var1(Msg1 { a: 42, b: 13.37 });
+    let expected = vec![
+        Value::Unsigned(42),
+        Value::try_from(13.37).unwrap(),
+        Value::None,
+        Value::None,
+    ];
+    assert_eq!(input.get_event(t1).unwrap(), expected);
+
+    let t2 = Rec::Var2(Msg2 {
+        c: "Hello World!".to_string(),
+        d: -1337,
+    });
+    let expected = vec![
+        Value::None,
+        Value::None,
+        Value::Str("Hello World!".to_string().into_boxed_str()),
+        Value::Signed(-1337),
+    ];
+    assert_eq!(input.get_event(t2).unwrap(), expected);
+
+    assert!(matches!(input.get_event(Rec::Var3), Err(RecordError::VariantIgnored(name)) if name == "Var3"));
+    assert!(
+        matches!(input.get_event(Rec::Var4("Asd".to_string())), Err(RecordError::VariantIgnored(name)) if name == "Var4")
+    );
+    assert!(matches!(input.get_event(Rec::Var5 {x: 5}), Err(RecordError::VariantIgnored(name)) if name == "Var5"));
+}
+
+#[test]
 fn overlap() {
     #[derive(Record)]
     #[record(prefix)]
@@ -138,13 +210,17 @@ fn missing() {
     .collect();
 
     let res = <Rec as DerivedInput>::Input::new(map, ());
-    let Err(RecordError::InputStreamNotFound(errs)) = res else { panic!("Expected error reporting unknown stream!") };
+    let Err(RecordError::InputStreamNotFound(errs)) = res else {
+        panic!("Expected error reporting unknown stream!")
+    };
     assert_eq!(errs.len(), 1);
     let (name, reasons) = errs.into_iter().next().unwrap();
     assert_eq!(name.as_str(), "unknown");
 
     for reason in reasons {
-        let RecordError::InputStreamUnknown(name) = reason else { panic!("Expected stream unknown error from record") };
+        let RecordError::InputStreamUnknown(name) = reason else {
+            panic!("Expected stream unknown error from record")
+        };
         assert_eq!(name.as_str(), "unknown");
     }
 }

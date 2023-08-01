@@ -20,6 +20,11 @@ struct B {
 enum TestEnum {
     A(A),
     B(B),
+    #[input(ignore)]
+    C {
+        e: usize,
+        d: String,
+    },
 }
 
 fn main() {
