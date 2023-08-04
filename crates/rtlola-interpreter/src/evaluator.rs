@@ -478,18 +478,41 @@ impl Evaluator {
                 return;
             }
             instances.create_instance(parameter_values.as_slice());
+
             //activate windows of this stream
             for win_ref in own_windows {
-                let windows = self.global_store.get_window_collection_mut(win_ref);
-                let window = windows.get_or_create(parameter_values.as_slice(), ts);
-                window.activate(ts);
+                // Self is the caller of the window
+                match self.window_parameterization(win_ref) {
+                    WindowParameterization::None { .. } | WindowParameterization::Target { .. } => unreachable!(),
+                    WindowParameterization::Caller => {
+                        let windows = self.global_store.get_window_collection_mut(win_ref);
+                        let window = windows.get_or_create(parameter_values.as_slice(), ts);
+                        window.activate(ts);
+                    },
+                    WindowParameterization::Both => {
+                        let windows = self.global_store.get_two_layer_window_collection_mut(win_ref);
+                        windows.new_caller_instance(parameter_values.as_slice(), ts);
+                    },
+                }
             }
             //create window that aggregate over this stream
             for (_, win_ref) in &stream.aggregated_by {
-                let windows = self.global_store.get_window_collection_mut(*win_ref);
-                let window = windows.get_or_create(parameter_values.as_slice(), ts);
-                // Todo: We for now assume that these windows are not spawned, hence start at time 0
-                window.activate(Time::ZERO);
+                // Self is target of the window
+                match self.window_parameterization(*win_ref) {
+                    WindowParameterization::None { .. } | WindowParameterization::Caller => unreachable!(),
+                    WindowParameterization::Target { is_spawned } => {
+                        let windows = self.global_store.get_window_collection_mut(*win_ref);
+                        let window = windows.get_or_create(parameter_values.as_slice(), ts);
+                        if !is_spawned {
+                            // Window is not activated by caller so we assume it to have existed since the beginning.
+                            window.activate(Time::ZERO);
+                        }
+                    },
+                    WindowParameterization::Both => {
+                        let windows = self.global_store.get_two_layer_window_collection_mut(*win_ref);
+                        windows.new_target_instance(parameter_values.as_slice());
+                    },
+                }
             }
         } else {
             debug_assert!(parameter_values.is_empty());
@@ -502,16 +525,19 @@ impl Evaluator {
 
             //activate windows of this stream
             for win_ref in own_windows {
-                let window = self.global_store.get_window_mut(win_ref);
-                window.activate(ts);
+                // Self is caller of the window
+                match self.window_parameterization(win_ref) {
+                    WindowParameterization::None { .. } => {
+                        self.global_store.get_window_mut(win_ref).activate(ts);
+                    },
+                    WindowParameterization::Target { .. } => {
+                        self.global_store.get_window_collection_mut(win_ref).activate_all(ts);
+                    },
+                    WindowParameterization::Caller | WindowParameterization::Both => {
+                        unreachable!("parameters are empty!")
+                    },
+                }
             }
-            //create window that aggregate over this stream
-            // for (_, win_ref) in &stream.aggregated_by {
-            //     let windows =  self.global_store.get_window_collection_mut(*win_ref);
-            //     let window = windows.get_or_create(parameter_values.as_slice(), ts);
-            //     // Todo: We for now assume that these windows are not spawned, hence start at time 0
-            //     window.activate(Time::ZERO);
-            // }
         }
 
         // Schedule instance evaluation if stream is periodic
@@ -538,24 +564,66 @@ impl Evaluator {
             return;
         }
 
+        let own_windows: Vec<WindowReference> = self.stream_windows[&stream.reference]
+            .iter()
+            .filter(|(_, w)| self.window_parameterization(*w).is_spawned())
+            .map(|(_, win)| *win)
+            .collect();
         if stream.is_parameterized() {
             // mark instance for closing
             self.global_store
                 .get_out_instance_collection_mut(output)
                 .mark_for_deletion(parameter);
 
+            for win_ref in own_windows {
+                // Self is caller of the window
+                match self.window_parameterization(win_ref) {
+                    WindowParameterization::None { .. } | WindowParameterization::Target { .. } => unreachable!(),
+                    WindowParameterization::Caller => {
+                        self.global_store
+                            .get_window_collection_mut(win_ref)
+                            .delete_window(parameter);
+                    },
+                    WindowParameterization::Both => {
+                        self.global_store
+                            .get_two_layer_window_collection_mut(win_ref)
+                            .close_caller_instance(parameter);
+                    },
+                }
+            }
+
+            // Todo: We have to mark these instances for closing. They should only be deactivated / removed once their period is over.
             // close all windows referencing this instance
-            for (_, win) in &stream.aggregated_by {
-                // we know this window instance exists as it was created together with the stream instance.
-                self.global_store
-                    .get_window_collection_mut(*win)
-                    .delete_window(parameter);
+            for (_, win_ref) in &stream.aggregated_by {
+                // Self is target of the window
+                match self.window_parameterization(*win_ref) {
+                    WindowParameterization::None { .. } | WindowParameterization::Caller => unreachable!(),
+                    WindowParameterization::Target { .. } => {
+                        self.global_store
+                            .get_window_collection_mut(*win_ref)
+                            .delete_window(parameter);
+                    },
+                    WindowParameterization::Both => {
+                        self.global_store
+                            .get_two_layer_window_collection_mut(*win_ref)
+                            .close_target_instance(parameter);
+                    },
+                }
             }
         } else {
-            // instance is marked for close below
-            // just close windows
-            for (_, win) in &stream.aggregated_by {
-                self.global_store.get_window_mut(*win).deactivate();
+            for win_ref in own_windows {
+                // Self is caller of the window
+                match self.window_parameterization(win_ref) {
+                    WindowParameterization::None { .. } => {
+                        self.global_store.get_window_mut(win_ref).deactivate();
+                    },
+                    WindowParameterization::Target { .. } => {
+                        self.global_store.get_window_collection_mut(win_ref).deactivate_all();
+                    },
+                    WindowParameterization::Caller | WindowParameterization::Both => {
+                        unreachable!("Parameters are empty")
+                    },
+                }
             }
         }
         self.closed_outputs.insert(output);
@@ -647,12 +715,16 @@ impl Evaluator {
                         window.update(ts);
                     }
                 },
-                WindowParameterization::Caller | WindowParameterization::Target => {
+                WindowParameterization::Caller | WindowParameterization::Target { .. } => {
                     self.global_store
                         .get_window_collection_mut(win.reference)
                         .update_all(ts);
                 },
-                WindowParameterization::Both => unimplemented!(),
+                WindowParameterization::Both => {
+                    self.global_store
+                        .get_two_layer_window_collection_mut(win.reference)
+                        .update_all(ts);
+                },
             }
         }
     }
@@ -742,14 +814,18 @@ impl Evaluator {
                     .get_window_collection_mut(win)
                     .accept_value_all(value, ts)
             },
-            WindowParameterization::Target => {
+            WindowParameterization::Target { .. } => {
                 self.global_store
                     .get_window_collection_mut(win)
                     .window_mut(own_parameter)
                     .expect("tried to extend non existing window")
                     .accept_value(value, ts)
             },
-            WindowParameterization::Both => unimplemented!(),
+            WindowParameterization::Both => {
+                self.global_store
+                    .get_two_layer_window_collection_mut(win)
+                    .accept_value(own_parameter, value, ts)
+            },
         }
     }
 
@@ -911,7 +987,7 @@ impl<'e> EvaluationContext<'e> {
                     .expect("Own window to exist")
                     .get_value(self.ts)
             },
-            WindowParameterization::Target => {
+            WindowParameterization::Target { .. } => {
                 let window_collection = self.global_store.get_window_collection_mut(window_ref);
                 let window = window_collection.window(target_parameter);
                 if let Some(w) = window {
@@ -920,7 +996,15 @@ impl<'e> EvaluationContext<'e> {
                     window_collection.default_value(self.ts)
                 }
             },
-            WindowParameterization::Both => unimplemented!(),
+            WindowParameterization::Both => {
+                let collection = self.global_store.get_two_layer_window_collection_mut(window_ref);
+                let window = collection.window(target_parameter, self.parameter.as_slice());
+                if let Some(w) = window {
+                    w.get_value(self.ts)
+                } else {
+                    collection.default_value(self.ts)
+                }
+            },
         }
     }
 }
@@ -1685,6 +1769,26 @@ mod tests {
         eval_stream_timed!(eval, 0, vec![], time);
 
         let expected = Float(NotNan::new(-106.5).unwrap());
+        assert_eq!(eval.peek_value(out_ref, vec![].as_slice(), 0).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_integral_window2() {
+        fn mv(f: f64) -> Value {
+            Float(NotNan::new(f).unwrap())
+        }
+
+        let (_, eval, mut time) = setup_time("input a : Int64\noutput b@1Hz := a.aggregate(over: 5s, using: integral)");
+        let mut eval = eval.into_evaluator();
+        let out_ref = StreamReference::Out(0);
+        let in_ref = StreamReference::In(0);
+
+        accept_input_timed!(eval, in_ref, mv(0f64), time);
+
+        time += Duration::from_secs(1);
+        accept_input_timed!(eval, in_ref, mv(8f64), time);
+        eval_stream_timed!(eval, 0, vec![], time);
+        let expected = Float(NotNan::new(4.0).unwrap());
         assert_eq!(eval.peek_value(out_ref, vec![].as_slice(), 0).unwrap(), expected);
     }
 
@@ -2492,6 +2596,101 @@ mod tests {
         assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(80));
     }
 
+    #[test]
+    fn test_both_parameterized_window() {
+        let (_, eval, mut time) = setup_time(
+            "input a: Int32\n\
+                  output b(p) spawn with a eval with p+a\n\
+                  output c(p) spawn with a eval @1Hz with b(p).aggregate(over: 2s, using: sum)",
+        );
+        let mut eval = eval.into_evaluator();
+        let b_ref = StreamReference::Out(0);
+        let c_ref = StreamReference::Out(1);
+        let in_ref = StreamReference::In(0);
+
+        time += Duration::from_secs(1);
+        accept_input_timed!(eval, in_ref, Signed(15), time);
+        spawn_stream_timed!(eval, time, b_ref);
+        spawn_stream_timed!(eval, time, c_ref);
+        assert!(stream_has_instance!(eval, b_ref, vec![Signed(15)]));
+        assert!(stream_has_instance!(eval, c_ref, vec![Signed(15)]));
+        eval_stream_timed!(eval, b_ref.out_ix(), vec![Signed(15)], time);
+        eval_stream_timed!(eval, c_ref.out_ix(), vec![Signed(15)], time);
+        assert_eq!(eval.peek_value(b_ref, &[Signed(15)], 0).unwrap(), Signed(30));
+        assert_eq!(eval.peek_value(c_ref, &[Signed(15)], 0).unwrap(), Signed(30));
+
+        time += Duration::from_secs(1);
+        accept_input_timed!(eval, in_ref, Signed(5), time);
+        spawn_stream_timed!(eval, time, b_ref);
+        spawn_stream_timed!(eval, time, c_ref);
+        assert!(stream_has_instance!(eval, b_ref, vec![Signed(5)]));
+        assert!(stream_has_instance!(eval, c_ref, vec![Signed(5)]));
+        eval_stream_timed!(eval, b_ref.out_ix(), vec![Signed(5)], time);
+        eval_stream_timed!(eval, c_ref.out_ix(), vec![Signed(5)], time);
+        eval_stream_timed!(eval, b_ref.out_ix(), vec![Signed(15)], time);
+        eval_stream_timed!(eval, c_ref.out_ix(), vec![Signed(15)], time);
+        assert_eq!(eval.peek_value(b_ref, &[Signed(5)], 0).unwrap(), Signed(10));
+        assert_eq!(eval.peek_value(c_ref, &[Signed(5)], 0).unwrap(), Signed(10));
+        assert_eq!(eval.peek_value(b_ref, &[Signed(15)], 0).unwrap(), Signed(20));
+        assert_eq!(eval.peek_value(c_ref, &[Signed(15)], 0).unwrap(), Signed(50));
+
+        time += Duration::from_secs(1);
+        accept_input_timed!(eval, in_ref, Signed(5), time);
+        eval_stream_timed!(eval, b_ref.out_ix(), vec![Signed(5)], time);
+        eval_stream_timed!(eval, c_ref.out_ix(), vec![Signed(5)], time);
+        eval_stream_timed!(eval, b_ref.out_ix(), vec![Signed(15)], time);
+        eval_stream_timed!(eval, c_ref.out_ix(), vec![Signed(15)], time);
+        assert_eq!(eval.peek_value(b_ref, &[Signed(5)], 0).unwrap(), Signed(10));
+        assert_eq!(eval.peek_value(c_ref, &[Signed(5)], 0).unwrap(), Signed(20));
+        assert_eq!(eval.peek_value(b_ref, &[Signed(15)], 0).unwrap(), Signed(20));
+        assert_eq!(eval.peek_value(c_ref, &[Signed(15)], 0).unwrap(), Signed(40));
+    }
+
+    #[test]
+    fn test_spawn_window_unit3() {
+        let (_, eval, mut time) = setup_time(
+            "input a: Int32\n\
+                  output b(p) spawn with a eval with p+a\n\
+                  output c spawn when a == 5 eval @1Hz with b(15).aggregate(over: 2s, using: sum)",
+        );
+        let mut eval = eval.into_evaluator();
+        let b_ref = StreamReference::Out(0);
+        let c_ref = StreamReference::Out(1);
+        let in_ref = StreamReference::In(0);
+        let empty: Vec<Value> = vec![];
+
+        time += Duration::from_secs(1);
+        accept_input_timed!(eval, in_ref, Signed(15), time);
+        spawn_stream_timed!(eval, time, b_ref);
+        spawn_stream_timed!(eval, time, c_ref);
+        assert!(stream_has_instance!(eval, b_ref, vec![Signed(15)]));
+        assert!(!stream_has_instance!(eval, c_ref, empty));
+        eval_stream_timed!(eval, b_ref.out_ix(), vec![Signed(15)], time);
+        assert_eq!(eval.peek_value(b_ref, &[Signed(15)], 0).unwrap(), Signed(30));
+
+        time += Duration::from_secs(1);
+        accept_input_timed!(eval, in_ref, Signed(5), time);
+        spawn_stream_timed!(eval, time, b_ref);
+        spawn_stream_timed!(eval, time, c_ref);
+        assert!(stream_has_instance!(eval, b_ref, vec![Signed(5)]));
+        assert!(stream_has_instance!(eval, c_ref, empty));
+        eval_stream_timed!(eval, b_ref.out_ix(), vec![Signed(5)], time);
+        eval_stream_timed!(eval, b_ref.out_ix(), vec![Signed(15)], time);
+        eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
+        assert_eq!(eval.peek_value(b_ref, &[Signed(5)], 0).unwrap(), Signed(10));
+        assert_eq!(eval.peek_value(b_ref, &[Signed(15)], 0).unwrap(), Signed(20));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(20));
+
+        time += Duration::from_secs(1);
+        accept_input_timed!(eval, in_ref, Signed(5), time);
+        eval_stream_timed!(eval, b_ref.out_ix(), vec![Signed(5)], time);
+        eval_stream_timed!(eval, b_ref.out_ix(), vec![Signed(15)], time);
+        eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
+        assert_eq!(eval.peek_value(b_ref, &[Signed(5)], 0).unwrap(), Signed(10));
+        assert_eq!(eval.peek_value(b_ref, &[Signed(15)], 0).unwrap(), Signed(20));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(40));
+    }
+
     // Window access a unit parameterized stream after it is spawned
     #[test]
     fn test_spawn_window_unit2() {
@@ -2847,7 +3046,7 @@ mod tests {
         time += Duration::from_millis(500);
         eval.prepare_evaluation(time);
         eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
-        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(0));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(1337));
     }
 
     #[test]

@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::ops::Add;
 
+use dyn_clone::DynClone;
 use ordered_float::NotNan;
 use rtlola_frontend::mir::{
     MemorizationBound, SlidingWindow as MirSlidingWindow, Type, Window, WindowOperation as WinOp,
@@ -12,7 +13,7 @@ use super::window_aggregations::*;
 use super::Value;
 use crate::Time;
 
-pub(crate) trait WindowInstanceTrait: Debug {
+pub(crate) trait WindowInstanceTrait: Debug + DynClone {
     /// Computes the current value of a sliding window instance with the given timestamp:
     /// # Arguments:
     /// * 'ts' - the current timestamp of the monitor
@@ -36,13 +37,14 @@ pub(crate) trait WindowInstanceTrait: Debug {
     /// Restarts the sliding window
     fn activate(&mut self, ts: Time);
 }
+dyn_clone::clone_trait_object!(WindowInstanceTrait);
 
 /// Representation of sliding window aggregations:
 /// The enum differentiates the aggregation functions and between different value types, dependent on the aggregation function.
 /// # Example:
 /// * The aggregation function 'count' is independent of the value type.
 /// * The aggregation function 'min' depends on the value type, e.g., the minimum value of unsigned values is 0, whereas the minimum value for signed values is negative.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct SlidingWindow {
     inner: Box<dyn WindowInstanceTrait>,
 }
@@ -290,7 +292,7 @@ pub(crate) trait WindowIv:
 }
 
 /// Struct to summarize common logic for the different window aggregations, e.g. iterating over the buckets to compute the result of an aggregation
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct RealTimeWindowInstance<IV: WindowIv> {
     buckets: Vec<IV>,
     start_time: usize,
@@ -452,7 +454,7 @@ impl<IV: WindowIv> RealTimeWindowInstance<IV> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct PercentileWindow<IC: WindowInstanceTrait> {
     pub(crate) inner: IC,
     pub(crate) percentile: u8,
