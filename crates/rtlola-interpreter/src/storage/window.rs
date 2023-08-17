@@ -330,13 +330,19 @@ impl<IV: WindowIv> WindowInstanceTrait for RealTimeWindowInstance<IV> {
         if !self.active {
             return IV::default(ts).into();
         }
-        // Reversal is essential for non-commutative operations.
+
         if self.wait && (ts.as_nanos() as usize) - self.start_time < self.total_duration {
             return Value::None;
         }
+
         self.buckets
-            .iter()
-            .fold(IV::default(ts), |acc, e| acc + e.clone())
+            .clone()
+            .into_iter()
+            .cycle()
+            .skip(self.current_bucket + 1)
+            .take(self.buckets.len())
+            .reduce(|acc, e| acc + e)
+            .unwrap_or_else(|| IV::default(ts))
             .into()
     }
 
@@ -471,8 +477,13 @@ impl<G: WindowGeneric> WindowInstanceTrait for PercentileWindow<RealTimeWindowIn
         }
         self.inner
             .buckets
-            .iter()
-            .fold(PercentileIv::default(ts), |acc, e| acc + e.clone())
+            .clone()
+            .into_iter()
+            .cycle()
+            .skip(self.inner.current_bucket + 1)
+            .take(self.inner.buckets.len())
+            .reduce(|acc, e| acc + e)
+            .unwrap_or_else(|| PercentileIv::default(ts))
             .percentile_get_value(self.percentile)
     }
 

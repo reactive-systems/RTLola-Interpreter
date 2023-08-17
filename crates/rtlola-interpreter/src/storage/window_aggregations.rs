@@ -229,26 +229,20 @@ impl Add for IntegralIv {
             (true, true) => {},
         }
 
-        let (l, r) = if self.end_time <= other.start_time {
-            (self, other)
-        } else {
-            (other, self)
-        };
-
-        let start_volume = l.volume + r.volume;
-        assert!(r.start_time >= l.end_time, "Time does not behave monotonically!");
-        let time_diff_dur = r.start_time - l.end_time;
+        let start_volume = self.volume + other.volume;
+        assert!(other.start_time >= self.end_time, "Time does not behave monotonically!");
+        let time_diff_dur = other.start_time - self.end_time;
         let time_diff = (Decimal::from(time_diff_dur.as_secs()))
             + (Decimal::from(time_diff_dur.subsec_nanos()) / Decimal::from(100_000_000));
-        let value_sum = r.start_value + l.end_value;
+        let value_sum = other.start_value + self.end_value;
 
         let additional_volume = value_sum * time_diff / Decimal::from(2);
 
         let volume = start_volume + additional_volume;
-        let end_value = r.end_value;
-        let end_time = r.end_time;
-        let start_value = l.start_value;
-        let start_time = l.start_time;
+        let end_value = other.end_value;
+        let end_time = other.end_time;
+        let start_value = self.start_value;
+        let start_time = self.start_time;
 
         IntegralIv {
             volume,
