@@ -587,12 +587,11 @@ impl Evaluator {
                     WindowParameterization::Both => {
                         self.global_store
                             .get_two_layer_window_collection_mut(win_ref)
-                            .close_caller_instance(parameter);
+                            .close_caller_instance(parameter, ts);
                     },
                 }
             }
 
-            // Todo: We have to mark these instances for closing. They should only be deactivated / removed once their period is over.
             // close all windows referencing this instance
             for (_, win_ref) in &stream.aggregated_by {
                 // Self is target of the window
@@ -601,12 +600,12 @@ impl Evaluator {
                     WindowParameterization::Target { .. } => {
                         self.global_store
                             .get_window_collection_mut(*win_ref)
-                            .delete_window(parameter);
+                            .schedule_deletion(parameter, ts);
                     },
                     WindowParameterization::Both => {
                         self.global_store
                             .get_two_layer_window_collection_mut(*win_ref)
-                            .close_target_instance(parameter);
+                            .close_target_instance(parameter, ts);
                     },
                 }
             }
@@ -618,7 +617,7 @@ impl Evaluator {
                         self.global_store.get_window_mut(win_ref).deactivate();
                     },
                     WindowParameterization::Target { .. } => {
-                        self.global_store.get_window_collection_mut(win_ref).deactivate_all();
+                        self.global_store.get_window_collection_mut(win_ref).deactivate_all(ts);
                     },
                     WindowParameterization::Caller | WindowParameterization::Both => {
                         unreachable!("Parameters are empty")
@@ -817,7 +816,7 @@ impl Evaluator {
             WindowParameterization::Target { .. } => {
                 self.global_store
                     .get_window_collection_mut(win)
-                    .window_mut(own_parameter)
+                    .window_mut(own_parameter, ts)
                     .expect("tried to extend non existing window")
                     .accept_value(value, ts)
             },
@@ -983,13 +982,13 @@ impl<'e> EvaluationContext<'e> {
             WindowParameterization::Caller => {
                 self.global_store
                     .get_window_collection_mut(window_ref)
-                    .window(self.parameter.as_slice())
+                    .window(self.parameter.as_slice(), self.ts)
                     .expect("Own window to exist")
                     .get_value(self.ts)
             },
             WindowParameterization::Target { .. } => {
                 let window_collection = self.global_store.get_window_collection_mut(window_ref);
-                let window = window_collection.window(target_parameter);
+                let window = window_collection.window(target_parameter, self.ts);
                 if let Some(w) = window {
                     w.get_value(self.ts)
                 } else {
@@ -998,7 +997,7 @@ impl<'e> EvaluationContext<'e> {
             },
             WindowParameterization::Both => {
                 let collection = self.global_store.get_two_layer_window_collection_mut(window_ref);
-                let window = collection.window(target_parameter, self.parameter.as_slice());
+                let window = collection.window(target_parameter, self.parameter.as_slice(), self.ts);
                 if let Some(w) = window {
                     w.get_value(self.ts)
                 } else {
@@ -2968,30 +2967,35 @@ mod tests {
         assert_eq!(eval.peek_value(d_ref, &[], 0).unwrap(), Signed(42));
 
         //Intance b(false) gets new value
-        //Timed streams are evaluated
         // Instance b(false) is closed
-        time += Duration::from_secs(1);
+        time += Duration::from_millis(500);
         accept_input_timed!(eval, in_ref, Signed(1337), time);
         eval.prepare_evaluation(time);
         eval_stream_instances_timed!(eval, time, b_ref);
         assert_eq!(eval.peek_value(b_ref, &[Bool(false)], 0).unwrap(), Signed(1337));
         assert_eq!(eval.peek_value(b_ref, &[Bool(true)], 0).unwrap(), Signed(42));
-        eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
-        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(1337));
-        eval_stream_timed!(eval, d_ref.out_ix(), vec![], time);
-        assert_eq!(eval.peek_value(d_ref, &[], 0).unwrap(), Signed(0));
         eval_close_timed!(eval, time, b_ref, &vec![Bool(false)]);
         eval_close_timed!(eval, time, b_ref, &vec![Bool(true)]);
         assert!(!stream_has_instance!(eval, b_ref, vec![Bool(false)]));
         assert!(stream_has_instance!(eval, b_ref, vec![Bool(true)]));
 
         //Eval timed streams again
-        time += Duration::from_secs(1);
+        time += Duration::from_millis(500);
         eval.prepare_evaluation(time);
         eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
-        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(0));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(1337));
         eval_stream_timed!(eval, d_ref.out_ix(), vec![], time);
         assert_eq!(eval.peek_value(d_ref, &[], 0).unwrap(), Signed(0));
+
+        //Check window instance is closed
+        time += Duration::from_millis(550);
+        eval.prepare_evaluation(time);
+        let window = eval.ir.sliding_windows[0].reference;
+        assert!(eval
+            .global_store
+            .get_window_collection_mut(window)
+            .window(&[Bool(false)], time)
+            .is_none())
     }
 
     #[test]

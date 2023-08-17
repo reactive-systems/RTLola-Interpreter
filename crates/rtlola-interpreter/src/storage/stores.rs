@@ -1,8 +1,10 @@
+use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::default::Default;
 
 use bimap::BiHashMap;
 use either::Either;
+use priority_queue::PriorityQueue;
 use rtlola_frontend::mir::{
     DiscreteWindow as MirDiscreteWindow, InputReference, MemorizationBound, Origin, OutputReference, OutputStream,
     RtLolaMir, SlidingWindow as MirSlidingWindow, Stream, StreamAccessKind, StreamReference, Type, WindowReference,
@@ -153,6 +155,7 @@ pub(crate) struct SlidingWindowCollection {
     windows: HashMap<Vec<Value>, SlidingWindow>,
     mir_window: Either<MirSlidingWindow, MirDiscreteWindow>,
     default_window: SlidingWindow,
+    to_be_closed: PriorityQueue<Vec<Value>, Reverse<Time>>,
 }
 
 impl SlidingWindowCollection {
@@ -162,6 +165,7 @@ impl SlidingWindowCollection {
             windows: HashMap::new(),
             mir_window: Either::Left(window.clone()),
             default_window: SlidingWindow::from_sliding(Time::default(), window, false),
+            to_be_closed: PriorityQueue::new(),
         }
     }
 
@@ -178,6 +182,7 @@ impl SlidingWindowCollection {
                 &window.ty,
                 false,
             ),
+            to_be_closed: PriorityQueue::new(),
         }
     }
 
@@ -187,6 +192,8 @@ impl SlidingWindowCollection {
 
     /// Creates a new sliding window in the collection
     pub(crate) fn create_window(&mut self, parameters: &[Value], start_time: Time) -> Option<&mut SlidingWindow> {
+        // remove from deletion list if it still exists
+        self.to_be_closed.remove(parameters);
         if !self.windows.contains_key(parameters) {
             let window = match &self.mir_window {
                 Either::Left(w) => SlidingWindow::from_sliding(start_time, w, false),
@@ -200,22 +207,46 @@ impl SlidingWindowCollection {
     }
 
     /// Returns the existing sliding window for the parameters or creates an instance if not existing
-    pub(crate) fn get_or_create(&mut self, parameters: &[Value], start_time: Time) -> &mut SlidingWindow {
+    pub(crate) fn get_or_create(&mut self, parameters: &[Value], ts: Time) -> &mut SlidingWindow {
+        self.delete_expired_windows(ts);
         if self.windows.contains_key(parameters) {
-            self.window_mut(parameters).unwrap()
+            self.window_mut(parameters, ts).unwrap()
         } else {
-            self.create_window(parameters, start_time).unwrap()
+            self.create_window(parameters, ts).unwrap()
         }
     }
 
     /// Returns a reference to the sliding window corresponding to the parameters
-    pub(crate) fn window(&self, parameter: &[Value]) -> Option<&SlidingWindow> {
+    pub(crate) fn window(&mut self, parameter: &[Value], ts: Time) -> Option<&SlidingWindow> {
+        self.delete_expired_windows(ts);
         self.windows.get(parameter)
     }
 
     /// Returns a mutable reference to the sliding window corresponding to the parameters
-    pub(crate) fn window_mut(&mut self, parameter: &[Value]) -> Option<&mut SlidingWindow> {
+    pub(crate) fn window_mut(&mut self, parameter: &[Value], ts: Time) -> Option<&mut SlidingWindow> {
+        self.delete_expired_windows(ts);
         self.windows.get_mut(parameter)
+    }
+
+    /// Schedules the window for deletion after their period expires.
+    pub(crate) fn schedule_deletion(&mut self, parameter: &[Value], ts: Time) {
+        debug_assert!(self.windows.contains_key(parameter));
+        match &self.mir_window {
+            Either::Left(sw) => {
+                self.to_be_closed.push(parameter.to_vec(), Reverse(ts + sw.duration));
+            },
+            Either::Right(_) => {
+                // Todo reevaluate this
+                self.windows.remove(parameter);
+            },
+        }
+    }
+
+    fn delete_expired_windows(&mut self, ts: Time) {
+        while self.to_be_closed.peek().map(|(_, due)| ts > due.0).unwrap_or(false) {
+            let (params, _) = self.to_be_closed.pop().unwrap();
+            self.windows.remove(params.as_slice());
+        }
     }
 
     /// Deletes the sliding window corresponding to the parameters
@@ -226,6 +257,7 @@ impl SlidingWindowCollection {
 
     /// Updates all windows in the collection with the given time
     pub(crate) fn update_all(&mut self, ts: Time) {
+        self.delete_expired_windows(ts);
         self.windows.iter_mut().for_each(|(_, w)| {
             if w.is_active() {
                 w.update(ts)
@@ -235,6 +267,7 @@ impl SlidingWindowCollection {
 
     /// Activates all windows in the collection with the given time
     pub(crate) fn activate_all(&mut self, ts: Time) {
+        self.delete_expired_windows(ts);
         self.windows.iter_mut().for_each(|(_, w)| {
             if !w.is_active() {
                 w.activate(ts);
@@ -243,7 +276,8 @@ impl SlidingWindowCollection {
     }
 
     /// Activates all windows in the collection with the given time
-    pub(crate) fn deactivate_all(&mut self) {
+    pub(crate) fn deactivate_all(&mut self, ts: Time) {
+        self.delete_expired_windows(ts);
         self.windows.iter_mut().for_each(|(_, w)| {
             if w.is_active() {
                 w.deactivate();
@@ -253,6 +287,7 @@ impl SlidingWindowCollection {
 
     /// Adds a new value to all windows in the collection with the given time
     pub(crate) fn accept_value_all(&mut self, value: Value, ts: Time) {
+        self.delete_expired_windows(ts);
         self.windows
             .iter_mut()
             .for_each(|(_, w)| w.accept_value(value.clone(), ts));
@@ -273,6 +308,8 @@ pub(crate) struct TwoLayerSlidingWindowCollection {
     mir_window: Either<MirSlidingWindow, MirDiscreteWindow>,
     /// A dummy window to get the default value.
     default_window: SlidingWindow,
+    /// A queue of sliding windows whos target is already closed which should be closed after their period.
+    to_be_closed: PriorityQueue<Vec<Value>, Reverse<Time>>,
 }
 
 impl TwoLayerSlidingWindowCollection {
@@ -285,6 +322,7 @@ impl TwoLayerSlidingWindowCollection {
             windows: vec![],
             mir_window: Either::Left(window.clone()),
             default_window: SlidingWindow::from_sliding(Time::default(), window, false),
+            to_be_closed: PriorityQueue::new(),
         }
     }
 
@@ -304,6 +342,7 @@ impl TwoLayerSlidingWindowCollection {
                 &window.ty,
                 false,
             ),
+            to_be_closed: PriorityQueue::new(),
         }
     }
 
@@ -319,12 +358,13 @@ impl TwoLayerSlidingWindowCollection {
     }
 
     pub(crate) fn new_target_instance(&mut self, parameter: &[Value]) {
+        self.to_be_closed.remove(parameter);
         let next_target_id = self.windows.len();
         self.target_parameters.insert(parameter.to_vec(), next_target_id);
         self.windows.push(self.caller_instances.clone());
     }
 
-    pub(crate) fn close_target_instance(&mut self, parameter: &[Value]) {
+    fn remove_target_instance(&mut self, parameter: &[Value]) {
         debug_assert!(!self.windows.is_empty());
         let (_, id) = self
             .target_parameters
@@ -342,7 +382,26 @@ impl TwoLayerSlidingWindowCollection {
         }
     }
 
+    fn delete_expired_windows(&mut self, ts: Time) {
+        while self.to_be_closed.peek().map(|(_, due)| ts > due.0).unwrap_or(false) {
+            let (params, _) = self.to_be_closed.pop().unwrap();
+            self.remove_target_instance(params.as_slice());
+        }
+    }
+
+    pub(crate) fn close_target_instance(&mut self, parameter: &[Value], ts: Time) {
+        match &self.mir_window {
+            Either::Left(sw) => {
+                self.to_be_closed.push(parameter.to_vec(), Reverse(ts + sw.duration));
+            },
+            Either::Right(_) => {
+                self.remove_target_instance(parameter);
+            },
+        }
+    }
+
     pub(crate) fn new_caller_instance(&mut self, parameters: &[Value], ts: Time) {
+        self.delete_expired_windows(ts);
         let next_caller_id = self.caller_instances.len();
         self.caller_parameters.insert(parameters.to_vec(), next_caller_id);
         let window = self.create_window(ts, true);
@@ -350,7 +409,8 @@ impl TwoLayerSlidingWindowCollection {
         self.windows.iter_mut().for_each(|callers| callers.push(window.clone()));
     }
 
-    pub(crate) fn close_caller_instance(&mut self, parameter: &[Value]) {
+    pub(crate) fn close_caller_instance(&mut self, parameter: &[Value], ts: Time) {
+        self.delete_expired_windows(ts);
         debug_assert!(!self.caller_instances.is_empty());
         let (_, id) = self
             .caller_parameters
@@ -376,7 +436,13 @@ impl TwoLayerSlidingWindowCollection {
     }
 
     /// Returns a reference to the sliding window corresponding to the parameters
-    pub(crate) fn window(&self, target_parameter: &[Value], caller_parameter: &[Value]) -> Option<&SlidingWindow> {
+    pub(crate) fn window(
+        &mut self,
+        target_parameter: &[Value],
+        caller_parameter: &[Value],
+        ts: Time,
+    ) -> Option<&SlidingWindow> {
+        self.delete_expired_windows(ts);
         self.target_parameters
             .get_by_left(target_parameter)
             .and_then(|target_id| {
@@ -389,6 +455,7 @@ impl TwoLayerSlidingWindowCollection {
 
     /// Updates all windows in the collection with the given time
     pub(crate) fn update_all(&mut self, ts: Time) {
+        self.delete_expired_windows(ts);
         self.windows
             .iter_mut()
             .for_each(|c| c.iter_mut().for_each(|w| w.update(ts)));
@@ -396,6 +463,7 @@ impl TwoLayerSlidingWindowCollection {
 
     /// Adds a new value to all windows in the collection with the given time
     pub(crate) fn accept_value(&mut self, target_parameter: &[Value], value: Value, ts: Time) {
+        self.delete_expired_windows(ts);
         let id = *self.target_parameters.get_by_left(target_parameter).unwrap();
         self.windows[id]
             .iter_mut()
