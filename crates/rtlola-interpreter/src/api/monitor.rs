@@ -455,6 +455,15 @@ pub trait Input: Sized {
     /// Creates a new input source from a HashMap mapping the names of the inputs in the specification to their position in the event.
     fn new(map: HashMap<String, InputReference>, setup_data: Self::CreationData) -> Result<Self, Self::Error>;
 
+    /// Construction the input for only a subset of the required input streams. Enables the combination of multiple Input implementors into one.
+    /// The returned HashMap captures Errors for the input streams not captured by this Input.
+    fn new_as_partial(
+        map: HashMap<String, InputReference>,
+        setup_data: Self::CreationData,
+    ) -> Result<(Self, HashMap<String, Self::Error>), Self::Error> {
+        Self::new(map, setup_data).map(|s| (s, HashMap::new()))
+    }
+
     /// This function converts a record to an event.
     fn get_event(&self, rec: Self::Record) -> Result<Event, Self::Error>;
 }
@@ -621,18 +630,10 @@ impl<Inner: Record> Input for RecordInput<Inner> {
         Ok(Self { translators })
     }
 
-    fn get_event(&self, rec: Inner) -> Result<Event, Self::Error> {
-        self.translators.iter().map(|f| f(&rec)).collect()
-    }
-}
-
-impl<Inner: Record> RecordInput<Inner> {
-    /// creates a new RecordInput that includes a default function for all input streams, where the record failed to provide one.
-    /// A HashMap of errors is returned that maps input stream names to an error.
-    pub fn new_ignore_undefined(
+    fn new_as_partial(
         map: HashMap<String, InputReference>,
-        setup_data: <Self as Input>::CreationData,
-    ) -> (Self, HashMap<String, <Self as Input>::Error>) {
+        setup_data: Self::CreationData,
+    ) -> Result<(Self, HashMap<String, Self::Error>), Self::Error> {
         let mut translators: Vec<Option<_>> = (0..map.len()).map(|_| None).collect();
         let mut errs = HashMap::with_capacity(map.len());
         let default_fn = Box::new(|_r: &Inner| Ok(Value::None));
@@ -646,7 +647,11 @@ impl<Inner: Record> RecordInput<Inner> {
             }
         }
         let translators = translators.into_iter().map(Option::unwrap).collect();
-        (Self { translators }, errs)
+        Ok((Self { translators }, errs))
+    }
+
+    fn get_event(&self, rec: Inner) -> Result<Event, Self::Error> {
+        self.translators.iter().map(|f| f(&rec)).collect()
     }
 }
 

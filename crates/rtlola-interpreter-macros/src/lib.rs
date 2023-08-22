@@ -2,7 +2,6 @@ extern crate proc_macro;
 use std::collections::HashMap;
 
 use proc_macro::TokenStream;
-use proc_macro2::Span as Span2;
 use proc_macro_error::__export::proc_macro2::Span;
 use proc_macro_error::{abort, proc_macro_error};
 use quote::{format_ident, quote};
@@ -132,7 +131,7 @@ pub fn derive_input_impl(input: TokenStream) -> TokenStream {
         ..
     } = input.clone();
 
-    let struct_name = Ident::new(&format!("{name}Input"), Span2::call_site());
+    let struct_name = format_ident!("{name}Input");
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     let variants = match data {
@@ -166,13 +165,20 @@ pub fn derive_input_impl(input: TokenStream) -> TokenStream {
     let (struct_field_names, struct_field_types): (Vec<Ident>, Vec<_>) = variants
         .iter()
         .map(|(ident, ty)| {
+            let lc = ident.to_string().to_lowercase();
             (
-                format_ident!("{ident}_record_in"),
+                format_ident!("{lc}_record_in", span = ident.span()),
                 quote! {rtlola_interpreter::monitor::RecordInput<#ty>},
             )
         })
         .unzip();
-    let struct_field_errs: Vec<Ident> = variants.keys().map(|var| format_ident!("{var}_errs")).collect();
+    let struct_field_errs: Vec<Ident> = variants
+        .keys()
+        .map(|var| {
+            let lc = var.to_string().to_lowercase();
+            format_ident!("{lc}_errs", span = var.span())
+        })
+        .collect();
 
     let variant_paths: Vec<_> = variants
         .keys()
@@ -201,7 +207,13 @@ pub fn derive_input_impl(input: TokenStream) -> TokenStream {
 
     let (variant_found, variant_missing): (Vec<Ident>, Vec<Ident>) = variants
         .keys()
-        .map(|var| (format_ident!("{var}_found"), format_ident!("{var}_missing")))
+        .map(|var| {
+            let lc = var.to_string().to_lowercase();
+            (
+                format_ident!("{lc}_found_streams", span = var.span()),
+                format_ident!("{lc}_missing_streams", span = var.span()),
+            )
+        })
         .unzip();
 
     let input_impl = quote! {
@@ -225,7 +237,7 @@ pub fn derive_input_impl(input: TokenStream) -> TokenStream {
                 let mut all_found = std::collections::HashSet::with_capacity(map.len());
 
                 #(
-                    let (#struct_field_names, mut #struct_field_errs) = rtlola_interpreter::monitor::RecordInput::new_ignore_undefined(map.clone(), ());
+                    let (#struct_field_names, mut #struct_field_errs) = rtlola_interpreter::monitor::RecordInput::new_as_partial(map.clone(), ())?;
                     let #variant_missing: std::collections::HashSet<String> = #struct_field_errs.keys().cloned().collect();
                     let #variant_found = all_streams.difference(&#variant_missing).cloned();
                     all_found.extend(#variant_found);
