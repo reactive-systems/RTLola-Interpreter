@@ -709,6 +709,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1c173a5686ce8bfa551b3563d0c2170bf24ca44da99c7ca4bfdab5418c3fe57"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1260,7 +1269,7 @@ version = "0.6.2"
 source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#d4e14e5a7f586bb8b9b84e8d06eb5eb517db712c"
 dependencies = [
  "dot",
- "itertools",
+ "itertools 0.10.5",
  "lazy_static",
  "num",
  "num-rational 0.3.2",
@@ -1277,7 +1286,7 @@ name = "rtlola-hir"
 version = "0.4.2"
 source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#d4e14e5a7f586bb8b9b84e8d06eb5eb517db712c"
 dependencies = [
- "itertools",
+ "itertools 0.10.5",
  "lazy_static",
  "num",
  "num-rational 0.4.1",
@@ -1317,7 +1326,7 @@ dependencies = [
  "either",
  "hex",
  "humantime",
- "itertools",
+ "itertools 0.11.0",
  "junit-report",
  "lazy_static",
  "num-traits",

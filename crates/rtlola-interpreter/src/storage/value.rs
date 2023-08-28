@@ -149,6 +149,14 @@ impl Value {
             unreachable!()
         }
     }
+
+    /// Returns self if self is not `Value::None` and other otherwise
+    pub fn and_then(self, other: Value) -> Value {
+        match self {
+            None => other,
+            _ => self,
+        }
+    }
 }
 
 impl ops::Add for Value {

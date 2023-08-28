@@ -29,6 +29,8 @@ use std::fmt::{Display, Formatter};
 // Public exports
 use std::time::Duration;
 
+// Reexport itertools helper for macros
+pub use itertools::izip;
 // Reexport Frontend
 pub use rtlola_frontend;
 pub use rtlola_frontend::mir as rtlola_mir;
