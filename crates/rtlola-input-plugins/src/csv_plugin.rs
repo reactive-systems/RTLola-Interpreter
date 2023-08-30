@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use csv::{ByteRecord, Reader as CSVReader, ReaderBuilder, Result as ReaderResult, StringRecord, Trim};
 use rtlola_frontend::mir::InputStream;
-use rtlola_interpreter::monitor::{Record, ValueProjection};
+use rtlola_interpreter::monitor::{InputError, Record, ValueProjection};
 use rtlola_interpreter::rtlola_mir::{RtLolaMir, Type};
 use rtlola_interpreter::time::TimeRepresentation;
 use rtlola_interpreter::Value;
@@ -78,6 +78,12 @@ impl Error for CsvError {
             CsvError::Validation(_) => None,
             CsvError::Value(_) => None,
         }
+    }
+}
+
+impl From<CsvError> for InputError {
+    fn from(value: CsvError) -> Self {
+        InputError::Other(Box::new(value))
     }
 }
 

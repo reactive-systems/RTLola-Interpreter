@@ -93,14 +93,14 @@ pub fn derive_record_impl(input: TokenStream) -> TokenStream {
     let record_impl = quote! {
         impl #impl_generics rtlola_interpreter::monitor::Record for #name #ty_generics #where_clause {
             type CreationData = ();
-            type Error = rtlola_interpreter::monitor::RecordError;
+            type Error = rtlola_interpreter::monitor::InputError;
 
             fn func_for_input(name: &str, data: Self::CreationData) -> Result<rtlola_interpreter::monitor::ValueProjection<Self, Self::Error>, Self::Error>{
                 match name {
                     #(
                         #field_names => Ok(Box::new(|data| Ok(data.#field_idents.clone().try_into()?))),
                     )*
-                    _ => Err(rtlola_interpreter::monitor::RecordError::InputStreamUnknown(name.to_string()))
+                    _ => Err(rtlola_interpreter::monitor::InputError::InputStreamUnknown(vec![name.to_string()]))
                 }
             }
         }
@@ -168,17 +168,10 @@ pub fn derive_input_impl(input: TokenStream) -> TokenStream {
             let lc = ident.to_string().to_lowercase();
             (
                 format_ident!("{lc}_record_in", span = ident.span()),
-                quote! {rtlola_interpreter::monitor::RecordInput<#ty>},
+                quote! {<#ty as rtlola_interpreter::monitor::DerivedInput>::Input},
             )
         })
         .unzip();
-    let struct_field_errs: Vec<Ident> = variants
-        .keys()
-        .map(|var| {
-            let lc = var.to_string().to_lowercase();
-            format_ident!("{lc}_errs", span = var.span())
-        })
-        .collect();
 
     let variant_paths: Vec<_> = variants
         .keys()
@@ -205,17 +198,6 @@ pub fn derive_input_impl(input: TokenStream) -> TokenStream {
         })
         .unzip();
 
-    let (variant_found, variant_missing): (Vec<Ident>, Vec<Ident>) = variants
-        .keys()
-        .map(|var| {
-            let lc = var.to_string().to_lowercase();
-            (
-                format_ident!("{lc}_found_streams", span = var.span()),
-                format_ident!("{lc}_missing_streams", span = var.span()),
-            )
-        })
-        .unzip();
-
     let input_impl = quote! {
         impl #impl_generics rtlola_interpreter::monitor::DerivedInput for #name #ty_generics #where_clause {
             type Input = #struct_name;
@@ -229,47 +211,25 @@ pub fn derive_input_impl(input: TokenStream) -> TokenStream {
 
         impl #impl_generics rtlola_interpreter::monitor::Input for #struct_name #ty_generics #where_clause{
             type Record = #name;
-            type Error = rtlola_interpreter::monitor::RecordError;
+            type Error = rtlola_interpreter::monitor::InputError;
             type CreationData = ();
 
-            fn new(map: std::collections::HashMap<String, rtlola_interpreter::rtlola_frontend::mir::InputReference>, setup_data: Self::CreationData) -> Result<Self, Self::Error> {
-                let all_streams: std::collections::HashSet<String> = map.keys().cloned().collect();
+            fn try_new(map: std::collections::HashMap<String, rtlola_interpreter::rtlola_frontend::mir::InputReference>, setup_data: Self::CreationData) -> Result<(Self, Vec<String>), Self::Error> {
                 let mut all_found = std::collections::HashSet::with_capacity(map.len());
 
                 #(
-                    let (#struct_field_names, mut #struct_field_errs) = rtlola_interpreter::monitor::RecordInput::new_as_partial(map.clone(), ())?;
-                    let #variant_missing: std::collections::HashSet<String> = #struct_field_errs.keys().cloned().collect();
-                    let #variant_found = all_streams.difference(&#variant_missing).cloned();
-                    all_found.extend(#variant_found);
+                    let (#struct_field_names, found) = #struct_field_types::try_new(map.clone(), ())?;
+                    all_found.extend(found);
                 )*
 
-                let errs: std::collections::HashMap<String, Vec<Self::Error>> = all_streams
-                    .difference(&all_found)
-                    .map(|missing| {
-                        let mut record_errs: Vec<Self::Error> = vec![];
-
-                        #(
-                             #struct_field_errs.remove(missing.as_str()).map(
-                                |e: <#struct_field_types as rtlola_interpreter::monitor::Input>::Error| {
-                                    record_errs.push(rtlola_interpreter::monitor::RecordError::from(e))
-                                },
-                            );
-                        )*
-
-                        ((*missing).clone(), record_errs)
-                    })
-                    .collect();
-
-                if errs.is_empty() {
-                    Ok( #struct_name{
-                        #(
-                            #struct_field_names,
-                        )*
-                    })
-                } else {
-                    Err(rtlola_interpreter::monitor::RecordError::InputStreamNotFound(errs))
-                }
+                Ok( (#struct_name{
+                    #(
+                        #struct_field_names,
+                    )*
+                }, all_found.into_iter().collect()))
             }
+
+
 
             /// This function converts a record to an event.
             fn get_event(&self, rec: Self::Record) -> Result<rtlola_interpreter::monitor::Event, Self::Error>{
@@ -278,7 +238,7 @@ pub fn derive_input_impl(input: TokenStream) -> TokenStream {
                         #variant_paths => Ok(self.#struct_field_names.get_event(rec)?),
                     )*
                     #(
-                        #ignored_variant_paths => Err(rtlola_interpreter::monitor::RecordError::VariantIgnored(#ignored_variant_names.to_string())),
+                        #ignored_variant_paths => Err(rtlola_interpreter::monitor::InputError::VariantIgnored(#ignored_variant_names.to_string())),
                     )*
                 }
             }

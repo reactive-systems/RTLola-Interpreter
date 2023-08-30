@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use rtlola_interpreter::monitor::{DerivedInput, Input, RecordError};
+use rtlola_interpreter::monitor::{DerivedInput, Input, InputError};
 use rtlola_interpreter::rtlola_mir::InputReference;
 use rtlola_interpreter::Value;
 use rtlola_interpreter_macros::{Input, Record};
@@ -125,11 +125,11 @@ fn ignore() {
     ];
     assert_eq!(input.get_event(t2).unwrap(), expected);
 
-    assert!(matches!(input.get_event(Rec::Var3), Err(RecordError::VariantIgnored(name)) if name == "Var3"));
+    assert!(matches!(input.get_event(Rec::Var3), Err(InputError::VariantIgnored(name)) if name == "Var3"));
     assert!(
-        matches!(input.get_event(Rec::Var4("Asd".to_string())), Err(RecordError::VariantIgnored(name)) if name == "Var4")
+        matches!(input.get_event(Rec::Var4("Asd".to_string())), Err(InputError::VariantIgnored(name)) if name == "Var4")
     );
-    assert!(matches!(input.get_event(Rec::Var5 {x: 5}), Err(RecordError::VariantIgnored(name)) if name == "Var5"));
+    assert!(matches!(input.get_event(Rec::Var5 {x: 5}), Err(InputError::VariantIgnored(name)) if name == "Var5"));
 }
 
 #[test]
@@ -210,17 +210,10 @@ fn missing() {
     .collect();
 
     let res = <Rec as DerivedInput>::Input::new(map, ());
-    let Err(RecordError::InputStreamNotFound(errs)) = res else {
+    let Err(InputError::InputStreamUnknown(errs)) = res else {
         panic!("Expected error reporting unknown stream!")
     };
     assert_eq!(errs.len(), 1);
-    let (name, reasons) = errs.into_iter().next().unwrap();
+    let name = errs.into_iter().next().unwrap();
     assert_eq!(name.as_str(), "unknown");
-
-    for reason in reasons {
-        let RecordError::InputStreamUnknown(name) = reason else {
-            panic!("Expected stream unknown error from record")
-        };
-        assert_eq!(name.as_str(), "unknown");
-    }
 }

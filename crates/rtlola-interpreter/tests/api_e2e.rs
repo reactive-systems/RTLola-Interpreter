@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
+use std::convert::{Infallible, TryFrom};
 use std::env;
 use std::error::Error;
 use std::fs::{self, File};
@@ -19,7 +19,7 @@ use ordered_float::NotNan;
 use rtlola_frontend::mir::Type;
 use rtlola_interpreter::monitor::{Monitor, Record, RecordInput, TriggerMessages};
 use rtlola_interpreter::time::RelativeFloat;
-use rtlola_interpreter::{ConfigBuilder, NoError, Value};
+use rtlola_interpreter::{ConfigBuilder, Value};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 // inspired by: https://github.com/johnterickson/cargo2junit/blob/master/src/main.rs
@@ -202,7 +202,7 @@ impl From<StringRecord> for CsvRecord {
 
 impl Record for CsvRecord {
     type CreationData = HashMap<String, (Type, usize)>;
-    type Error = NoError;
+    type Error = Infallible;
 
     fn func_for_input(
         name: &str,
@@ -320,9 +320,9 @@ impl Test {
             config.monitor_with_data(inputs).expect("Failed to create Monitor");
 
         let mut actual = Vec::new();
-        for line in csv.records().with_position() {
-            let is_last = matches!(line, Position::Last(_));
-            let line = line.into_inner()?;
+        for (pos, line) in csv.records().with_position() {
+            let is_last = matches!(pos, Position::Last);
+            let line = line?;
             let time = timestamp_to_duration(&line[time_idx])?;
 
             let verdict = monitor.accept_event(line.into(), time).expect("Failed to accept event");

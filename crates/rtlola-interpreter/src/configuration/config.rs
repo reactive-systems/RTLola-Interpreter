@@ -6,6 +6,7 @@ use std::time::SystemTime;
 use rtlola_frontend::RtLolaMir;
 
 use crate::api::monitor::{Incremental, Input, VerdictRepresentation};
+use crate::monitor::InputError;
 use crate::time::{OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
 use crate::Monitor;
 #[cfg(feature = "queued-api")]
@@ -70,12 +71,12 @@ impl<
     pub fn monitor_with_data(
         self,
         data: Source::CreationData,
-    ) -> Result<Monitor<Source, SourceTime, Verdict, VerdictTime>, Source::Error> {
+    ) -> Result<Monitor<Source, SourceTime, Verdict, VerdictTime>, InputError> {
         Monitor::setup(self.config, data)
     }
 
     /// Transforms the configuration into a [Monitor]
-    pub fn monitor(self) -> Result<Monitor<Source, SourceTime, Verdict, VerdictTime>, Source::Error>
+    pub fn monitor(self) -> Result<Monitor<Source, SourceTime, Verdict, VerdictTime>, InputError>
     where
         Source: Input<CreationData = ()>,
     {
@@ -139,7 +140,7 @@ impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation> Config
     pub fn monitor<Source: Input, Verdict: VerdictRepresentation>(
         self,
         data: Source::CreationData,
-    ) -> Result<Monitor<Source, InputTime, Verdict, OutputTime>, Source::Error> {
+    ) -> Result<Monitor<Source, InputTime, Verdict, OutputTime>, InputError> {
         Monitor::setup(self, data)
     }
 }

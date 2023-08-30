@@ -7,7 +7,7 @@ use rtlola_frontend::mir::RtLolaMir;
 use crate::api::monitor::{Event, EventInput, Input, Record, RecordInput, VerdictRepresentation};
 use crate::config::{Config, ExecutionMode, MonitorConfig};
 use crate::configuration::time::{OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
-use crate::monitor::{NoTracer, Tracer, TracingVerdict};
+use crate::monitor::{InputError, NoTracer, Tracer, TracingVerdict};
 use crate::time::RealTime;
 #[cfg(feature = "queued-api")]
 use crate::QueuedMonitor;
@@ -418,12 +418,12 @@ impl<
     pub fn monitor_with_data(
         self,
         data: Source::CreationData,
-    ) -> Result<Monitor<Source, InputTime, Verdict, OutputTime>, Source::Error> {
+    ) -> Result<Monitor<Source, InputTime, Verdict, OutputTime>, InputError> {
         self.build().monitor_with_data(data)
     }
 
     /// Create a [Monitor] from the configuration. The entrypoint of the API.
-    pub fn monitor(self) -> Result<Monitor<Source, InputTime, Verdict, OutputTime>, Source::Error>
+    pub fn monitor(self) -> Result<Monitor<Source, InputTime, Verdict, OutputTime>, InputError>
     where
         Source: Input<CreationData = ()> + 'static,
     {

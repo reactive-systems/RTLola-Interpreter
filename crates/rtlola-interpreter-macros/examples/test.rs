@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use rtlola_interpreter::izip;
-use rtlola_interpreter::monitor::{DerivedInput, Event, Input, RecordError};
+use rtlola_interpreter::monitor::{DerivedInput, Event, Input, InputError};
 use rtlola_interpreter::rtlola_mir::InputReference;
 use rtlola_interpreter_macros::{Input, Record};
 
@@ -48,18 +48,28 @@ struct TestEventInput {
 }
 impl Input for TestEventInput {
     type CreationData = ();
-    type Error = RecordError;
+    type Error = InputError;
     type Record = TestEvent;
 
-    fn new(map: HashMap<String, InputReference>, setup_data: Self::CreationData) -> Result<Self, Self::Error> {
-        let child_record = <TestEventChildRecord as DerivedInput>::Input::new_as_partial(map.clone(), setup_data)?.0;
-        let sub_input_a_input = <SubEventA as DerivedInput>::Input::new_as_partial(map.clone(), setup_data)?.0;
-        let sub_input_b_input = <SubEventB as DerivedInput>::Input::new_as_partial(map.clone(), setup_data)?.0;
-        Ok(Self {
-            child_record,
-            sub_input_a_input,
-            sub_input_b_input,
-        })
+    fn try_new(
+        map: HashMap<String, InputReference>,
+        setup_data: Self::CreationData,
+    ) -> Result<(Self, Vec<String>), InputError> {
+        let mut found = HashSet::with_capacity(map.len());
+        let (child_record, f) = <TestEventChildRecord as DerivedInput>::Input::try_new(map.clone(), setup_data)?;
+        found.extend(f);
+        let (sub_input_a_input, f) = <SubEventA as DerivedInput>::Input::try_new(map.clone(), setup_data)?;
+        found.extend(f);
+        let (sub_input_b_input, f) = <SubEventB as DerivedInput>::Input::try_new(map.clone(), setup_data)?;
+        found.extend(f);
+        Ok((
+            Self {
+                child_record,
+                sub_input_a_input,
+                sub_input_b_input,
+            },
+            found.into_iter().collect(),
+        ))
     }
 
     fn get_event(&self, rec: Self::Record) -> Result<Event, Self::Error> {

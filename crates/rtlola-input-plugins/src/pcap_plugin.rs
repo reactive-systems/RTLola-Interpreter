@@ -15,7 +15,7 @@ use etherparse::{
 };
 use ip_network::IpNetwork;
 use pcap::{Activated, Capture, Device, Error as PCAPError, Packet};
-use rtlola_interpreter::monitor::{Record, ValueProjection};
+use rtlola_interpreter::monitor::{InputError, Record, ValueProjection};
 use rtlola_interpreter::time::TimeRepresentation;
 use rtlola_interpreter::Value;
 
@@ -507,6 +507,15 @@ impl Error for PcapError {
             PcapError::TimeParseError(e) => Some(e),
             PcapError::TimeFormatError(_) => None,
             PcapError::Pcap(e) => Some(e),
+        }
+    }
+}
+
+impl From<PcapError> for InputError {
+    fn from(value: PcapError) -> Self {
+        match value {
+            PcapError::UnknownInput(i) => InputError::InputStreamUnknown(vec![i]),
+            e => InputError::Other(Box::new(e)),
         }
     }
 }

@@ -19,7 +19,7 @@
 //! * [TriggerMessages]: For each event a list of violated triggers with their description is produced.
 //! * [TriggersWithInfoValues]: For each event a list of violated triggers with their specified corresponding values is returned.
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
@@ -38,7 +38,7 @@ use crate::evaluator::{Evaluator, EvaluatorData};
 use crate::schedule::schedule_manager::ScheduleManager;
 use crate::schedule::DynamicSchedule;
 use crate::storage::{Value, ValueConvertError};
-use crate::{CondDeserialize, CondSerialize, NoError, Time};
+use crate::{CondDeserialize, CondSerialize, Time};
 
 /// An event to be handled by the interpreter
 pub type Event = Vec<Value>;
@@ -373,7 +373,7 @@ where
     pub fn setup(
         config: Config<SourceTime, VerdictTime>,
         setup_data: Source::CreationData,
-    ) -> Result<Monitor<Source, SourceTime, Verdict, VerdictTime>, Source::Error> {
+    ) -> Result<Monitor<Source, SourceTime, Verdict, VerdictTime>, InputError> {
         let dyn_schedule = Rc::new(RefCell::new(DynamicSchedule::new()));
         let source_time = config.input_time_representation;
         let output_time = VerdictTime::default();
@@ -447,26 +447,34 @@ pub trait Input: Sized {
     type Record: Send;
 
     /// The error type returned by the input source on IO errors or parsing issues.
-    type Error: Error + Send + 'static;
+    type Error: Into<InputError> + Send + 'static;
 
     /// Arbitrary type of the data provided to the input source at creation time.
     type CreationData: Clone + Send;
 
     /// Creates a new input source from a HashMap mapping the names of the inputs in the specification to their position in the event.
-    fn new(map: HashMap<String, InputReference>, setup_data: Self::CreationData) -> Result<Self, Self::Error>;
-
-    /// Construction the input for only a subset of the required input streams. Enables the combination of multiple Input implementors into one.
-    /// The returned HashMap captures Errors for the input streams not captured by this Input.
-    /// The constructed input should return `Value::None` for all inputs that are unknown to it.
-    fn new_as_partial(
-        map: HashMap<String, InputReference>,
-        setup_data: Self::CreationData,
-    ) -> Result<(Self, HashMap<String, Self::Error>), Self::Error> {
-        Self::new(map, setup_data).map(|s| (s, HashMap::new()))
+    fn new(map: HashMap<String, InputReference>, setup_data: Self::CreationData) -> Result<Self, InputError> {
+        let all = map.keys().cloned().collect::<HashSet<_>>();
+        let (i, found) = Self::try_new(map, setup_data)?;
+        let found = found.into_iter().collect::<HashSet<_>>();
+        let missing: Vec<String> = all.difference(&found).cloned().collect();
+        if !missing.is_empty() {
+            return Err(InputError::InputStreamUnknown(missing));
+        } else {
+            Ok(i)
+        }
     }
 
+    /// Construction the input for only a subset of the required input streams. Enables the combination of multiple Input implementors into one.
+    /// The returned Vector contains the names of the input streams that can be served by this input.
+    /// The constructed input should return `Value::None` for all inputs that are unknown to it.
+    fn try_new(
+        map: HashMap<String, InputReference>,
+        setup_data: Self::CreationData,
+    ) -> Result<(Self, Vec<String>), InputError>;
+
     /// This function converts a record to an event.
-    fn get_event(&self, rec: Self::Record) -> Result<Event, Self::Error>;
+    fn get_event(&self, rec: Self::Record) -> Result<Event, InputError>;
 }
 
 /// This trait provides functionality to parse a record into an event.
@@ -475,7 +483,7 @@ pub trait Record: Send {
     /// Arbitrary type of the data provided at creation time to help initializing the input method.
     type CreationData: Clone + Send;
     /// The error returned if anything goes wrong.
-    type Error: Error + Send + 'static;
+    type Error: Into<InputError> + Send + 'static;
     /// Given the name of an input this function returns a function that given a record returns the value for that input.
     fn func_for_input(name: &str, data: Self::CreationData) -> Result<ValueProjection<Self, Self::Error>, Self::Error>;
 }
@@ -492,12 +500,9 @@ impl<R: Record> DerivedInput for R {
 
 #[derive(Debug)]
 /// A generic Error to be used
-pub enum RecordError {
-    /// Could not find an associated struct field for the input stream.
-    InputStreamUnknown(String),
-    /// The HashMap contains an entry for all input stream names that where not found by any record of the enum.
-    /// The corresponding errors of the records for each stream are given as the result of the map.
-    InputStreamNotFound(HashMap<String, Vec<Self>>),
+pub enum InputError {
+    /// Could not find an associated struct field for the input streams.
+    InputStreamUnknown(Vec<String>),
     /// The value of the struct field is not supported by the interpreter.
     ///
     /// *Help*: ```TryFrom<YourType> for Value``` has to be implemented.
@@ -508,55 +513,47 @@ pub enum RecordError {
     Other(Box<dyn Error + Send + 'static>),
 }
 
-impl Display for RecordError {
+impl Display for InputError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            RecordError::InputStreamUnknown(name) => write!(f, "No struct field found for input stream {name}."),
-            RecordError::ValueNotSupported(val) => {
+            InputError::InputStreamUnknown(name) => {
+                write!(
+                    f,
+                    "The following input stream(s) cannot be served by the input: {}",
+                    name.join(", ")
+                )
+            },
+            InputError::ValueNotSupported(val) => {
                 write!(f, "The type of {val:?} is not supported by the interpreter.")
             },
-            RecordError::Other(e) => {
+            InputError::Other(e) => {
                 write!(f, "RecordError: {e}.")
             },
-            RecordError::VariantIgnored(variant) => {
+            InputError::VariantIgnored(variant) => {
                 write!(f, "Received ignored variant: {variant}.")
             },
-            RecordError::InputStreamNotFound(map) => {
-                for (missing, errs) in map {
-                    writeln!(f, "Input stream {missing} could not be resolved for enum:")?;
-                    for e in errs {
-                        writeln!(f, "{e}")?;
-                    }
-                }
-                Ok(())
-            },
         }
     }
 }
 
-impl Error for RecordError {
+impl Error for InputError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            RecordError::InputStreamUnknown(_) | RecordError::ValueNotSupported(_) | RecordError::VariantIgnored(_) => {
+            InputError::InputStreamUnknown(_) | InputError::ValueNotSupported(_) | InputError::VariantIgnored(_) => {
                 None
             },
-            RecordError::Other(e) => Some(e.as_ref()),
-            RecordError::InputStreamNotFound(map) =>
-            {
-                #[allow(trivial_casts)]
-                map.iter().next().and_then(|(_, e)| e.first().map(|e| e as &dyn Error))
-            },
+            InputError::Other(e) => Some(e.as_ref()),
         }
     }
 }
 
-impl From<ValueConvertError> for RecordError {
+impl From<ValueConvertError> for InputError {
     fn from(value: ValueConvertError) -> Self {
-        RecordError::ValueNotSupported(value)
+        InputError::ValueNotSupported(value)
     }
 }
 
-impl From<Infallible> for RecordError {
+impl From<Infallible> for InputError {
     fn from(_value: Infallible) -> Self {
         unreachable!()
     }
@@ -570,7 +567,7 @@ pub type ValueProjection<From, E> = Box<dyn (Fn(&From) -> Result<Value, E>)>;
 /// ```
 /// use std::fmt::Formatter;
 ///
-/// use rtlola_interpreter::monitor::{Record, RecordError};
+/// use rtlola_interpreter::monitor::{InputError, Record};
 /// use rtlola_interpreter::Value;
 /// #[cfg(feature = "serde")]
 /// use serde::{Deserialize, Serialize};
@@ -584,34 +581,34 @@ pub type ValueProjection<From, E> = Box<dyn (Fn(&From) -> Result<Value, E>)>;
 ///
 /// impl MyType {
 ///     // Generate a new value for input stream 'a'
-///     fn a(rec: &Self) -> Result<Value, RecordError> {
+///     fn a(rec: &Self) -> Result<Value, InputError> {
 ///         Ok(Value::from(rec.a))
 ///     }
 ///
 ///     // Generate a new value for input stream 'b'
-///     fn b(rec: &Self) -> Result<Value, RecordError> {
+///     fn b(rec: &Self) -> Result<Value, InputError> {
 ///         Ok(rec.b.map(|b| Value::from(b)).unwrap_or(Value::None))
 ///     }
 ///
 ///     // Generate a new value for input stream 'c'
-///     fn c(rec: &Self) -> Result<Value, RecordError> {
+///     fn c(rec: &Self) -> Result<Value, InputError> {
 ///         Ok(Value::Str(rec.c.clone().into_boxed_str()))
 ///     }
 /// }
 ///
 /// impl Record for MyType {
 ///     type CreationData = ();
-///     type Error = RecordError;
+///     type Error = InputError;
 ///
 ///     fn func_for_input(
 ///         name: &str,
 ///         _data: Self::CreationData,
-///     ) -> Result<Box<dyn (Fn(&MyType) -> Result<Value, RecordError>)>, RecordError> {
+///     ) -> Result<Box<dyn (Fn(&MyType) -> Result<Value, InputError>)>, InputError> {
 ///         match name {
 ///             "a" => Ok(Box::new(Self::a)),
 ///             "b" => Ok(Box::new(Self::b)),
 ///             "c" => Ok(Box::new(Self::c)),
-///             x => Err(RecordError::InputStreamUnknown(x.to_string())),
+///             x => Err(InputError::InputStreamUnknown(vec![x.to_string()])),
 ///         }
 ///     }
 /// }
@@ -626,37 +623,35 @@ impl<Inner: Record> Input for RecordInput<Inner> {
     type Error = Inner::Error;
     type Record = Inner;
 
-    fn new(map: HashMap<String, InputReference>, setup_data: Self::CreationData) -> Result<Self, Self::Error> {
-        let mut translators: Vec<Option<_>> = (0..map.len()).map(|_| None).collect();
-        for (input_name, index) in map {
-            translators[index] = Some(Inner::func_for_input(input_name.as_str(), setup_data.clone())?);
-        }
-        let translators = translators.into_iter().map(Option::unwrap).collect();
-        Ok(Self { translators })
-    }
-
-    fn new_as_partial(
+    fn try_new(
         map: HashMap<String, InputReference>,
         setup_data: Self::CreationData,
-    ) -> Result<(Self, HashMap<String, Self::Error>), Self::Error> {
+    ) -> Result<(Self, Vec<String>), InputError> {
         let mut translators: Vec<Option<_>> = (0..map.len()).map(|_| None).collect();
-        let mut errs = HashMap::with_capacity(map.len());
+        let mut found = Vec::with_capacity(map.len());
         let default_fn = Box::new(|_r: &Inner| Ok(Value::None));
         for (input_name, index) in map {
             match Inner::func_for_input(input_name.as_str(), setup_data.clone()) {
-                Ok(f) => translators[index] = Some(f),
+                Ok(projection) => {
+                    translators[index] = Some(projection);
+                    found.push(input_name.clone());
+                },
                 Err(e) => {
-                    errs.insert(input_name.clone(), e);
-                    translators[index] = Some(default_fn.clone())
+                    let ie: InputError = e.into();
+                    if matches!(ie, InputError::InputStreamUnknown(_)) {
+                        translators[index] = Some(default_fn.clone())
+                    } else {
+                        return Err(ie);
+                    }
                 },
             }
         }
         let translators = translators.into_iter().map(Option::unwrap).collect();
-        Ok((Self { translators }, errs))
+        Ok((Self { translators }, found))
     }
 
-    fn get_event(&self, rec: Inner) -> Result<Event, Self::Error> {
-        self.translators.iter().map(|f| f(&rec)).collect()
+    fn get_event(&self, rec: Inner) -> Result<Event, InputError> {
+        self.translators.iter().map(|f| f(&rec).map_err(|e| e.into())).collect()
     }
 }
 
@@ -669,14 +664,17 @@ pub struct EventInput<E: Into<Event> + CondSerialize + CondDeserialize> {
 
 impl<E: Into<Event> + Send + CondSerialize + CondDeserialize> Input for EventInput<E> {
     type CreationData = ();
-    type Error = NoError;
+    type Error = Infallible;
     type Record = E;
 
-    fn new(_map: HashMap<String, InputReference>, _setup_data: Self::CreationData) -> Result<Self, Self::Error> {
-        Ok(EventInput { phantom: PhantomData })
+    fn try_new(
+        map: HashMap<String, InputReference>,
+        _setup_data: Self::CreationData,
+    ) -> Result<(Self, Vec<String>), InputError> {
+        Ok((EventInput { phantom: PhantomData }, map.into_keys().collect()))
     }
 
-    fn get_event(&self, rec: Self::Record) -> Result<Event, Self::Error> {
+    fn get_event(&self, rec: Self::Record) -> Result<Event, InputError> {
         Ok(rec.into())
     }
 }
@@ -698,7 +696,7 @@ where
         &mut self,
         ev: Source::Record,
         ts: SourceTime::InnerTime,
-    ) -> Result<Verdicts<Verdict, VerdictTime>, Source::Error> {
+    ) -> Result<Verdicts<Verdict, VerdictTime>, InputError> {
         let mut tracer = Verdict::Tracing::default();
 
         tracer.parse_start();
