@@ -5,8 +5,8 @@ use std::time::SystemTime;
 
 use rtlola_frontend::RtLolaMir;
 
-use crate::api::monitor::{Incremental, Input, VerdictRepresentation};
-use crate::monitor::InputError;
+use crate::input::{Input, InputError};
+use crate::monitor::{Incremental, VerdictRepresentation};
 use crate::time::{OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
 use crate::Monitor;
 #[cfg(feature = "queued-api")]

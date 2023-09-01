@@ -1,4 +1,5 @@
-use rtlola_interpreter::monitor::{DerivedInput, Incremental};
+use rtlola_interpreter::input::DerivedInput;
+use rtlola_interpreter::monitor::Incremental;
 use rtlola_interpreter::time::RelativeFloat;
 use rtlola_interpreter::{ConfigBuilder, Monitor};
 use rtlola_interpreter_macros::{Input, Record};

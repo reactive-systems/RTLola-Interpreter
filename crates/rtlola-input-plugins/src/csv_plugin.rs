@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use csv::{ByteRecord, Reader as CSVReader, ReaderBuilder, Result as ReaderResult, StringRecord, Trim};
 use rtlola_frontend::mir::InputStream;
-use rtlola_interpreter::monitor::{InputError, Record, ValueProjection};
+use rtlola_interpreter::input::{InputError, Record, ValueProjection};
 use rtlola_interpreter::rtlola_mir::{RtLolaMir, Type};
 use rtlola_interpreter::time::TimeRepresentation;
 use rtlola_interpreter::Value;

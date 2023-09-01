@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use rtlola_interpreter::monitor::{DerivedInput, Input, InputError};
+use rtlola_interpreter::input::{DerivedInput, Input, InputError};
 use rtlola_interpreter::rtlola_mir::InputReference;
 use rtlola_interpreter::Value;
 use rtlola_interpreter_macros::{Input, Record};

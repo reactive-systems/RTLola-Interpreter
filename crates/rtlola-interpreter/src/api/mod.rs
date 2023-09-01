@@ -30,3 +30,5 @@ pub mod monitor;
 
 #[cfg(feature = "queued-api")]
 pub mod queued;
+
+pub mod input;

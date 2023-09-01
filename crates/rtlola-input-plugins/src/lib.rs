@@ -7,7 +7,7 @@ pub mod pcap_plugin;
 
 use std::error::Error;
 
-use rtlola_interpreter::monitor::Record;
+use rtlola_interpreter::input::Record;
 use rtlola_interpreter::time::TimeRepresentation;
 
 type EventResult<Rec, Time, Error> = Result<Option<(Rec, Time)>, Error>;

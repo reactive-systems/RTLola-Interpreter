@@ -91,16 +91,16 @@ pub fn derive_record_impl(input: TokenStream) -> TokenStream {
         .unzip();
 
     let record_impl = quote! {
-        impl #impl_generics rtlola_interpreter::monitor::Record for #name #ty_generics #where_clause {
+        impl #impl_generics rtlola_interpreter::input::Record for #name #ty_generics #where_clause {
             type CreationData = ();
-            type Error = rtlola_interpreter::monitor::InputError;
+            type Error = rtlola_interpreter::input::InputError;
 
-            fn func_for_input(name: &str, data: Self::CreationData) -> Result<rtlola_interpreter::monitor::ValueProjection<Self, Self::Error>, Self::Error>{
+            fn func_for_input(name: &str, data: Self::CreationData) -> Result<rtlola_interpreter::input::ValueProjection<Self, Self::Error>, Self::Error>{
                 match name {
                     #(
                         #field_names => Ok(Box::new(|data| Ok(data.#field_idents.clone().try_into()?))),
                     )*
-                    _ => Err(rtlola_interpreter::monitor::InputError::InputStreamUnknown(vec![name.to_string()]))
+                    _ => Err(rtlola_interpreter::input::InputError::InputStreamUnknown(vec![name.to_string()]))
                 }
             }
         }
@@ -168,7 +168,7 @@ pub fn derive_input_impl(input: TokenStream) -> TokenStream {
             let lc = ident.to_string().to_lowercase();
             (
                 format_ident!("{lc}_record_in", span = ident.span()),
-                quote! {<#ty as rtlola_interpreter::monitor::DerivedInput>::Input},
+                quote! {<#ty as rtlola_interpreter::input::DerivedInput>::Input},
             )
         })
         .unzip();
@@ -199,7 +199,7 @@ pub fn derive_input_impl(input: TokenStream) -> TokenStream {
         .unzip();
 
     let input_impl = quote! {
-        impl #impl_generics rtlola_interpreter::monitor::DerivedInput for #name #ty_generics #where_clause {
+        impl #impl_generics rtlola_interpreter::input::DerivedInput for #name #ty_generics #where_clause {
             type Input = #struct_name;
         }
 
@@ -209,9 +209,9 @@ pub fn derive_input_impl(input: TokenStream) -> TokenStream {
             ),*
         }
 
-        impl #impl_generics rtlola_interpreter::monitor::Input for #struct_name #ty_generics #where_clause{
+        impl #impl_generics rtlola_interpreter::input::Input for #struct_name #ty_generics #where_clause{
             type Record = #name;
-            type Error = rtlola_interpreter::monitor::InputError;
+            type Error = rtlola_interpreter::input::InputError;
             type CreationData = ();
 
             fn try_new(map: std::collections::HashMap<String, rtlola_interpreter::rtlola_frontend::mir::InputReference>, setup_data: Self::CreationData) -> Result<(Self, Vec<String>), Self::Error> {
@@ -238,7 +238,7 @@ pub fn derive_input_impl(input: TokenStream) -> TokenStream {
                         #variant_paths => Ok(self.#struct_field_names.get_event(rec)?),
                     )*
                     #(
-                        #ignored_variant_paths => Err(rtlola_interpreter::monitor::InputError::VariantIgnored(#ignored_variant_names.to_string())),
+                        #ignored_variant_paths => Err(rtlola_interpreter::input::InputError::VariantIgnored(#ignored_variant_names.to_string())),
                     )*
                 }
             }

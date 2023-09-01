@@ -1,17 +1,18 @@
+use std::error::Error;
 use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
 use rtlola_frontend::mir::RtLolaMir;
 
-use crate::api::monitor::{Event, EventInput, Input, Record, RecordInput, VerdictRepresentation};
 use crate::config::{Config, ExecutionMode, MonitorConfig};
 use crate::configuration::time::{OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
-use crate::monitor::{InputError, NoTracer, Tracer, TracingVerdict};
+use crate::input::{EventInput, Input, InputError, Record, RecordInput};
+use crate::monitor::{NoTracer, Tracer, TracingVerdict, VerdictRepresentation};
 use crate::time::RealTime;
 #[cfg(feature = "queued-api")]
 use crate::QueuedMonitor;
-use crate::{CondDeserialize, CondSerialize, Monitor};
+use crate::{CondDeserialize, CondSerialize, Monitor, Value};
 
 /* Type state of shared config */
 /// Represents a state of the [ConfigBuilder]
@@ -68,14 +69,16 @@ impl<Source: Input, Verdict: VerdictRepresentation, InputTime: TimeRepresentatio
 ///
 /// An example construction of the API:
 /// ````
-/// use rtlola_interpreter::monitor::{EventInput, Incremental};
+/// use std::convert::Infallible;
+/// use rtlola_interpreter::monitor::Incremental;
+/// use rtlola_interpreter::input::EventInput;
 /// use rtlola_interpreter::time::RelativeFloat;
 /// use rtlola_interpreter::{ConfigBuilder, Monitor, Value};
 ///
 /// let monitor: Monitor<_, _, Incremental, _> = ConfigBuilder::new()
 ///     .spec_str("input i: Int64")
 ///     .offline::<RelativeFloat>()
-///     .event_input::<Vec<Value>>()
+///     .event_input::<1, Infallible, [Value; 1]>()
 ///     .with_verdict::<Incremental>()
 ///     .monitor().expect("Failed to create monitor.");
 /// ````
@@ -236,9 +239,13 @@ impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation>
     ConfigBuilder<ModeConfigured<InputTime>, OutputTime>
 {
     /// Use the predefined [EventInput] method to provide inputs to the API.
-    pub fn event_input<E: Into<Event> + CondSerialize + CondDeserialize + Send>(
+    pub fn event_input<
+        const N: usize,
+        I: Error + Send + 'static,
+        E: TryInto<[Value; N], Error = I> + CondSerialize + CondDeserialize + Send,
+    >(
         self,
-    ) -> ConfigBuilder<InputConfigured<InputTime, EventInput<E>>, OutputTime> {
+    ) -> ConfigBuilder<InputConfigured<InputTime, EventInput<N, I, E>>, OutputTime> {
         let ConfigBuilder {
             output_time_representation,
             start_time,
@@ -414,7 +421,7 @@ impl<
         MonitorConfig::new(config)
     }
 
-    /// Create a [Monitor] from the configuration. The entrypoint of the API. The data is provided to the [Input](crate::monitor::Input) source at creation.
+    /// Create a [Monitor] from the configuration. The entrypoint of the API. The data is provided to the [Input](crate::input::Input) source at creation.
     pub fn monitor_with_data(
         self,
         data: Source::CreationData,
@@ -431,7 +438,7 @@ impl<
     }
 
     #[cfg(feature = "queued-api")]
-    /// Create a [QueuedMonitor] from the configuration. The entrypoint of the API. The data is provided to the [Input](crate::monitor::Input) source at creation.
+    /// Create a [QueuedMonitor] from the configuration. The entrypoint of the API. The data is provided to the [Input](crate::input::Input) source at creation.
     pub fn queued_monitor_with_data(
         self,
         data: Source::CreationData,

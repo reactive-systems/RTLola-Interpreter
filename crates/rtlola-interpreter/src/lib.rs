@@ -36,6 +36,7 @@ pub use itertools::izip;
 pub use rtlola_frontend;
 pub use rtlola_frontend::mir as rtlola_mir;
 
+pub use crate::api::input;
 // Serialize and Deserialize traits for serde support
 pub use crate::api::monitor;
 pub use crate::api::monitor::Monitor;

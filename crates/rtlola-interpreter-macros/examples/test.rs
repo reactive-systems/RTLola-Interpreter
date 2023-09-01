@@ -1,7 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
+use rtlola_interpreter::input::{DerivedInput, Input, InputError};
 use rtlola_interpreter::izip;
-use rtlola_interpreter::monitor::{DerivedInput, Event, Input, InputError};
+use rtlola_interpreter::monitor::Event;
 use rtlola_interpreter::rtlola_mir::InputReference;
 use rtlola_interpreter_macros::{Input, Record};
 

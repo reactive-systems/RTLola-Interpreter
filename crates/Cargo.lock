@@ -968,6 +968,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "paste"
+version = "1.0.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de3145af08024dea9fa9914f381a17b8fc6034dfb00f3a84013f7ff43f29ed4c"
+
+[[package]]
 name = "pcap"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1331,6 +1337,7 @@ dependencies = [
  "lazy_static",
  "num-traits",
  "ordered-float",
+ "paste",
  "priority-queue",
  "regex",
  "rtlola-frontend",

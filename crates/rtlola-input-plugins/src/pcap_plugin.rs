@@ -15,7 +15,7 @@ use etherparse::{
 };
 use ip_network::IpNetwork;
 use pcap::{Activated, Capture, Device, Error as PCAPError, Packet};
-use rtlola_interpreter::monitor::{InputError, Record, ValueProjection};
+use rtlola_interpreter::input::{InputError, Record, ValueProjection};
 use rtlola_interpreter::time::TimeRepresentation;
 use rtlola_interpreter::Value;
 
