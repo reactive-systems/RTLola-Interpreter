@@ -491,7 +491,7 @@ impl Evaluator {
                     },
                     WindowParameterization::Both => {
                         let windows = self.global_store.get_two_layer_window_collection_mut(win_ref);
-                        windows.new_caller_instance(parameter_values.as_slice(), ts);
+                        windows.spawn_caller_instance(parameter_values.as_slice(), ts);
                     },
                 }
             }
@@ -510,7 +510,7 @@ impl Evaluator {
                     },
                     WindowParameterization::Both => {
                         let windows = self.global_store.get_two_layer_window_collection_mut(*win_ref);
-                        windows.new_target_instance(parameter_values.as_slice());
+                        windows.spawn_target_instance(parameter_values.as_slice());
                     },
                 }
             }

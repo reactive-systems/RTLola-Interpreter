@@ -275,7 +275,7 @@ impl SlidingWindowCollection {
         });
     }
 
-    /// Activates all windows in the collection with the given time
+    /// Deactivates all windows in the collection with the given time
     pub(crate) fn deactivate_all(&mut self, ts: Time) {
         self.delete_expired_windows(ts);
         self.windows.iter_mut().for_each(|(_, w)| {
@@ -357,7 +357,7 @@ impl TwoLayerSlidingWindowCollection {
         self.default_window.get_value(ts)
     }
 
-    pub(crate) fn new_target_instance(&mut self, parameter: &[Value]) {
+    pub(crate) fn spawn_target_instance(&mut self, parameter: &[Value]) {
         self.to_be_closed.remove(parameter);
         let next_target_id = self.windows.len();
         self.target_parameters.insert(parameter.to_vec(), next_target_id);
@@ -400,7 +400,7 @@ impl TwoLayerSlidingWindowCollection {
         }
     }
 
-    pub(crate) fn new_caller_instance(&mut self, parameters: &[Value], ts: Time) {
+    pub(crate) fn spawn_caller_instance(&mut self, parameters: &[Value], ts: Time) {
         self.delete_expired_windows(ts);
         let next_caller_id = self.caller_instances.len();
         self.caller_parameters.insert(parameters.to_vec(), next_caller_id);
@@ -571,10 +571,7 @@ impl GlobalStore {
                 || (origin == Origin::Close && caller.close.has_self_reference))
                 && caller.is_spawned();
 
-            let (idx, kind) = match (
-                ps_refs.contains(&window.target),
-                ps_refs.contains(&window.caller) && is_spawned,
-            ) {
+            let (idx, kind) = match (ps_refs.contains(&window.target), ps_refs.contains(&window.caller)) {
                 (false, true) => {
                     p_sliding_windows.push(window);
                     (p_sliding_windows.len() - 1, WindowParameterization::Caller)
@@ -632,10 +629,7 @@ impl GlobalStore {
                 || (origin == Origin::Close && caller.close.has_self_reference))
                 && caller.is_spawned();
 
-            let (idx, kind) = match (
-                ps_refs.contains(&window.target),
-                ps_refs.contains(&window.caller) && is_spawned,
-            ) {
+            let (idx, kind) = match (ps_refs.contains(&window.target), ps_refs.contains(&window.caller)) {
                 (false, false) => {
                     np_discrete_windows.push(window);
                     (
