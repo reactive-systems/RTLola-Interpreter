@@ -265,7 +265,7 @@ test:nightly:
   script:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev python3-pip
-    - pip3 install --break-system-packages junit-xml
+    - pip3 install junit-xml
     - cargo install cargo2junit
     - curl -L https://github.com/mozilla/grcov/releases/download/v0.6.1/grcov-linux-x86_64.tar.bz2 | tar jxf -
     - rustup component add llvm-tools-preview
