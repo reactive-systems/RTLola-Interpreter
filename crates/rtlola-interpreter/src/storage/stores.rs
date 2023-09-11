@@ -571,7 +571,10 @@ impl GlobalStore {
                 || (origin == Origin::Close && caller.close.has_self_reference))
                 && caller.is_spawned();
 
-            let (idx, kind) = match (ps_refs.contains(&window.target), ps_refs.contains(&window.caller)) {
+            let (idx, kind) = match (
+                ps_refs.contains(&window.target),
+                ps_refs.contains(&window.caller) && is_spawned,
+            ) {
                 (false, true) => {
                     p_sliding_windows.push(window);
                     (p_sliding_windows.len() - 1, WindowParameterization::Caller)
@@ -629,7 +632,10 @@ impl GlobalStore {
                 || (origin == Origin::Close && caller.close.has_self_reference))
                 && caller.is_spawned();
 
-            let (idx, kind) = match (ps_refs.contains(&window.target), ps_refs.contains(&window.caller)) {
+            let (idx, kind) = match (
+                ps_refs.contains(&window.target),
+                ps_refs.contains(&window.caller) && is_spawned,
+            ) {
                 (false, false) => {
                     np_discrete_windows.push(window);
                     (
