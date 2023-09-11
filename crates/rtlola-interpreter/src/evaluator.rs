@@ -2087,16 +2087,16 @@ mod tests {
     #[test]
     fn test_var_window() {
         for (duration, exp) in &[
-            // ("2", Value::try_from(0.25)),
-            // ("3", Value::try_from(2.0 / 3.0)),
+            ("2", Value::try_from(0.25)),
+            ("3", Value::try_from(2.0 / 3.0)),
             ("4", Value::try_from(1.25)),
-            // ("5", Value::try_from(2.0)),
-            // ("6", Value::try_from(17.5 / 6.0)),
-            // ("7", Value::try_from(4.0)),
-            // ("8", Value::try_from(5.25)),
-            // ("9", Value::try_from(60.0 / 9.0)),
-            // ("10", Value::try_from(8.25)),
-            // ("11", Value::try_from(10.0)),
+            ("5", Value::try_from(2.0)),
+            ("6", Value::try_from(17.5 / 6.0)),
+            ("7", Value::try_from(4.0)),
+            ("8", Value::try_from(5.25)),
+            ("9", Value::try_from(60.0 / 9.0)),
+            ("10", Value::try_from(8.25)),
+            ("11", Value::try_from(10.0)),
         ] {
             let (_, eval, mut time) = setup_time(&format!(
                 "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over: {}s, using: var).defaults(to:0.0)",

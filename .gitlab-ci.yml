@@ -304,7 +304,7 @@ test:online_e2e:
   script:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev python3-pip
-    - pip3 install junit-xml
+    - python3 -m pip install python3-junit-xml
     - python3 ./rtlola-cli/rtlola-interpreter-e2e-tests.py --online
   artifacts:
     when: always
