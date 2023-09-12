@@ -6,7 +6,7 @@ use crate::storage::window::{PercentileWindow, WindowGeneric};
 use crate::storage::window_aggregations::PercentileIv;
 use crate::Time;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct DiscreteWindowInstance<IV: WindowIv> {
     buckets: VecDeque<IV>,
     next_bucket: usize,

@@ -601,13 +601,22 @@ impl<
         let mut last_event = None;
         let mut done = false;
         while !done {
-            let timed = match self.input.recv() {
+            match self.input.recv() {
                 Ok(WorkItem::Event(e, ts)) => {
                     // Received Event
                     last_event.replace(ts.clone());
                     let Verdicts { timed, event, ts } = monitor
                         .accept_event(e, ts)
                         .map_err(|e| QueueError::SourceError(Box::new(e)))?;
+
+                    for (ts, v) in timed {
+                        let verdict = QueuedVerdict {
+                            kind: VerdictKind::Timed,
+                            ts,
+                            verdict: v,
+                        };
+                        Self::try_send(&self.output, Some(verdict))?;
+                    }
 
                     if !event.is_empty() {
                         let verdict = QueuedVerdict {
@@ -617,14 +626,20 @@ impl<
                         };
                         Self::try_send(&self.output, Some(verdict))?;
                     }
-
-                    timed
                 },
                 Err(_) => {
                     // Channel closed, we are done here
                     done = true;
                     if let Some(last_event) = last_event.as_ref() {
-                        monitor.accept_time(last_event.clone())
+                        let timed = monitor.accept_time(last_event.clone());
+                        for (ts, v) in timed {
+                            let verdict = QueuedVerdict {
+                                kind: VerdictKind::Timed,
+                                ts,
+                                verdict: v,
+                            };
+                            Self::try_send(&self.output, Some(verdict))?;
+                        }
                     } else {
                         return Ok(());
                     }
@@ -633,15 +648,6 @@ impl<
                     // Received second start command -> abort
                     return Err(QueueError::MultipleStart);
                 },
-            };
-
-            for (ts, v) in timed {
-                let verdict = QueuedVerdict {
-                    kind: VerdictKind::Timed,
-                    ts,
-                    verdict: v,
-                };
-                Self::try_send(&self.output, Some(verdict))?;
             }
         }
         Ok(())

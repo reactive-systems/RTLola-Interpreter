@@ -215,7 +215,7 @@ test:cli:
   script:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev python3-pip
-    - pip3 install junit-xml
+    - pip3 install --break-system-packages junit-xml
     - python3 ./rtlola-cli/rtlola-interpreter-e2e-tests.py
   artifacts:
     when: always
@@ -304,7 +304,7 @@ test:online_e2e:
   script:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev python3-pip
-    - pip3 install junit-xml
+    - pip3 install --break-system-packages junit-xml
     - python3 ./rtlola-cli/rtlola-interpreter-e2e-tests.py --online
   artifacts:
     when: always
