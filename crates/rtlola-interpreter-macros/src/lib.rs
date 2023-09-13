@@ -1,11 +1,15 @@
+pub(crate) mod helper;
+mod input_enums;
+
 extern crate proc_macro;
-use std::collections::HashMap;
 
 use proc_macro::TokenStream;
-use proc_macro_error::__export::proc_macro2::Span;
+use proc_macro2::TokenStream as TokenStream2;
 use proc_macro_error::{abort, proc_macro_error};
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, Data, DeriveInput, Field, Fields, Ident, Type, Variant};
+use syn::{parse_macro_input, Data, DeriveInput, Field, Fields, Ident};
+
+use crate::input_enums::EnumDeriver;
 
 #[derive(deluxe::ExtractAttributes, Debug, Clone)]
 #[deluxe(attributes(record))]
@@ -108,6 +112,12 @@ pub fn derive_record_impl(input: TokenStream) -> TokenStream {
     proc_macro::TokenStream::from(record_impl)
 }
 
+pub(crate) trait InputDeriver {
+    fn struct_field_names(&self) -> Vec<Ident>;
+    fn struct_field_types(&self) -> Vec<TokenStream2>;
+    fn get_event(&self) -> TokenStream2;
+}
+
 #[derive(deluxe::ExtractAttributes, Debug, Clone)]
 #[deluxe(attributes(input))]
 struct InputItemAttr {
@@ -117,95 +127,47 @@ struct InputItemAttr {
 
 #[proc_macro_derive(Input, attributes(input))]
 #[proc_macro_error]
-/// A derive macro that implements the [Input](rtlola_interpreter::monitor::Input) trait for an enum who's variants have a single unnamed field that implements [Record](rtlola_interpreter::monitor::Record) trait.
+/// A derive macro that implements the [Input](rtlola_interpreter::monitor::EventFactory) trait for an enum who's variants have a single unnamed field that implements [Record](rtlola_interpreter::monitor::Record) trait.
 /// For an example look at `enum.rs` in the example folder.
 pub fn derive_input_impl(input: TokenStream) -> TokenStream {
     // Parse the input tokens into a syntax tree
     let input: DeriveInput = parse_macro_input!(input as DeriveInput);
 
+    let (deriver, init_code): (Box<dyn InputDeriver>, TokenStream2) = match &input.data {
+        Data::Struct(_) => todo!(),
+        Data::Enum(_) => {
+            match EnumDeriver::new(input.clone()) {
+                Ok((ed, stream)) => (Box::new(ed), stream),
+                Err(e) => return e.into(),
+            }
+        },
+        Data::Union(_) => abort!(&input, "Input can only be derived for structs and enums"),
+    };
+
     let DeriveInput {
         ident: name,
         generics,
-        data,
         vis,
         ..
-    } = input.clone();
+    } = input;
 
     let struct_name = format_ident!("{name}Input");
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
-    let variants = match data {
-        Data::Enum(e) => e.variants,
-        Data::Struct(_) | Data::Union(_) => abort!(input, "Input can only be derived for an Enum of Records!"),
-    };
-    let variants: Result<Vec<(Variant, InputItemAttr)>, _> = variants
-        .into_iter()
-        .map(|mut v| deluxe::extract_attributes(&mut v).map(|args| (v, args)))
-        .collect();
-    let variants_attrs = match variants {
-        Ok(v) => v,
-        Err(e) => return e.into_compile_error().into(),
-    };
-    let variants = variants_attrs
-        .iter()
-        .filter_map(|(v, attr)| {
-            if !attr.ignore {
-                let field = match &v.fields {
-                    Fields::Unnamed(fields) if fields.unnamed.len() == 1 => fields.unnamed.first().unwrap(),
-                    Fields::Unnamed(_) | Fields::Named(_) | Fields::Unit => {
-                        abort!(&v, "Only variants with a single unnamed field are supported!")
-                    },
-                };
-                Some((v.ident.clone(), field.ty.clone()))
-            } else {
-                None
-            }
-        })
-        .collect::<HashMap<Ident, Type>>();
-    let (struct_field_names, struct_field_types): (Vec<Ident>, Vec<_>) = variants
-        .iter()
-        .map(|(ident, ty)| {
-            let lc = ident.to_string().to_lowercase();
-            (
-                format_ident!("{lc}_record_in", span = ident.span()),
-                quote! {<#ty as rtlola_interpreter::input::DerivedInput>::Input},
-            )
-        })
-        .unzip();
-
-    let variant_paths: Vec<_> = variants
-        .keys()
-        .map(|id| {
-            let inner_name = Ident::new("rec", Span::call_site());
-            quote! {#name::#id(#inner_name)}
-        })
-        .collect();
-
-    let (ignored_variant_paths, ignored_variant_names): (Vec<_>, Vec<String>) = variants_attrs
-        .iter()
-        .filter_map(|(var, attr)| {
-            let id = &var.ident;
-            if attr.ignore {
-                let path = match var.fields {
-                    Fields::Named(_) => quote! {#name::#id{..}},
-                    Fields::Unnamed(_) => quote! {#name::#id(_)},
-                    Fields::Unit => quote! {#name::#id},
-                };
-                Some((path, id.to_string()))
-            } else {
-                None
-            }
-        })
-        .unzip();
+    let field_names = deriver.struct_field_names();
+    let field_types = deriver.struct_field_types();
+    let get_event = deriver.get_event();
 
     let input_impl = quote! {
-        impl #impl_generics rtlola_interpreter::input::DerivedInput for #name #ty_generics #where_clause {
+        impl #impl_generics rtlola_interpreter::input::AssociatedInput for #name #ty_generics #where_clause {
             type Input = #struct_name;
         }
 
+        #init_code
+
         #vis struct #struct_name #ty_generics #where_clause {
             #(
-                #struct_field_names: #struct_field_types
+                #field_names: #field_types
             ),*
         }
 
@@ -218,30 +180,18 @@ pub fn derive_input_impl(input: TokenStream) -> TokenStream {
                 let mut all_found = std::collections::HashSet::with_capacity(map.len());
 
                 #(
-                    let (#struct_field_names, found) = #struct_field_types::try_new(map.clone(), ())?;
+                    let (#field_names, found) = #field_types::try_new(map.clone(), ())?;
                     all_found.extend(found);
                 )*
 
                 Ok( (#struct_name{
                     #(
-                        #struct_field_names,
+                        #field_names,
                     )*
                 }, all_found.into_iter().collect()))
             }
 
-
-
-            /// This function converts a record to an event.
-            fn get_event(&self, rec: Self::Record) -> Result<rtlola_interpreter::monitor::Event, Self::Error>{
-                match rec {
-                    #(
-                        #variant_paths => Ok(self.#struct_field_names.get_event(rec)?),
-                    )*
-                    #(
-                        #ignored_variant_paths => Err(rtlola_interpreter::input::InputError::VariantIgnored(#ignored_variant_names.to_string())),
-                    )*
-                }
-            }
+            #get_event
         }
     };
     proc_macro::TokenStream::from(input_impl)

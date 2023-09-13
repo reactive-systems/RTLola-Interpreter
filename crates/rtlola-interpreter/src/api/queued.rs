@@ -6,9 +6,9 @@
 //! The preferred method to create an API is using the [ConfigBuilder](crate::ConfigBuilder) and the [queued_monitor](crate::ConfigBuilder::queued_monitor) method.
 //!
 //! # Input Method
-//! An input method has to implement the [Input] trait. Out of the box two different methods are provided:
-//! * [EventInput](crate::input::EventInput): Provides a basic input method for anything that already is an [Event](crate::monitor::Event) or that can be transformed into one using `TryInto<[Value]>`.
-//! * [RecordInput](crate::input::RecordInput): Is a more elaborate input method. It allows to provide a custom data structure to the monitor as an input, as long as it implements the [Record](crate::input::Record) trait.
+//! An input method has to implement the [EventFactory] trait. Out of the box two different methods are provided:
+//! * [EventInput](crate::input::ArrayFactory): Provides a basic input method for anything that already is an [Event](crate::monitor::Event) or that can be transformed into one using `TryInto<[Value]>`.
+//! * [RecordInput](crate::input::MappedFactory): Is a more elaborate input method. It allows to provide a custom data structure to the monitor as an input, as long as it implements the [Record](crate::input::InputMap) trait.
 //!     If implemented this traits provides functionality to generate a new value for any input stream from the data structure.
 //!
 //! # Output Method
@@ -39,7 +39,7 @@ use serde::Serialize;
 use crate::config::{Config, ExecutionMode};
 use crate::configuration::time::{init_start_time, OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
 use crate::evaluator::{Evaluator, EvaluatorData};
-use crate::input::Input;
+use crate::input::EventFactory;
 use crate::monitor::{Incremental, RawVerdict, Tracer, VerdictRepresentation, Verdicts};
 use crate::schedule::schedule_manager::ScheduleManager;
 use crate::schedule::DynamicSchedule;
@@ -136,7 +136,7 @@ Timed streams are evaluated automatically at their deadline. The resulting verdi
 Note that the [start](QueuedMonitor::start) function *has* to be invoked before any event can be evaluated.
 Finally, a calling [end](QueuedMonitor::end) will block until all events have been evaluated.
 
-The generic argument `Source` implements the [Input] trait describing the input source of the API.
+The generic argument `Source` implements the [EventFactory] trait describing the input source of the API.
 The generic argument `SourceTime` implements the [TimeRepresentation] trait defining the input time format.
 The generic argument `Verdict` implements the [VerdictRepresentation] trait describing the output format of the API that is by default [Incremental].
 The generic argument `VerdictTime` implements the [TimeRepresentation] trait defining the output time format. It defaults to [RelativeFloat]
@@ -144,7 +144,7 @@ The generic argument `VerdictTime` implements the [TimeRepresentation] trait def
 #[allow(missing_debug_implementations)]
 pub struct QueuedMonitor<Source, SourceTime, Verdict = Incremental, VerdictTime = RelativeFloat>
 where
-    Source: Input,
+    Source: EventFactory,
     SourceTime: TimeRepresentation,
     Verdict: VerdictRepresentation,
     VerdictTime: OutputTimeRepresentation + 'static,
@@ -158,7 +158,7 @@ where
 
 impl<Source, SourceTime, Verdict, VerdictTime> QueuedMonitor<Source, SourceTime, Verdict, VerdictTime>
 where
-    Source: Input + 'static,
+    Source: EventFactory + 'static,
     SourceTime: TimeRepresentation,
     Verdict: VerdictRepresentation,
     VerdictTime: OutputTimeRepresentation,
@@ -380,14 +380,14 @@ where
     }
 }
 
-enum WorkItem<Source: Input, SourceTime: TimeRepresentation> {
+enum WorkItem<Source: EventFactory, SourceTime: TimeRepresentation> {
     Start,
     Event(Source::Record, SourceTime::InnerTime),
 }
 
 trait Worker<Source, SourceTime, Verdict, VerdictTime>: Sized
 where
-    Source: Input,
+    Source: EventFactory,
     SourceTime: TimeRepresentation,
     Verdict: VerdictRepresentation,
     VerdictTime: OutputTimeRepresentation + 'static,
@@ -429,7 +429,7 @@ where
 
 struct OnlineWorker<Source, SourceTime, Verdict, VerdictTime>
 where
-    Source: Input,
+    Source: EventFactory,
     SourceTime: TimeRepresentation,
     Verdict: VerdictRepresentation,
     VerdictTime: OutputTimeRepresentation + 'static,
@@ -446,7 +446,7 @@ where
 }
 
 impl<
-        Source: Input,
+        Source: EventFactory,
         SourceTime: TimeRepresentation,
         Verdict: VerdictRepresentation,
         VerdictTime: OutputTimeRepresentation,
@@ -552,7 +552,7 @@ impl<
 
 struct OfflineWorker<Source, SourceTime, Verdict, VerdictTime>
 where
-    Source: Input,
+    Source: EventFactory,
     SourceTime: TimeRepresentation,
     Verdict: VerdictRepresentation,
     VerdictTime: OutputTimeRepresentation + 'static,
@@ -566,7 +566,7 @@ where
 }
 
 impl<
-        Source: Input,
+        Source: EventFactory,
         SourceTime: TimeRepresentation,
         Verdict: VerdictRepresentation,
         VerdictTime: OutputTimeRepresentation,
@@ -661,7 +661,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use crate::api::monitor::Change;
-    use crate::input::EventInput;
+    use crate::input::ArrayFactory;
     use crate::monitor::{Incremental, Total, VerdictRepresentation};
     use crate::queued::{QueuedVerdict, VerdictKind};
     use crate::time::RelativeFloat;
@@ -671,13 +671,13 @@ mod tests {
         spec: &str,
     ) -> (
         Instant,
-        QueuedMonitor<EventInput<N, Infallible, [Value; N]>, RelativeFloat, V, RelativeFloat>,
+        QueuedMonitor<ArrayFactory<N, Infallible, [Value; N]>, RelativeFloat, V, RelativeFloat>,
     ) {
         // Init Monitor API
         let monitor = ConfigBuilder::new()
             .spec_str(spec)
             .offline::<RelativeFloat>()
-            .event_input::<N, Infallible, [Value; N]>()
+            .with_array_events::<N, Infallible, [Value; N]>()
             .with_verdict::<V>()
             .queued_monitor();
         (Instant::now(), monitor)

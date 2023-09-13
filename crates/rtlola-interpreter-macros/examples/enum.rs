@@ -1,4 +1,4 @@
-use rtlola_interpreter::input::DerivedInput;
+use rtlola_interpreter::input::AssociatedFactory;
 use rtlola_interpreter::monitor::Incremental;
 use rtlola_interpreter::time::RelativeFloat;
 use rtlola_interpreter::{ConfigBuilder, Monitor};
@@ -26,6 +26,10 @@ enum TestEnum {
         e: usize,
         d: String,
     },
+    D {
+        should_work: i64,
+    },
+    E(A, B),
 }
 
 fn main() {
@@ -36,7 +40,7 @@ fn main() {
                    input c: String\n",
         )
         .offline::<RelativeFloat>()
-        .custom_input::<<TestEnum as DerivedInput>::Input>()
+        .with_event_factory::<<TestEnum as AssociatedFactory>::Factory>()
         .with_verdict::<Incremental>()
         .monitor()
         .expect("Failed to create monitor.");

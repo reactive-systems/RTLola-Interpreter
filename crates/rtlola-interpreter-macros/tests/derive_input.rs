@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use rtlola_interpreter::input::{DerivedInput, Input, InputError};
+use rtlola_interpreter::input::{AssociatedFactory, EventFactory, EventFactoryError};
 use rtlola_interpreter::rtlola_mir::InputReference;
 use rtlola_interpreter::Value;
 use rtlola_interpreter_macros::{Input, Record};
@@ -36,7 +36,7 @@ fn simple() {
     .into_iter()
     .collect();
 
-    let input = <Rec as DerivedInput>::Input::new(map, ()).unwrap();
+    let input = <Rec as AssociatedFactory>::Factory::new(map, ()).unwrap();
 
     let t1 = Rec::Var1(Msg1 { a: 42, b: 13.37 });
     let expected = vec![
@@ -102,7 +102,7 @@ fn ignore() {
     .into_iter()
     .collect();
 
-    let input = <Rec as DerivedInput>::Input::new(map, ()).unwrap();
+    let input = <Rec as AssociatedFactory>::Factory::new(map, ()).unwrap();
 
     let t1 = Rec::Var1(Msg1 { a: 42, b: 13.37 });
     let expected = vec![
@@ -125,11 +125,13 @@ fn ignore() {
     ];
     assert_eq!(input.get_event(t2).unwrap(), expected);
 
-    assert!(matches!(input.get_event(Rec::Var3), Err(InputError::VariantIgnored(name)) if name == "Var3"));
+    assert!(matches!(input.get_event(Rec::Var3), Err(EventFactoryError::VariantIgnored(name)) if name == "Var3"));
     assert!(
-        matches!(input.get_event(Rec::Var4("Asd".to_string())), Err(InputError::VariantIgnored(name)) if name == "Var4")
+        matches!(input.get_event(Rec::Var4("Asd".to_string())), Err(EventFactoryError::VariantIgnored(name)) if name == "Var4")
     );
-    assert!(matches!(input.get_event(Rec::Var5 {x: 5}), Err(InputError::VariantIgnored(name)) if name == "Var5"));
+    assert!(
+        matches!(input.get_event(Rec::Var5 {x: 5}), Err(EventFactoryError::VariantIgnored(name)) if name == "Var5")
+    );
 }
 
 #[test]
@@ -164,7 +166,7 @@ fn overlap() {
     .into_iter()
     .collect();
 
-    let input = <Rec as DerivedInput>::Input::new(map, ()).unwrap();
+    let input = <Rec as AssociatedFactory>::Factory::new(map, ()).unwrap();
 
     let t1 = Rec::Var1(Msg1 { a: 42, time: 13.37 });
     let expected = vec![Value::Unsigned(42), Value::None, Value::try_from(13.37).unwrap()];
@@ -209,8 +211,8 @@ fn missing() {
     .into_iter()
     .collect();
 
-    let res = <Rec as DerivedInput>::Input::new(map, ());
-    let Err(InputError::InputStreamUnknown(errs)) = res else {
+    let res = <Rec as AssociatedFactory>::Factory::new(map, ());
+    let Err(EventFactoryError::InputStreamUnknown(errs)) = res else {
         panic!("Expected error reporting unknown stream!")
     };
     assert_eq!(errs.len(), 1);

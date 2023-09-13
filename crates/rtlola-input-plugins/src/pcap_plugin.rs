@@ -15,7 +15,7 @@ use etherparse::{
 };
 use ip_network::IpNetwork;
 use pcap::{Activated, Capture, Device, Error as PCAPError, Packet};
-use rtlola_interpreter::input::{InputError, Record, ValueProjection};
+use rtlola_interpreter::input::{EventFactoryError, InputMap, ValueGetter};
 use rtlola_interpreter::time::TimeRepresentation;
 use rtlola_interpreter::Value;
 
@@ -511,11 +511,11 @@ impl Error for PcapError {
     }
 }
 
-impl From<PcapError> for InputError {
+impl From<PcapError> for EventFactoryError {
     fn from(value: PcapError) -> Self {
         match value {
-            PcapError::UnknownInput(i) => InputError::InputStreamUnknown(vec![i]),
-            e => InputError::Other(Box::new(e)),
+            PcapError::UnknownInput(i) => EventFactoryError::InputStreamUnknown(vec![i]),
+            e => EventFactoryError::Other(Box::new(e)),
         }
     }
 }
@@ -523,11 +523,11 @@ impl From<PcapError> for InputError {
 /// Represents a raw network packet
 pub struct PcapRecord(Vec<u8>);
 
-impl Record for PcapRecord {
+impl InputMap for PcapRecord {
     type CreationData = IpNetwork;
     type Error = PcapError;
 
-    fn func_for_input(name: &str, data: Self::CreationData) -> Result<ValueProjection<Self, PcapError>, PcapError> {
+    fn func_for_input(name: &str, data: Self::CreationData) -> Result<ValueGetter<Self, PcapError>, PcapError> {
         let local_net = data;
         let layers: Vec<&str> = name.split("::").collect();
         if layers.len() > 3 || layers.is_empty() {

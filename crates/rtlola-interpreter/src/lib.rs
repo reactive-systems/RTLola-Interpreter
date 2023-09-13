@@ -25,8 +25,6 @@
     unused_qualifications
 )]
 
-use std::error::Error;
-use std::fmt::{Display, Formatter};
 // Public exports
 use std::time::Duration;
 

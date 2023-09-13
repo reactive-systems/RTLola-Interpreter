@@ -6,9 +6,9 @@
 //! The preferred method to create an API is using the [ConfigBuilder](crate::ConfigBuilder) and the [monitor](crate::ConfigBuilder::monitor) method.
 //!
 //! # Input Method
-//! An input method has to implement the [Input](crate::input::Input) trait. Out of the box two different methods are provided:
-//! * [EventInput](crate::input::EventInput): Provides a basic input method for anything that already is an [Event] or that can be transformed into one using `TryInto<[Value]>`.
-//! * [RecordInput](crate::input::RecordInput): Is a more elaborate input method. It allows to provide a custom data structure to the monitor as an input, as long as it implements the [Record](crate::input::Record) trait.
+//! An input method has to implement the [EventFactory](crate::input::EventFactory) trait. Out of the box two different methods are provided:
+//! * [ArrayFactory](crate::input::ArrayFactory): Provides a basic input method for anything that already is an [Event] or that can be transformed into one using `TryInto<[Value]>`.
+//! * [MappedFactory](crate::input::MappedFactory): Is a more elaborate input method. It allows to provide a custom data structure to the monitor as an event, as long as it implements the [InputMap](crate::input::InputMap) trait.
 //!     If implemented this traits provides functionality to generate a new value for any input stream from the data structure.
 //!
 //! # Output Method
@@ -32,7 +32,7 @@ use serde::Serialize;
 use crate::config::Config;
 use crate::configuration::time::{init_start_time, OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
 use crate::evaluator::{Evaluator, EvaluatorData};
-use crate::input::{Input, InputError};
+use crate::input::{EventFactory, EventFactoryError};
 use crate::schedule::schedule_manager::ScheduleManager;
 use crate::schedule::DynamicSchedule;
 use crate::storage::Value;
@@ -333,7 +333,7 @@ The Monitor is the central object exposed by the API.
 The [Monitor] accepts new events and computes streams.
 It can compute event-based streams based on new events through `accept_event`.
 It can also simply advance periodic streams up to a given timestamp through `accept_time`.
-The generic argument `Source` implements the [Input] trait describing the input source of the API.
+The generic argument `Source` implements the [EventFactory] trait describing the input source of the API.
 The generic argument `SourceTime` implements the [TimeRepresentation] trait defining the input time format.
 The generic argument `Verdict` implements the [VerdictRepresentation] trait describing the output format of the API that is by default [Incremental].
 The generic argument `VerdictTime` implements the [TimeRepresentation] trait defining the output time format. It defaults to [RelativeFloat]
@@ -341,7 +341,7 @@ The generic argument `VerdictTime` implements the [TimeRepresentation] trait def
 #[allow(missing_debug_implementations)]
 pub struct Monitor<Source, SourceTime, Verdict = Incremental, VerdictTime = RelativeFloat>
 where
-    Source: Input,
+    Source: EventFactory,
     SourceTime: TimeRepresentation,
     Verdict: VerdictRepresentation,
     VerdictTime: OutputTimeRepresentation + 'static,
@@ -362,7 +362,7 @@ where
 /// Crate-public interface
 impl<Source, SourceTime, Verdict, VerdictTime> Monitor<Source, SourceTime, Verdict, VerdictTime>
 where
-    Source: Input,
+    Source: EventFactory,
     SourceTime: TimeRepresentation,
     Verdict: VerdictRepresentation,
     VerdictTime: OutputTimeRepresentation,
@@ -371,7 +371,7 @@ where
     pub fn setup(
         config: Config<SourceTime, VerdictTime>,
         setup_data: Source::CreationData,
-    ) -> Result<Monitor<Source, SourceTime, Verdict, VerdictTime>, InputError> {
+    ) -> Result<Monitor<Source, SourceTime, Verdict, VerdictTime>, EventFactoryError> {
         let dyn_schedule = Rc::new(RefCell::new(DynamicSchedule::new()));
         let source_time = config.input_time_representation;
         let output_time = VerdictTime::default();
@@ -440,7 +440,7 @@ impl<'a> From<&'a Evaluator> for RawVerdict<'a> {
 /// Public interface
 impl<Source, SourceTime, Verdict, VerdictTime> Monitor<Source, SourceTime, Verdict, VerdictTime>
 where
-    Source: Input,
+    Source: EventFactory,
     SourceTime: TimeRepresentation,
     Verdict: VerdictRepresentation,
     VerdictTime: OutputTimeRepresentation,
@@ -454,7 +454,7 @@ where
         &mut self,
         ev: Source::Record,
         ts: SourceTime::InnerTime,
-    ) -> Result<Verdicts<Verdict, VerdictTime>, InputError> {
+    ) -> Result<Verdicts<Verdict, VerdictTime>, EventFactoryError> {
         let mut tracer = Verdict::Tracing::default();
 
         tracer.parse_start();
@@ -625,7 +625,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use crate::api::monitor::Change;
-    use crate::input::EventInput;
+    use crate::input::ArrayFactory;
     use crate::monitor::{Incremental, Monitor, Total, Value, VerdictRepresentation};
     use crate::time::RelativeFloat;
     use crate::ConfigBuilder;
@@ -634,13 +634,13 @@ mod tests {
         spec: &str,
     ) -> (
         Instant,
-        Monitor<EventInput<N, Infallible, [Value; N]>, RelativeFloat, V, RelativeFloat>,
+        Monitor<ArrayFactory<N, Infallible, [Value; N]>, RelativeFloat, V, RelativeFloat>,
     ) {
         // Init Monitor API
         let monitor = ConfigBuilder::new()
             .spec_str(spec)
             .offline::<RelativeFloat>()
-            .event_input::<N, Infallible, [Value; N]>()
+            .with_array_events::<N, Infallible, [Value; N]>()
             .with_verdict::<V>()
             .monitor()
             .expect("Failed to create monitor");

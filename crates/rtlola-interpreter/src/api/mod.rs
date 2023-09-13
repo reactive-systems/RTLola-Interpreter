@@ -13,7 +13,7 @@
 //! The preferred method to create an API is using the [ConfigBuilder](crate::ConfigBuilder) and the [monitor](crate::ConfigBuilder::monitor), [queued_monitor](crate::ConfigBuilder::queued_monitor) method respectively.
 //!
 //! # Input Method
-//! An input method has to implement the [Input](monitor::Input) trait. Out of the box two different methods are provided:
+//! An input method has to implement the [Input](monitor::EventFactory) trait. Out of the box two different methods are provided:
 //! * [EventInput](monitor::EventInput): Provides a basic input method for anything that already is an [Event](monitor::Event) or that can be transformed into one using `Into<Event>`.
 //! * [RecordInput](monitor::RecordInput): Is a more elaborate input method. It allows to provide a custom data structure to the monitor as an input, as long as it implements the [Record](monitor::Record) trait.
 //!     If implemented this traits provides functionality to generate a new value for any input stream from the data structure.

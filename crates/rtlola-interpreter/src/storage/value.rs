@@ -447,6 +447,12 @@ impl From<usize> for Value {
     }
 }
 
+impl<T: Into<Value>> From<Option<T>> for Value {
+    fn from(value: Option<T>) -> Self {
+        value.map(T::into).unwrap_or(None)
+    }
+}
+
 impl TryInto<bool> for Value {
     type Error = ValueConvertError;
 

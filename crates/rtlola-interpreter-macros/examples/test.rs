@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use rtlola_interpreter::input::{DerivedInput, Input, InputError};
+use rtlola_interpreter::input::{AssociatedFactory, EventFactory, EventFactoryError};
 use rtlola_interpreter::izip;
 use rtlola_interpreter::monitor::Event;
 use rtlola_interpreter::rtlola_mir::InputReference;
@@ -43,25 +43,25 @@ struct TestEventChildRecord {
 }
 
 struct TestEventInput {
-    child_record: <TestEventChildRecord as DerivedInput>::Input,
-    sub_input_a_input: <SubEventA as DerivedInput>::Input,
-    sub_input_b_input: <SubEventB as DerivedInput>::Input,
+    child_record: <TestEventChildRecord as AssociatedFactory>::Factory,
+    sub_input_a_input: <SubEventA as AssociatedFactory>::Factory,
+    sub_input_b_input: <SubEventB as AssociatedFactory>::Factory,
 }
-impl Input for TestEventInput {
+impl EventFactory for TestEventInput {
     type CreationData = ();
-    type Error = InputError;
+    type Error = EventFactoryError;
     type Record = TestEvent;
 
     fn try_new(
         map: HashMap<String, InputReference>,
         setup_data: Self::CreationData,
-    ) -> Result<(Self, Vec<String>), InputError> {
+    ) -> Result<(Self, Vec<String>), EventFactoryError> {
         let mut found = HashSet::with_capacity(map.len());
-        let (child_record, f) = <TestEventChildRecord as DerivedInput>::Input::try_new(map.clone(), setup_data)?;
+        let (child_record, f) = <TestEventChildRecord as AssociatedFactory>::Factory::try_new(map.clone(), setup_data)?;
         found.extend(f);
-        let (sub_input_a_input, f) = <SubEventA as DerivedInput>::Input::try_new(map.clone(), setup_data)?;
+        let (sub_input_a_input, f) = <SubEventA as AssociatedFactory>::Factory::try_new(map.clone(), setup_data)?;
         found.extend(f);
-        let (sub_input_b_input, f) = <SubEventB as DerivedInput>::Input::try_new(map.clone(), setup_data)?;
+        let (sub_input_b_input, f) = <SubEventB as AssociatedFactory>::Factory::try_new(map.clone(), setup_data)?;
         found.extend(f);
         Ok((
             Self {

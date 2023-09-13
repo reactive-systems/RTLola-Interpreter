@@ -1,4 +1,4 @@
-use rtlola_interpreter::input::Record;
+use rtlola_interpreter::input::InputMap;
 use rtlola_interpreter::Value;
 use rtlola_interpreter_macros::Record;
 
