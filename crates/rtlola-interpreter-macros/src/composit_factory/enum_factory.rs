@@ -4,13 +4,13 @@ use proc_macro2::{Ident, Span, TokenStream as TokenStream2, TokenStream};
 use quote::{format_ident, quote, ToTokens};
 use syn::{Data, DeriveInput, Fields, Type, Variant};
 
+use crate::composit_factory::{CompositDeriver, FactoryItemAttr};
 use crate::helper::new_snake_ident;
-use crate::{InputDeriver, InputItemAttr};
 
 pub(crate) struct EnumDeriver {
     name: Ident,
     variants: HashMap<Ident, TokenStream>,
-    attributes: Vec<(Variant, InputItemAttr)>,
+    attributes: Vec<(Variant, FactoryItemAttr)>,
     field_names: Vec<Ident>,
     field_types: Vec<TokenStream2>,
 }
@@ -22,7 +22,7 @@ impl EnumDeriver {
             Data::Enum(e) => e.variants,
             Data::Struct(_) | Data::Union(_) => unreachable!(),
         };
-        let variants: Result<Vec<(Variant, InputItemAttr)>, _> = variants
+        let variants: Result<Vec<(Variant, FactoryItemAttr)>, _> = variants
             .into_iter()
             .map(|mut v| deluxe::extract_attributes(&mut v).map(|args| (v, args)))
             .collect();
@@ -41,10 +41,13 @@ impl EnumDeriver {
                             Some(fields.unnamed.first().unwrap().ty.to_token_stream())
                         },
                         Fields::Unnamed(fields) => {
+                            let ty = format_ident!("{}{}TupleFactory", name, v.ident);
                             let types: Vec<Type> = fields.unnamed.iter().map(|f| f.ty.clone()).collect();
-                            Some(quote! {
-                                (#(#types),*)
-                            })
+                            aux_structs.extend(quote! {
+                                #[derive(CompositFactory)]
+                                struct #ty (#(#types),*);
+                            });
+                            Some(ty.to_token_stream())
                         },
                         Fields::Named(fields) => {
                             let ty = format_ident!("{}{}Record", name, v.ident);
@@ -77,8 +80,8 @@ impl EnumDeriver {
             .iter()
             .map(|(ident, ty)| {
                 (
-                    new_snake_ident(ident, "input"),
-                    quote! {<#ty as rtlola_interpreter::input::AssociatedInput>::Input},
+                    new_snake_ident(ident, "factory"),
+                    quote! {<#ty as rtlola_interpreter::input::AssociatedFactory>::Factory},
                 )
             })
             .unzip();
@@ -96,7 +99,7 @@ impl EnumDeriver {
     }
 }
 
-impl InputDeriver for EnumDeriver {
+impl CompositDeriver for EnumDeriver {
     fn struct_field_names(&self) -> Vec<Ident> {
         self.field_names.clone()
     }
@@ -143,7 +146,7 @@ impl InputDeriver for EnumDeriver {
                         #variant_paths => Ok(self.#struct_field_names.get_event(rec)?),
                     )*
                     #(
-                        #ignored_variant_paths => Err(rtlola_interpreter::input::InputError::VariantIgnored(#ignored_variant_names.to_string())),
+                        #ignored_variant_paths => Err(rtlola_interpreter::input::EventFactoryError::VariantIgnored(#ignored_variant_names.to_string())),
                     )*
                 }
             }

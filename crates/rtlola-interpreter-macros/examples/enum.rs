@@ -2,7 +2,7 @@ use rtlola_interpreter::input::AssociatedFactory;
 use rtlola_interpreter::monitor::Incremental;
 use rtlola_interpreter::time::RelativeFloat;
 use rtlola_interpreter::{ConfigBuilder, Monitor};
-use rtlola_interpreter_macros::{Input, Record};
+use rtlola_interpreter_macros::{CompositFactory, Record};
 
 #[derive(Record)]
 struct A {
@@ -16,12 +16,12 @@ struct B {
     c: String,
 }
 
-#[derive(Input)]
+#[derive(CompositFactory)]
 #[allow(dead_code)]
 enum TestEnum {
     A(A),
     B(B),
-    #[input(ignore)]
+    #[factory(ignore)]
     C {
         e: usize,
         d: String,

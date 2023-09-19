@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use rtlola_interpreter::input::{AssociatedFactory, EventFactory, EventFactoryError};
 use rtlola_interpreter::rtlola_mir::InputReference;
 use rtlola_interpreter::Value;
-use rtlola_interpreter_macros::{Input, Record};
+use rtlola_interpreter_macros::{CompositFactory, Record};
 
 #[test]
 fn simple() {
@@ -21,7 +21,7 @@ fn simple() {
         d: i64,
     }
 
-    #[derive(Input)]
+    #[derive(CompositFactory)]
     enum Rec {
         Var1(Msg1),
         Var2(Msg2),
@@ -76,17 +76,17 @@ fn ignore() {
         d: i64,
     }
 
-    #[derive(Input)]
+    #[derive(CompositFactory)]
     enum Rec {
         Var1(Msg1),
         Var2(Msg2),
-        #[input(ignore)]
+        #[factory(ignore)]
         #[allow(dead_code)]
         Var3,
-        #[input(ignore)]
+        #[factory(ignore)]
         #[allow(dead_code)]
         Var4(String),
-        #[input(ignore)]
+        #[factory(ignore)]
         Var5 {
             #[allow(dead_code)]
             x: usize,
@@ -152,7 +152,7 @@ fn overlap() {
         time: f64,
     }
 
-    #[derive(Input)]
+    #[derive(CompositFactory)]
     enum Rec {
         Var1(Msg1),
         Var2(Msg2),
@@ -195,7 +195,7 @@ fn missing() {
         time: f64,
     }
 
-    #[derive(Input)]
+    #[derive(CompositFactory)]
     #[allow(dead_code)]
     enum Rec {
         Var1(Msg1),

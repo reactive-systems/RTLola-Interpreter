@@ -4,7 +4,7 @@ use rtlola_interpreter::input::{AssociatedFactory, EventFactory, EventFactoryErr
 use rtlola_interpreter::izip;
 use rtlola_interpreter::monitor::Event;
 use rtlola_interpreter::rtlola_mir::InputReference;
-use rtlola_interpreter_macros::{Input, Record};
+use rtlola_interpreter_macros::{CompositFactory, Record};
 
 #[derive(Debug, Clone, Record)]
 struct SubEventA {
@@ -20,7 +20,7 @@ struct SubSubEventB {
     z: f64,
 }
 
-#[derive(Debug, Clone, Input)]
+#[derive(Debug, Clone, CompositFactory)]
 enum SubEventB {
     A(SubEventA),
     B(SubSubEventB),

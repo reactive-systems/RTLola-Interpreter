@@ -70,7 +70,7 @@ pub trait InputMap: Send {
 /// A trait to annotate Self with an [EventFactory] that accepts Self as a Record.
 pub trait AssociatedFactory {
     /// The associated factory.
-    type Factory: EventFactory<Record = Self>;
+    type Factory: EventFactory<Record = Self> + Sized;
 }
 
 // ######## Implementation ######################

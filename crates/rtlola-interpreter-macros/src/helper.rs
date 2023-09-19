@@ -1,7 +1,7 @@
 use convert_case::{Case, Casing};
 use proc_macro2::Ident;
 use quote::format_ident;
-macro_rules! tuple_input_impls {
+macro_rules! factories_tuple_impls {
     ($num:expr, $( $name:ident )+ ) => {
         paste!{
             #[doc=concat!("Implements [EventFactory] for a ", stringify!($num), "-tuple of types that implement [AssociatedFactory]")]

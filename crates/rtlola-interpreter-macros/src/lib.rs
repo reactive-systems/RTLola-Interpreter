@@ -1,5 +1,6 @@
 pub(crate) mod helper;
-mod input_enums;
+
+mod composit_factory;
 
 extern crate proc_macro;
 
@@ -9,7 +10,7 @@ use proc_macro_error::{abort, proc_macro_error};
 use quote::{format_ident, quote};
 use syn::{parse_macro_input, Data, DeriveInput, Field, Fields, Ident};
 
-use crate::input_enums::EnumDeriver;
+use crate::composit_factory::expand;
 
 #[derive(deluxe::ExtractAttributes, Debug, Clone)]
 #[deluxe(attributes(record))]
@@ -29,7 +30,7 @@ struct RecordItemAttr {
 
 #[proc_macro_derive(Record, attributes(record))]
 #[proc_macro_error]
-/// A derive macro that implements the [Record](rtlola_interpreter::monitor::Record) trait for a struct based on its field names.
+/// A derive macro that implements the [InputMap](rtlola_interpreter::monitor::InputMap) trait for a struct based on its field names.
 /// For an example look at `simple.rs` and `custom_names.rs` in the example folder.
 pub fn derive_record_impl(input: TokenStream) -> TokenStream {
     // Parse the input tokens into a syntax tree
@@ -95,16 +96,16 @@ pub fn derive_record_impl(input: TokenStream) -> TokenStream {
         .unzip();
 
     let record_impl = quote! {
-        impl #impl_generics rtlola_interpreter::input::Record for #name #ty_generics #where_clause {
+        impl #impl_generics rtlola_interpreter::input::InputMap for #name #ty_generics #where_clause {
             type CreationData = ();
-            type Error = rtlola_interpreter::input::InputError;
+            type Error = rtlola_interpreter::input::EventFactoryError;
 
-            fn func_for_input(name: &str, data: Self::CreationData) -> Result<rtlola_interpreter::input::ValueProjection<Self, Self::Error>, Self::Error>{
+            fn func_for_input(name: &str, data: Self::CreationData) -> Result<rtlola_interpreter::input::ValueGetter<Self, Self::Error>, Self::Error>{
                 match name {
                     #(
                         #field_names => Ok(Box::new(|data| Ok(data.#field_idents.clone().try_into()?))),
                     )*
-                    _ => Err(rtlola_interpreter::input::InputError::InputStreamUnknown(vec![name.to_string()]))
+                    _ => Err(rtlola_interpreter::input::EventFactoryError::InputStreamUnknown(vec![name.to_string()]))
                 }
             }
         }
@@ -112,87 +113,10 @@ pub fn derive_record_impl(input: TokenStream) -> TokenStream {
     proc_macro::TokenStream::from(record_impl)
 }
 
-pub(crate) trait InputDeriver {
-    fn struct_field_names(&self) -> Vec<Ident>;
-    fn struct_field_types(&self) -> Vec<TokenStream2>;
-    fn get_event(&self) -> TokenStream2;
-}
-
-#[derive(deluxe::ExtractAttributes, Debug, Clone)]
-#[deluxe(attributes(input))]
-struct InputItemAttr {
-    #[deluxe(default)]
-    ignore: bool,
-}
-
-#[proc_macro_derive(Input, attributes(input))]
+#[proc_macro_derive(CompositFactory, attributes(factory))]
 #[proc_macro_error]
-/// A derive macro that implements the [Input](rtlola_interpreter::monitor::EventFactory) trait for an enum who's variants have a single unnamed field that implements [Record](rtlola_interpreter::monitor::Record) trait.
+/// A derive macro that implements the [EventFactory](rtlola_interpreter::monitor::EventFactory) trait for a type which is composed of types that implement [AssociateFactor](rtlola_interpreter::input::AssociatedFactory).
 /// For an example look at `enum.rs` in the example folder.
 pub fn derive_input_impl(input: TokenStream) -> TokenStream {
-    // Parse the input tokens into a syntax tree
-    let input: DeriveInput = parse_macro_input!(input as DeriveInput);
-
-    let (deriver, init_code): (Box<dyn InputDeriver>, TokenStream2) = match &input.data {
-        Data::Struct(_) => todo!(),
-        Data::Enum(_) => {
-            match EnumDeriver::new(input.clone()) {
-                Ok((ed, stream)) => (Box::new(ed), stream),
-                Err(e) => return e.into(),
-            }
-        },
-        Data::Union(_) => abort!(&input, "Input can only be derived for structs and enums"),
-    };
-
-    let DeriveInput {
-        ident: name,
-        generics,
-        vis,
-        ..
-    } = input;
-
-    let struct_name = format_ident!("{name}Input");
-    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-
-    let field_names = deriver.struct_field_names();
-    let field_types = deriver.struct_field_types();
-    let get_event = deriver.get_event();
-
-    let input_impl = quote! {
-        impl #impl_generics rtlola_interpreter::input::AssociatedInput for #name #ty_generics #where_clause {
-            type Input = #struct_name;
-        }
-
-        #init_code
-
-        #vis struct #struct_name #ty_generics #where_clause {
-            #(
-                #field_names: #field_types
-            ),*
-        }
-
-        impl #impl_generics rtlola_interpreter::input::Input for #struct_name #ty_generics #where_clause{
-            type Record = #name;
-            type Error = rtlola_interpreter::input::InputError;
-            type CreationData = ();
-
-            fn try_new(map: std::collections::HashMap<String, rtlola_interpreter::rtlola_frontend::mir::InputReference>, setup_data: Self::CreationData) -> Result<(Self, Vec<String>), Self::Error> {
-                let mut all_found = std::collections::HashSet::with_capacity(map.len());
-
-                #(
-                    let (#field_names, found) = #field_types::try_new(map.clone(), ())?;
-                    all_found.extend(found);
-                )*
-
-                Ok( (#struct_name{
-                    #(
-                        #field_names,
-                    )*
-                }, all_found.into_iter().collect()))
-            }
-
-            #get_event
-        }
-    };
-    proc_macro::TokenStream::from(input_impl)
+    expand(input)
 }
