@@ -1,4 +1,4 @@
-use rtlola_interpreter_macros::{Input, Record};
+use rtlola_interpreter_macros::{CompositFactory, Record};
 
 #[derive(Record)]
 struct A {
@@ -16,7 +16,7 @@ struct B {
     c: String,
 }
 
-#[derive(Input)]
+#[derive(CompositFactory)]
 #[allow(dead_code)]
 enum TestEnum {
     A(A, B),
@@ -25,7 +25,7 @@ enum TestEnum {
 
 struct C {}
 
-#[derive(Input)]
+#[derive(CompositFactory)]
 #[allow(dead_code)]
 enum TestEnum2 {
     A(A),
@@ -33,7 +33,7 @@ enum TestEnum2 {
     C(C),
 }
 
-#[derive(Input)]
+#[derive(CompositFactory)]
 #[allow(dead_code)]
 enum TestEnum3 {
     A(A),
@@ -44,7 +44,7 @@ enum TestEnum3 {
     },
 }
 
-#[derive(Input)]
+#[derive(CompositFactory)]
 #[allow(dead_code)]
 enum TestEnum4 {
     A(A),

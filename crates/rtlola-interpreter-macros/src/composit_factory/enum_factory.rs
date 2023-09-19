@@ -1,7 +1,6 @@
-use std::collections::HashMap;
-
 use proc_macro2::{Ident, Span, TokenStream as TokenStream2, TokenStream};
 use quote::{format_ident, quote, ToTokens};
+use syn::spanned::Spanned;
 use syn::{Data, DeriveInput, Fields, Type, Variant};
 
 use crate::composit_factory::{CompositDeriver, FactoryItemAttr};
@@ -9,7 +8,6 @@ use crate::helper::new_snake_ident;
 
 pub(crate) struct EnumDeriver {
     name: Ident,
-    variants: HashMap<Ident, TokenStream>,
     attributes: Vec<(Variant, FactoryItemAttr)>,
     field_names: Vec<Ident>,
     field_types: Vec<TokenStream2>,
@@ -36,30 +34,56 @@ impl EnumDeriver {
             .iter()
             .filter_map(|(v, attr)| {
                 if !attr.ignore {
+                    let v_ident = &v.ident;
                     let ty = match &v.fields {
                         Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
                             Some(fields.unnamed.first().unwrap().ty.to_token_stream())
                         },
                         Fields::Unnamed(fields) => {
-                            let ty = format_ident!("{}{}TupleFactory", name, v.ident);
-                            let types: Vec<Type> = fields.unnamed.iter().map(|f| f.ty.clone()).collect();
+                            let ty = format_ident!("{}{}Tuple", name, v.ident);
+                            let (names, types): (Vec<Ident>, Vec<Type>) = fields
+                                .unnamed
+                                .iter()
+                                .enumerate()
+                                .map(|(idx, f)| (format_ident!("inner_{}", idx, span = f.span()), f.ty.clone()))
+                                .unzip();
                             aux_structs.extend(quote! {
                                 #[derive(CompositFactory)]
                                 struct #ty (#(#types),*);
+
+                                impl From<#name> for #ty {
+                                    fn from(value: #name) -> Self {
+                                        if let #name::#v_ident(#(#names),*) = value {
+                                            Self(#(#names),*)
+                                        } else {
+                                            panic!("Tried to construct helper struct from wrong variant.")
+                                        }
+                                    }
+                                }
                             });
                             Some(ty.to_token_stream())
                         },
                         Fields::Named(fields) => {
-                            let ty = format_ident!("{}{}Record", name, v.ident);
+                            let ty = format_ident!("{}{}Struct", name, v.ident);
                             let (names, types): (Vec<Ident>, Vec<Type>) = fields
                                 .named
                                 .iter()
                                 .map(|f| (f.ident.as_ref().unwrap().clone(), f.ty.clone()))
                                 .unzip();
                             aux_structs.extend(quote! {
-                                #[derive(Record)]
+                                #[derive(CompositFactory)]
                                 struct #ty {
                                     #(#names: #types),*
+                                }
+
+                                impl From<#name> for #ty {
+                                    fn from(value: #name) -> Self {
+                                        if let #name::#v_ident{#(#names),*} = value {
+                                            Self{#(#names),*}
+                                        } else {
+                                            panic!("Tried to construct helper struct from wrong variant.")
+                                        }
+                                    }
                                 }
                             });
                             Some(ty.to_token_stream())
@@ -74,7 +98,7 @@ impl EnumDeriver {
                     None
                 }
             })
-            .collect::<HashMap<Ident, TokenStream>>();
+            .collect::<Vec<(Ident, TokenStream)>>();
 
         let (field_names, field_types) = variants
             .iter()
@@ -89,7 +113,6 @@ impl EnumDeriver {
         Ok((
             Self {
                 name,
-                variants,
                 attributes,
                 field_names,
                 field_types,
@@ -110,12 +133,30 @@ impl CompositDeriver for EnumDeriver {
 
     fn get_event(&self) -> TokenStream2 {
         let variant_paths: Vec<_> = self
-            .variants
-            .keys()
-            .map(|id| {
-                let inner_name = Ident::new("rec", Span::call_site());
+            .attributes
+            .iter()
+            .filter_map(|(var, attr)| {
+                if attr.ignore {
+                    return None;
+                }
+                let id = &var.ident;
                 let name = &self.name;
-                quote! {#name::#id(#inner_name)}
+                Some(match &var.fields {
+                    Fields::Named(_) => {
+                        quote! {#name::#id{..}}
+                    },
+                    Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
+                        let inner_name = Ident::new("rec", Span::call_site());
+                        quote! {#name::#id(#inner_name)}
+                    },
+                    Fields::Unnamed(fields) => {
+                        let fields = fields.unnamed.iter().map(|_| quote! {_});
+                        quote! {#name::#id(#(#fields),*)}
+                    },
+                    Fields::Unit => {
+                        quote! {#name::#id}
+                    },
+                })
             })
             .collect();
 
@@ -143,7 +184,7 @@ impl CompositDeriver for EnumDeriver {
             fn get_event(&self, rec: Self::Record) -> Result<rtlola_interpreter::monitor::Event, Self::Error>{
                 match rec {
                     #(
-                        #variant_paths => Ok(self.#struct_field_names.get_event(rec)?),
+                        #variant_paths => Ok(self.#struct_field_names.get_event(rec.into())?),
                     )*
                     #(
                         #ignored_variant_paths => Err(rtlola_interpreter::input::EventFactoryError::VariantIgnored(#ignored_variant_names.to_string())),

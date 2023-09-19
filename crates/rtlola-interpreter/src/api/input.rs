@@ -283,3 +283,24 @@ impl<
         Ok(Vec::from(arr))
     }
 }
+
+/// A dummy event factory, that never produces a value for an input stream.
+#[derive(Debug, Copy, Clone)]
+pub struct EmptyFactory(usize);
+
+impl EventFactory for EmptyFactory {
+    type CreationData = ();
+    type Error = Infallible;
+    type Record = ();
+
+    fn try_new(
+        map: HashMap<String, InputReference>,
+        _setup_data: Self::CreationData,
+    ) -> Result<(Self, Vec<String>), EventFactoryError> {
+        Ok((Self(map.len()), map.into_keys().collect()))
+    }
+
+    fn get_event(&self, _rec: Self::Record) -> Result<Event, EventFactoryError> {
+        Ok(vec![Value::None; self.0])
+    }
+}

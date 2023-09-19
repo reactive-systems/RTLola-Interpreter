@@ -5,9 +5,8 @@ mod composit_factory;
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
-use proc_macro2::TokenStream as TokenStream2;
 use proc_macro_error::{abort, proc_macro_error};
-use quote::{format_ident, quote};
+use quote::quote;
 use syn::{parse_macro_input, Data, DeriveInput, Field, Fields, Ident};
 
 use crate::composit_factory::expand;

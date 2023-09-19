@@ -27,7 +27,8 @@ enum TestEnum {
         d: String,
     },
     D {
-        should_work: i64,
+        a: A,
+        b: B,
     },
     E(A, B),
 }
