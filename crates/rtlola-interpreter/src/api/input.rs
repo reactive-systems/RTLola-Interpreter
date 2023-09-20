@@ -297,10 +297,14 @@ impl EventFactory for EmptyFactory {
         map: HashMap<String, InputReference>,
         _setup_data: Self::CreationData,
     ) -> Result<(Self, Vec<String>), EventFactoryError> {
-        Ok((Self(map.len()), map.into_keys().collect()))
+        Ok((Self(map.len()), vec![]))
     }
 
     fn get_event(&self, _rec: Self::Record) -> Result<Event, EventFactoryError> {
         Ok(vec![Value::None; self.0])
     }
+}
+
+impl AssociatedFactory for () {
+    type Factory = EmptyFactory;
 }

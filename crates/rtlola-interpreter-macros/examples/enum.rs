@@ -31,6 +31,7 @@ enum TestEnum {
         b: B,
     },
     E(A, B),
+    F,
 }
 
 fn main() {

@@ -1,4 +1,5 @@
-use proc_macro2::{Ident, Span, TokenStream as TokenStream2, TokenStream};
+use proc_macro2::{Ident, TokenStream as TokenStream2, TokenStream};
+use quote::__private::ext::RepToTokensExt;
 use quote::{format_ident, quote, ToTokens};
 use syn::spanned::Spanned;
 use syn::{Data, DeriveInput, Fields, Type, Variant};
@@ -11,6 +12,10 @@ pub(crate) struct EnumDeriver {
     attributes: Vec<(Variant, FactoryItemAttr)>,
     field_names: Vec<Ident>,
     field_types: Vec<TokenStream2>,
+}
+
+fn field_name(name: &Ident) -> Ident {
+    new_snake_ident(name, "factory")
 }
 
 impl EnumDeriver {
@@ -88,12 +93,9 @@ impl EnumDeriver {
                             });
                             Some(ty.to_token_stream())
                         },
-                        Fields::Unit => {
-                            // Ignore Unit variants
-                            None
-                        },
+                        Fields::Unit => Some(quote! {()}),
                     };
-                    ty.map(|t| (v.ident.clone(), t))
+                    ty.map(|t| (v_ident.clone(), t))
                 } else {
                     None
                 }
@@ -104,7 +106,7 @@ impl EnumDeriver {
             .iter()
             .map(|(ident, ty)| {
                 (
-                    new_snake_ident(ident, "factory"),
+                    field_name(ident),
                     quote! {<#ty as rtlola_interpreter::input::AssociatedFactory>::Factory},
                 )
             })
@@ -132,63 +134,72 @@ impl CompositDeriver for EnumDeriver {
     }
 
     fn get_event(&self) -> TokenStream2 {
-        let variant_paths: Vec<_> = self
+        let name = &self.name;
+
+        let match_lines: Vec<TokenStream2> = self
             .attributes
             .iter()
-            .filter_map(|(var, attr)| {
-                if attr.ignore {
-                    return None;
-                }
+            .map(|(var, attr)| {
                 let id = &var.ident;
-                let name = &self.name;
-                Some(match &var.fields {
+                let id_str = id.to_string();
+                let field_name = field_name(&var.ident);
+                match &var.fields {
                     Fields::Named(_) => {
-                        quote! {#name::#id{..}}
+                        if !attr.ignore {
+                            quote! {
+                                #name::#id{..} =>  Ok(self.#field_name.get_event(rec.into())?)
+                            }
+                        } else {
+                            quote! {
+                                #name::#id{..} => Err(rtlola_interpreter::input::EventFactoryError::VariantIgnored(#id_str.to_string()))
+                            }
+                        }
                     },
                     Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
-                        let inner_name = Ident::new("rec", Span::call_site());
-                        quote! {#name::#id(#inner_name)}
+                        let inner_name = Ident::new("rec", fields.unnamed.next().unwrap().span());
+                        if !attr.ignore {
+                            quote! {
+                                #name::#id(#inner_name) => Ok(self.#field_name.get_event(#inner_name)?)
+                            }
+                        } else {
+                            quote! {
+                                #name::#id(_) => Err(rtlola_interpreter::input::EventFactoryError::VariantIgnored(#id_str.to_string()))
+                            }
+                        }
                     },
                     Fields::Unnamed(fields) => {
                         let fields = fields.unnamed.iter().map(|_| quote! {_});
-                        quote! {#name::#id(#(#fields),*)}
+                        if !attr.ignore {
+                            quote! {
+                                #name::#id(#(#fields),*) => Ok(self.#field_name.get_event(rec.into())?)
+                            }
+                        } else {
+                            quote! {
+                                #name::#id(#(#fields),*) => Err(rtlola_interpreter::input::EventFactoryError::VariantIgnored(#id_str.to_string()))
+                            }
+                        }
                     },
                     Fields::Unit => {
-                        quote! {#name::#id}
+                        if !attr.ignore {
+                            quote! {
+                                #name::#id => Ok(self.#field_name.get_event(())?)
+                            }
+                        } else {
+                            quote! {
+                                #name::#id => Err(rtlola_interpreter::input::EventFactoryError::VariantIgnored(#id_str.to_string()))
+                            }
+                        }
                     },
-                })
-            })
-            .collect();
-
-        let (ignored_variant_paths, ignored_variant_names): (Vec<_>, Vec<String>) = self
-            .attributes
-            .iter()
-            .filter_map(|(var, attr)| {
-                let id = &var.ident;
-                let name = &self.name;
-                if attr.ignore {
-                    let path = match var.fields {
-                        Fields::Named(_) => quote! {#name::#id{..}},
-                        Fields::Unnamed(_) => quote! {#name::#id(_)},
-                        Fields::Unit => quote! {#name::#id},
-                    };
-                    Some((path, id.to_string()))
-                } else {
-                    None
                 }
             })
-            .unzip();
-        let struct_field_names = &self.field_names;
+            .collect();
 
         quote! {
             fn get_event(&self, rec: Self::Record) -> Result<rtlola_interpreter::monitor::Event, Self::Error>{
                 match rec {
                     #(
-                        #variant_paths => Ok(self.#struct_field_names.get_event(rec.into())?),
-                    )*
-                    #(
-                        #ignored_variant_paths => Err(rtlola_interpreter::input::EventFactoryError::VariantIgnored(#ignored_variant_names.to_string())),
-                    )*
+                       #match_lines
+                    ),*
                 }
             }
         }

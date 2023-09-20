@@ -16,13 +16,6 @@ struct B {
     c: String,
 }
 
-#[derive(CompositFactory)]
-#[allow(dead_code)]
-enum TestEnum {
-    A(A, B),
-    B(B),
-}
-
 struct C {}
 
 #[derive(CompositFactory)]
@@ -31,25 +24,6 @@ enum TestEnum2 {
     A(A),
     B(B),
     C(C),
-}
-
-#[derive(CompositFactory)]
-#[allow(dead_code)]
-enum TestEnum3 {
-    A(A),
-    B(B),
-    C{
-        a: A,
-        b: B,
-    },
-}
-
-#[derive(CompositFactory)]
-#[allow(dead_code)]
-enum TestEnum4 {
-    A(A),
-    B(B),
-    C,
 }
 
 fn main() {}

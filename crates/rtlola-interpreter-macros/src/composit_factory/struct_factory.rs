@@ -1,7 +1,7 @@
-use proc_macro2::{Ident, TokenStream as TokenStream2};
-use quote::{format_ident, quote};
+use proc_macro2::{Ident, Span, TokenStream as TokenStream2};
+use quote::{format_ident, quote, ToTokens};
 use syn::spanned::Spanned;
-use syn::{Data, DeriveInput, Field, Fields};
+use syn::{Data, DeriveInput, Fields};
 
 use crate::composit_factory::{CompositDeriver, FactoryItemAttr};
 
@@ -20,18 +20,13 @@ impl StructDeriver {
             Data::Struct(e) => e.fields,
             Data::Enum(_) | Data::Union(_) => unreachable!(),
         };
-        if matches!(fields, Fields::Unit) {
-            return Err(
-                syn::Error::new(fields.span(), "CompositInput cannot be derived for Unit Structs.").to_compile_error(),
-            );
-        }
-        let attributes: Result<Vec<FactoryItemAttr>, _> =
-            fields.iter_mut().map(|v| deluxe::extract_attributes(v)).collect();
+
+        let attributes: Result<Vec<FactoryItemAttr>, _> = fields.iter_mut().map(deluxe::extract_attributes).collect();
         let attributes = match attributes {
             Ok(v) => v,
             Err(e) => return Err(e.into_compile_error()),
         };
-        let included_fields: Vec<(Field, Ident)> = fields
+        let mut included_fields: Vec<(TokenStream2, Ident)> = fields
             .iter()
             .zip(attributes)
             .enumerate()
@@ -43,16 +38,18 @@ impl StructDeriver {
                         .ident
                         .clone()
                         .unwrap_or_else(|| format_ident!("inner_{}", idx, span = f.span()));
-                    Some((f.clone(), ident))
+                    Some((f.ty.to_token_stream(), ident))
                 }
             })
             .collect();
 
-        // Todo: Add shortcut for structs with only one field.
+        if included_fields.is_empty() {
+            included_fields.push((quote! {()}, Ident::new("default", Span::call_site())))
+        }
+
         let (field_names, field_types): (Vec<Ident>, Vec<TokenStream2>) = included_fields
             .iter()
-            .map(|(field, ident)| {
-                let ty = &field.ty;
+            .map(|(ty, ident)| {
                 (
                     format_ident!("{}_factory", ident),
                     quote! {<#ty as rtlola_interpreter::input::AssociatedFactory>::Factory},
@@ -60,7 +57,7 @@ impl StructDeriver {
             })
             .unzip();
 
-        let included_fields: (Vec<Field>, Vec<Ident>) = included_fields.into_iter().unzip();
+        let included_fields: (Vec<TokenStream2>, Vec<Ident>) = included_fields.into_iter().unzip();
 
         Ok((
             Self {
@@ -98,7 +95,7 @@ impl CompositDeriver for StructDeriver {
                     let #name (#(#names),* , ..) = rec;
                 }
             },
-            Fields::Unit => unreachable!(),
+            Fields::Unit => TokenStream2::new(),
         };
         let event: Vec<Ident> = self
             .included_fields

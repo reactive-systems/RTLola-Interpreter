@@ -1,32 +1,33 @@
-error: Only variants with a single unnamed field are supported!
-  --> examples/should-fail/reject_enum.rs:22:5
+error[E0277]: the trait bound `C: InputMap` is not satisfied
+  --> examples/should-fail/reject_enum.rs:21:10
    |
-22 |     A(A, B),
-   |     ^^^^^^^
-
-error: Only variants with a single unnamed field are supported!
-  --> examples/should-fail/reject_enum.rs:41:5
+21 | #[derive(CompositFactory)]
+   |          ^^^^^^^^^^^^^^^ the trait `InputMap` is not implemented for `C`
    |
-41 | /     C{
-42 | |         a: A,
-43 | |         b: B,
-44 | |     },
-   | |_____^
-
-error: Only variants with a single unnamed field are supported!
-  --> examples/should-fail/reject_enum.rs:52:5
-   |
-52 |     C,
-   |     ^
-
-error[E0277]: the trait bound `C: Record` is not satisfied
-  --> examples/should-fail/reject_enum.rs:28:10
-   |
-28 | #[derive(Input)]
-   |          ^^^^^ the trait `Record` is not implemented for `C`
-   |
-   = help: the following other types implement trait `Record`:
+   = help: the following other types implement trait `InputMap`:
              A
              B
-   = note: required for `C` to implement `DerivedInput`
-   = note: this error originates in the derive macro `Input` (in Nightly builds, run with -Z macro-backtrace for more info)
+   = note: required for `C` to implement `AssociatedFactory`
+   = note: this error originates in the derive macro `CompositFactory` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `C: InputMap` is not satisfied
+  --> examples/should-fail/reject_enum.rs:21:10
+   |
+21 | #[derive(CompositFactory)]
+   |          ^^^^^^^^^^^^^^^ the trait `InputMap` is not implemented for `C`
+   |
+   = help: the following other types implement trait `InputMap`:
+             A
+             B
+   = note: required for `C` to implement `AssociatedFactory`
+note: required because it appears within the type `TestEnum2Factory`
+  --> examples/should-fail/reject_enum.rs:21:10
+   |
+21 | #[derive(CompositFactory)]
+   |          ^^^^^^^^^^^^^^^
+note: required by a bound in `EventFactory`
+  --> $WORKSPACE/rtlola-interpreter/src/api/input.rs
+   |
+   | pub trait EventFactory: Sized {
+   |                         ^^^^^ required by this bound in `EventFactory`
+   = note: this error originates in the derive macro `CompositFactory` (in Nightly builds, run with -Z macro-backtrace for more info)
