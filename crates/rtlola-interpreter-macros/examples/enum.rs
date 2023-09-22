@@ -17,6 +17,9 @@ struct B {
 }
 
 #[derive(CompositFactory)]
+struct C;
+
+#[derive(CompositFactory)]
 #[allow(dead_code)]
 enum TestEnum {
     A(A),

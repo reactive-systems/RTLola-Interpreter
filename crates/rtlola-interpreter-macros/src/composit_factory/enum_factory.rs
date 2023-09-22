@@ -93,7 +93,7 @@ impl EnumDeriver {
                             });
                             Some(ty.to_token_stream())
                         },
-                        Fields::Unit => Some(quote! {()}),
+                        Fields::Unit => Some(quote! {rtlola_interpreter::input::NoEvent}),
                     };
                     ty.map(|t| (v_ident.clone(), t))
                 } else {
@@ -182,7 +182,7 @@ impl CompositDeriver for EnumDeriver {
                     Fields::Unit => {
                         if !attr.ignore {
                             quote! {
-                                #name::#id => Ok(self.#field_name.get_event(())?)
+                                #name::#id => Ok(self.#field_name.get_event(rtlola_interpreter::input::NoEvent)?)
                             }
                         } else {
                             quote! {

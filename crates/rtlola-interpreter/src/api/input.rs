@@ -288,10 +288,14 @@ impl<
 #[derive(Debug, Copy, Clone)]
 pub struct EmptyFactory(usize);
 
+/// A type that represents the event in which no input streams gets a new value
+#[derive(Debug, Copy, Clone, Default)]
+pub struct NoEvent;
+
 impl EventFactory for EmptyFactory {
     type CreationData = ();
     type Error = Infallible;
-    type Record = ();
+    type Record = NoEvent;
 
     fn try_new(
         map: HashMap<String, InputReference>,
@@ -305,6 +309,6 @@ impl EventFactory for EmptyFactory {
     }
 }
 
-impl AssociatedFactory for () {
+impl AssociatedFactory for NoEvent {
     type Factory = EmptyFactory;
 }

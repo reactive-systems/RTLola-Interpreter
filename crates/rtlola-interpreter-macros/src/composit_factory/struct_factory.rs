@@ -44,7 +44,10 @@ impl StructDeriver {
             .collect();
 
         if included_fields.is_empty() {
-            included_fields.push((quote! {()}, Ident::new("default", Span::call_site())))
+            included_fields.push((
+                quote! {rtlola_interpreter::input::NoEvent},
+                Ident::new("default", Span::call_site()),
+            ))
         }
 
         let (field_names, field_types): (Vec<Ident>, Vec<TokenStream2>) = included_fields
@@ -84,19 +87,6 @@ impl CompositDeriver for StructDeriver {
     fn get_event(&self) -> TokenStream2 {
         let name = &self.name;
         let names = &self.included_fields;
-        let deconstructor = match &self.fields {
-            Fields::Named(_) => {
-                quote! {
-                    let #name {#(#names),* , ..} = rec;
-                }
-            },
-            Fields::Unnamed(_) => {
-                quote! {
-                    let #name (#(#names),* , ..) = rec;
-                }
-            },
-            Fields::Unit => TokenStream2::new(),
-        };
         let event: Vec<Ident> = self
             .included_fields
             .iter()
@@ -104,12 +94,43 @@ impl CompositDeriver for StructDeriver {
             .collect();
         let factory = &self.field_names;
 
+        let (deconstructor, event_generator): (TokenStream2, TokenStream2) = if !self.fields.is_empty() {
+            let deconstructor = match &self.fields {
+                Fields::Named(_) => {
+                    quote! {
+                        let #name {#(#names),* , ..} = rec;
+                    }
+                },
+                Fields::Unnamed(_) => {
+                    quote! {
+                        let #name (#(#names),* , ..) = rec;
+                    }
+                },
+                Fields::Unit => TokenStream2::new(),
+            };
+            (
+                deconstructor,
+                quote! {
+                    #(
+                        let #event = self.#factory.get_event(#names)?;
+                    );*
+                },
+            )
+        } else {
+            (
+                TokenStream2::new(),
+                quote! {
+                    #(
+                        let #event = self.#factory.get_event(rtlola_interpreter::input::NoEvent)?;
+                    );*
+                },
+            )
+        };
+
         quote! {
             fn get_event(&self, rec: Self::Record) -> Result<rtlola_interpreter::monitor::Event, Self::Error>{
                 #deconstructor
-                #(
-                    let #event = self.#factory.get_event(#names)?;
-                );*
+                #event_generator
                 Ok(rtlola_interpreter::izip!(#(#event),*).map(|(#(#names),*)| rtlola_interpreter::Value::None #(.and_then(#names))*).collect())
             }
         }
