@@ -1,18 +1,18 @@
-use rtlola_interpreter_macros::{CompositFactory, Record};
+use rtlola_interpreter_macros::{CompositFactory, ValueFactory};
 
-#[derive(Record)]
+#[derive(ValueFactory)]
 struct A {
     a: usize,
     b: f64,
     c: String,
 }
 
-#[derive(Record)]
-#[record(custom_prefix = Custom)]
+#[derive(ValueFactory)]
+#[factory(custom_prefix = Custom)]
 struct B {
     a: usize,
     b: f64,
-    #[record(custom_name = Different)]
+    #[factory(custom_name = Different)]
     c: String,
 }
 

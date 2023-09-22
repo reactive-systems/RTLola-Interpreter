@@ -1,12 +1,12 @@
-use rtlola_interpreter_macros::Record;
+use rtlola_interpreter_macros::ValueFactory;
 
-#[derive(Record)]
+#[derive(ValueFactory)]
 enum RejectEnum {
     A,
     B
 }
 
-#[derive(Record)]
+#[derive(ValueFactory)]
 struct RejectStruct (String, usize);
 
 fn main(){}

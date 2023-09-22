@@ -3,19 +3,19 @@ use std::collections::HashMap;
 use rtlola_interpreter::input::{AssociatedFactory, EventFactory, EventFactoryError};
 use rtlola_interpreter::rtlola_mir::InputReference;
 use rtlola_interpreter::Value;
-use rtlola_interpreter_macros::{CompositFactory, Record};
+use rtlola_interpreter_macros::{CompositFactory, ValueFactory};
 
 #[test]
 fn simple() {
-    #[derive(Record)]
-    #[record(prefix)]
+    #[derive(ValueFactory)]
+    #[factory(prefix)]
     struct Msg1 {
         a: usize,
         b: f64,
     }
 
-    #[derive(Record)]
-    #[record(prefix)]
+    #[derive(ValueFactory)]
+    #[factory(prefix)]
     struct Msg2 {
         c: String,
         d: i64,
@@ -62,15 +62,15 @@ fn simple() {
 
 #[test]
 fn ignore() {
-    #[derive(Record)]
-    #[record(prefix)]
+    #[derive(ValueFactory)]
+    #[factory(prefix)]
     struct Msg1 {
         a: usize,
         b: f64,
     }
 
-    #[derive(Record)]
-    #[record(prefix)]
+    #[derive(ValueFactory)]
+    #[factory(prefix)]
     struct Msg2 {
         c: String,
         d: i64,
@@ -136,19 +136,19 @@ fn ignore() {
 
 #[test]
 fn overlap() {
-    #[derive(Record)]
-    #[record(prefix)]
+    #[derive(ValueFactory)]
+    #[factory(prefix)]
     struct Msg1 {
         a: usize,
-        #[record(custom_name = time)]
+        #[factory(custom_name = time)]
         time: f64,
     }
 
-    #[derive(Record)]
-    #[record(prefix)]
+    #[derive(ValueFactory)]
+    #[factory(prefix)]
     struct Msg2 {
         b: i64,
-        #[record(custom_name = time)]
+        #[factory(custom_name = time)]
         time: f64,
     }
 
@@ -179,19 +179,19 @@ fn overlap() {
 
 #[test]
 fn missing() {
-    #[derive(Record)]
-    #[record(prefix)]
+    #[derive(ValueFactory)]
+    #[factory(prefix)]
     struct Msg1 {
         a: usize,
-        #[record(custom_name = time)]
+        #[factory(custom_name = time)]
         time: f64,
     }
 
-    #[derive(Record)]
-    #[record(prefix)]
+    #[derive(ValueFactory)]
+    #[factory(prefix)]
     struct Msg2 {
         b: i64,
-        #[record(custom_name = time)]
+        #[factory(custom_name = time)]
         time: f64,
     }
 

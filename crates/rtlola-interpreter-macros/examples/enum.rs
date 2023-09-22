@@ -2,15 +2,15 @@ use rtlola_interpreter::input::AssociatedFactory;
 use rtlola_interpreter::monitor::Incremental;
 use rtlola_interpreter::time::RelativeFloat;
 use rtlola_interpreter::{ConfigBuilder, Monitor};
-use rtlola_interpreter_macros::{CompositFactory, Record};
+use rtlola_interpreter_macros::{CompositFactory, ValueFactory};
 
-#[derive(Record)]
+#[derive(ValueFactory)]
 struct A {
     a: usize,
     b: f64,
 }
 
-#[derive(Record)]
+#[derive(ValueFactory)]
 struct B {
     b: f64,
     c: String,
