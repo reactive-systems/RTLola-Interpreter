@@ -23,4 +23,26 @@ struct Prefixed {
     c: String,
 }
 
+#[derive(ValueFactory)]
+struct EmptyStruct {}
+
+#[derive(ValueFactory)]
+struct UnitStruct;
+
+#[derive(ValueFactory)]
+enum ComplexEnum {
+    #[allow(dead_code)]
+    UnnamedVariant(usize, String, i32),
+    #[allow(dead_code)]
+    #[factory(prefix)]
+    NamedVariant {
+        x: usize,
+        #[factory(custom_name = NestedName)]
+        y: u64,
+        z: String,
+    },
+    #[allow(dead_code)]
+    UnitVariant,
+}
+
 fn main() {}

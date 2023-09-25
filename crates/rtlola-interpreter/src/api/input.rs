@@ -12,6 +12,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 
+use itertools::Itertools;
 use rtlola_frontend::mir::InputReference;
 
 use crate::monitor::Event;
@@ -275,7 +276,13 @@ impl<
         map: HashMap<String, InputReference>,
         _setup_data: Self::CreationData,
     ) -> Result<(Self, Vec<String>), EventFactoryError> {
-        Ok((ArrayFactory { phantom: PhantomData }, map.into_keys().take(N).collect()))
+        let found: Vec<_> = map
+            .into_iter()
+            .sorted_by(|a, b| Ord::cmp(&a.1, &b.1))
+            .map(|(name, _)| name)
+            .take(N)
+            .collect();
+        Ok((ArrayFactory { phantom: PhantomData }, found))
     }
 
     fn get_event(&self, rec: Self::Record) -> Result<Event, EventFactoryError> {
@@ -286,22 +293,22 @@ impl<
 
 /// A dummy event factory, that never produces a value for an input stream.
 #[derive(Debug, Copy, Clone)]
-pub struct EmptyFactory(usize);
+pub struct EmptyFactory<T: Send>(usize, PhantomData<T>);
 
 /// A type that represents the event in which no input streams gets a new value
 #[derive(Debug, Copy, Clone, Default)]
 pub struct NoEvent;
 
-impl EventFactory for EmptyFactory {
+impl<T: Send> EventFactory for EmptyFactory<T> {
     type CreationData = ();
     type Error = Infallible;
-    type Record = NoEvent;
+    type Record = T;
 
     fn try_new(
         map: HashMap<String, InputReference>,
         _setup_data: Self::CreationData,
     ) -> Result<(Self, Vec<String>), EventFactoryError> {
-        Ok((Self(map.len()), vec![]))
+        Ok((Self(map.len(), PhantomData), vec![]))
     }
 
     fn get_event(&self, _rec: Self::Record) -> Result<Event, EventFactoryError> {
@@ -310,5 +317,5 @@ impl EventFactory for EmptyFactory {
 }
 
 impl AssociatedFactory for NoEvent {
-    type Factory = EmptyFactory;
+    type Factory = EmptyFactory<NoEvent>;
 }

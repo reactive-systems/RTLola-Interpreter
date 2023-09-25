@@ -1,15 +1,14 @@
 use proc_macro2::{Ident, TokenStream};
-use proc_macro_error::abort;
 use quote::{format_ident, quote};
 use syn::spanned::Spanned;
 use syn::{Data, DeriveInput, Field, Fields};
 
-use crate::value_factory::{RecordDeriveAttr, RecordItemAttr};
+use crate::FactoryAttr;
 
-pub(crate) fn expand_named_struct(mut input: DeriveInput) -> TokenStream {
-    let mut attr: RecordDeriveAttr = match deluxe::extract_attributes(&mut input) {
+pub(crate) fn expand_named_struct(input: &DeriveInput) -> TokenStream {
+    let mut attr: FactoryAttr = match deluxe::parse_attributes(input) {
         Ok(attr) => attr,
-        Err(e) => return e.into_compile_error().into(),
+        Err(e) => return e.into_compile_error(),
     };
     if attr.custom_prefix.is_some() {
         attr.prefix = true;
@@ -32,24 +31,21 @@ pub(crate) fn expand_named_struct(mut input: DeriveInput) -> TokenStream {
         })
         .unwrap_or_default();
 
-    let fields = match data {
-        Data::Struct(s) => {
-            match s.fields {
-                Fields::Named(fields) => fields.named,
-                Fields::Unnamed(_) | Fields::Unit => {
-                    abort!(&s.fields, "Record can only be derived for Structs with named fields!")
-                },
-            }
-        },
-        Data::Enum(_) | Data::Union(_) => abort!(input, "Record can only be derived for Structs!"),
+    let Data::Struct(struct_data) = &data else {
+        unreachable!()
     };
+    let Fields::Named(fields) = &struct_data.fields else {
+        unreachable!()
+    };
+
     let fields = fields
-        .into_iter()
-        .map(|mut f| deluxe::extract_attributes(&mut f).map(|args| (f, args)))
-        .collect::<Result<Vec<(Field, RecordItemAttr)>, _>>();
+        .named
+        .iter()
+        .map(|f| deluxe::parse_attributes(f).map(|args| (f, args)))
+        .collect::<Result<Vec<(&Field, FactoryAttr)>, _>>();
     let fields = match fields {
         Ok(f) => f,
-        Err(e) => return e.into_compile_error().into(),
+        Err(e) => return e.into_compile_error(),
     };
     let (field_idents, field_names): (Vec<Ident>, Vec<String>) = fields
         .into_iter()
@@ -59,7 +55,7 @@ pub(crate) fn expand_named_struct(mut input: DeriveInput) -> TokenStream {
                     .custom_name
                     .map(|id| id.to_string())
                     .unwrap_or_else(|| format!("{prefix}{}", f.ident.as_ref().unwrap()));
-                Some((f.ident.unwrap(), name))
+                Some((f.ident.clone().unwrap(), name))
             } else {
                 None
             }
@@ -83,20 +79,22 @@ pub(crate) fn expand_named_struct(mut input: DeriveInput) -> TokenStream {
     }
 }
 
-pub(crate) fn expand_unnamed_struct(input: DeriveInput) -> TokenStream {
+pub(crate) fn expand_unnamed_struct(input: &DeriveInput) -> TokenStream {
     let DeriveInput {
         ident: name,
         generics,
         data,
         ..
-    } = input.clone();
+    } = input;
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
-    let Data::Struct(struct_) = data else { unreachable!() };
-    let Fields::Unnamed(fields) = struct_.fields else {
+    let Data::Struct(struct_data) = data else {
         unreachable!()
     };
-    let fields = fields.unnamed;
+    let Fields::Unnamed(fields) = &struct_data.fields else {
+        unreachable!()
+    };
+    let fields = &fields.unnamed;
 
     let factory = format_ident!("{name}Factory");
     let num_inputs = fields.len();
@@ -113,7 +111,7 @@ pub(crate) fn expand_unnamed_struct(input: DeriveInput) -> TokenStream {
                 (#(#from_type),*)
             >
     };
-    let type_args: Vec<_> = generics.params.iter().map(|t| t).collect();
+    let type_args: Vec<_> = generics.params.iter().collect();
 
     quote! {
         impl #impl_generics rtlola_interpreter::input::AssociatedFactory for #name #ty_generics #where_clause {
@@ -140,6 +138,19 @@ pub(crate) fn expand_unnamed_struct(input: DeriveInput) -> TokenStream {
                 let #name(#(#field_names),*) = rec;
                 self.0.get_event((#(#field_names.try_into()?),*)).map_err(|e| e.into())
             }
+        }
+    }
+}
+
+pub(crate) fn expand_unit_struct(input: &DeriveInput) -> TokenStream {
+    let DeriveInput {
+        ident: name, generics, ..
+    } = input;
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
+    quote! {
+        impl #impl_generics rtlola_interpreter::input::AssociatedFactory for #name #ty_generics #where_clause {
+            type Factory = rtlola_interpreter::input::EmptyFactory<Self>;
         }
     }
 }

@@ -1,0 +1,20 @@
+error[E0277]: the trait bound `rtlola_interpreter::Value: From<Duration>` is not satisfied
+ --> examples/should-fail/reject_value.rs:5:10
+  |
+5 | #[derive(ValueFactory)]
+  |          ^^^^^^^^^^^^ the trait `From<Duration>` is not implemented for `rtlola_interpreter::Value`
+  |
+  = help: the following other types implement trait `From<T>`:
+            <rtlola_interpreter::Value as From<bool>>
+            <rtlola_interpreter::Value as From<i16>>
+            <rtlola_interpreter::Value as From<i32>>
+            <rtlola_interpreter::Value as From<i64>>
+            <rtlola_interpreter::Value as From<usize>>
+            <rtlola_interpreter::Value as From<u16>>
+            <rtlola_interpreter::Value as From<u32>>
+            <rtlola_interpreter::Value as From<u64>>
+          and $N others
+  = note: required for `Duration` to implement `Into<rtlola_interpreter::Value>`
+  = note: required for `rtlola_interpreter::Value` to implement `TryFrom<Duration>`
+  = note: required for `Duration` to implement `TryInto<rtlola_interpreter::Value>`
+  = note: this error originates in the derive macro `ValueFactory` (in Nightly builds, run with -Z macro-backtrace for more info)

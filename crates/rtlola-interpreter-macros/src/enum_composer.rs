@@ -1,15 +1,17 @@
+use deluxe::HasAttributes;
 use proc_macro2::{Ident, TokenStream as TokenStream2, TokenStream};
 use quote::__private::ext::RepToTokensExt;
 use quote::{format_ident, quote, ToTokens};
 use syn::spanned::Spanned;
 use syn::{Data, DeriveInput, Fields, Type, Variant};
 
-use crate::composit_factory::{CompositDeriver, FactoryItemAttr};
 use crate::helper::new_snake_ident;
+use crate::{ComposingDeriver, FactoryAttr};
 
-pub(crate) struct EnumDeriver {
+pub(crate) struct EnumComposer {
     name: Ident,
-    attributes: Vec<(Variant, FactoryItemAttr)>,
+    helper_structs: TokenStream2,
+    attributes: Vec<(Variant, FactoryAttr)>,
     field_names: Vec<Ident>,
     field_types: Vec<TokenStream2>,
 }
@@ -18,30 +20,34 @@ fn field_name(name: &Ident) -> Ident {
     new_snake_ident(name, "factory")
 }
 
-impl EnumDeriver {
-    pub(crate) fn new(input: DeriveInput) -> Result<(Self, TokenStream2), TokenStream2> {
-        let name = input.ident;
-        let variants = match input.data {
+impl EnumComposer {
+    pub(crate) fn new(
+        input: &DeriveInput,
+        sub_trait: TokenStream2,
+        singleton_shortcut: bool,
+    ) -> Result<Self, TokenStream2> {
+        let name = input.ident.clone();
+        let variants = match input.data.clone() {
             Data::Enum(e) => e.variants,
             Data::Struct(_) | Data::Union(_) => unreachable!(),
         };
-        let variants: Result<Vec<(Variant, FactoryItemAttr)>, _> = variants
+        let variants: Result<Vec<(Variant, FactoryAttr)>, _> = variants
             .into_iter()
-            .map(|mut v| deluxe::extract_attributes(&mut v).map(|args| (v, args)))
+            .map(|v| deluxe::parse_attributes(&v).map(|attr| (v, attr)))
             .collect();
         let attributes = match variants {
             Ok(v) => v,
             Err(e) => return Err(e.into_compile_error()),
         };
 
-        let mut aux_structs = TokenStream2::new();
+        let mut helper_structs = TokenStream2::new();
         let variants = attributes
             .iter()
             .filter_map(|(v, attr)| {
                 if !attr.ignore {
                     let v_ident = &v.ident;
                     let ty = match &v.fields {
-                        Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
+                        Fields::Unnamed(fields) if fields.unnamed.len() == 1 && singleton_shortcut => {
                             Some(fields.unnamed.first().unwrap().ty.to_token_stream())
                         },
                         Fields::Unnamed(fields) => {
@@ -52,8 +58,8 @@ impl EnumDeriver {
                                 .enumerate()
                                 .map(|(idx, f)| (format_ident!("inner_{}", idx, span = f.span()), f.ty.clone()))
                                 .unzip();
-                            aux_structs.extend(quote! {
-                                #[derive(CompositFactory)]
+                            helper_structs.extend(quote! {
+                                #[derive(#sub_trait)]
                                 struct #ty (#(#types),*);
 
                                 impl From<#name> for #ty {
@@ -75,10 +81,16 @@ impl EnumDeriver {
                                 .iter()
                                 .map(|f| (f.ident.as_ref().unwrap().clone(), f.ty.clone()))
                                 .unzip();
-                            aux_structs.extend(quote! {
-                                #[derive(CompositFactory)]
+                            let variant_attr = v.attrs();
+                            let field_attrs: Vec<_> = fields.named.iter().map(|f| f.attrs()).collect();
+                            helper_structs.extend(quote! {
+                                #[derive(#sub_trait)]
+                                #(#variant_attr)*
                                 struct #ty {
-                                    #(#names: #types),*
+                                    #(
+                                        #(#field_attrs)*
+                                        #names: #types
+                                    ),*
                                 }
 
                                 impl From<#name> for #ty {
@@ -112,25 +124,27 @@ impl EnumDeriver {
             })
             .unzip();
 
-        Ok((
-            Self {
-                name,
-                attributes,
-                field_names,
-                field_types,
-            },
-            aux_structs,
-        ))
+        Ok(Self {
+            name,
+            helper_structs,
+            attributes,
+            field_names,
+            field_types,
+        })
     }
 }
 
-impl CompositDeriver for EnumDeriver {
+impl ComposingDeriver for EnumComposer {
     fn struct_field_names(&self) -> Vec<Ident> {
         self.field_names.clone()
     }
 
     fn struct_field_types(&self) -> Vec<TokenStream2> {
         self.field_types.clone()
+    }
+
+    fn aux_code(&self) -> TokenStream2 {
+        self.helper_structs.clone()
     }
 
     fn get_event(&self) -> TokenStream2 {

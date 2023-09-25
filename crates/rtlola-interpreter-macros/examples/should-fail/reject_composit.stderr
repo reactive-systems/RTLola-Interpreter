@@ -1,7 +1,7 @@
 error[E0277]: the trait bound `C: InputMap` is not satisfied
-  --> examples/should-fail/reject_enum.rs:21:10
+  --> examples/should-fail/reject_composit.rs:22:10
    |
-21 | #[derive(CompositFactory)]
+22 | #[derive(CompositFactory)]
    |          ^^^^^^^^^^^^^^^ the trait `InputMap` is not implemented for `C`
    |
    = help: the following other types implement trait `InputMap`:
@@ -11,9 +11,9 @@ error[E0277]: the trait bound `C: InputMap` is not satisfied
    = note: this error originates in the derive macro `CompositFactory` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0277]: the trait bound `C: InputMap` is not satisfied
-  --> examples/should-fail/reject_enum.rs:21:10
+  --> examples/should-fail/reject_composit.rs:22:10
    |
-21 | #[derive(CompositFactory)]
+22 | #[derive(CompositFactory)]
    |          ^^^^^^^^^^^^^^^ the trait `InputMap` is not implemented for `C`
    |
    = help: the following other types implement trait `InputMap`:
@@ -21,9 +21,9 @@ error[E0277]: the trait bound `C: InputMap` is not satisfied
              B
    = note: required for `C` to implement `AssociatedFactory`
 note: required because it appears within the type `TestEnum2Factory`
-  --> examples/should-fail/reject_enum.rs:21:10
+  --> examples/should-fail/reject_composit.rs:22:10
    |
-21 | #[derive(CompositFactory)]
+22 | #[derive(CompositFactory)]
    |          ^^^^^^^^^^^^^^^
 note: required by a bound in `EventFactory`
   --> $WORKSPACE/rtlola-interpreter/src/api/input.rs

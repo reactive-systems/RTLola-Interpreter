@@ -3,7 +3,7 @@ use quote::{format_ident, quote, ToTokens};
 use syn::spanned::Spanned;
 use syn::{Data, DeriveInput, Fields};
 
-use crate::composit_factory::{CompositDeriver, FactoryItemAttr};
+use crate::{ComposingDeriver, FactoryAttr};
 
 pub(crate) struct StructDeriver {
     name: Ident,
@@ -14,14 +14,14 @@ pub(crate) struct StructDeriver {
 }
 
 impl StructDeriver {
-    pub(crate) fn new(input: DeriveInput) -> Result<(Self, TokenStream2), TokenStream2> {
-        let name = input.ident;
-        let mut fields = match input.data {
-            Data::Struct(e) => e.fields,
+    pub(crate) fn new(input: &DeriveInput) -> Result<Self, TokenStream2> {
+        let name = input.ident.clone();
+        let fields = match &input.data {
+            Data::Struct(e) => &e.fields,
             Data::Enum(_) | Data::Union(_) => unreachable!(),
         };
 
-        let attributes: Result<Vec<FactoryItemAttr>, _> = fields.iter_mut().map(deluxe::extract_attributes).collect();
+        let attributes: Result<Vec<FactoryAttr>, _> = fields.iter().map(deluxe::parse_attributes).collect();
         let attributes = match attributes {
             Ok(v) => v,
             Err(e) => return Err(e.into_compile_error()),
@@ -62,20 +62,17 @@ impl StructDeriver {
 
         let included_fields: (Vec<TokenStream2>, Vec<Ident>) = included_fields.into_iter().unzip();
 
-        Ok((
-            Self {
-                name,
-                fields,
-                included_fields: included_fields.1,
-                field_names,
-                field_types,
-            },
-            TokenStream2::new(),
-        ))
+        Ok(Self {
+            name,
+            fields: fields.clone(),
+            included_fields: included_fields.1,
+            field_names,
+            field_types,
+        })
     }
 }
 
-impl CompositDeriver for StructDeriver {
+impl ComposingDeriver for StructDeriver {
     fn struct_field_names(&self) -> Vec<Ident> {
         self.field_names.clone()
     }

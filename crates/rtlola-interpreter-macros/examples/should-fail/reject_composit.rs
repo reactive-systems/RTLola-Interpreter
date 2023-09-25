@@ -18,6 +18,7 @@ struct B {
 
 struct C {}
 
+// C does not implement Associate Factory
 #[derive(CompositFactory)]
 #[allow(dead_code)]
 enum TestEnum2 {
