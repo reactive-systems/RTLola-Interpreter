@@ -6,9 +6,9 @@
 //! The preferred method to create an API is using the [ConfigBuilder](crate::ConfigBuilder) and the [queued_monitor](crate::ConfigBuilder::queued_monitor) method.
 //!
 //! # Input Method
-//! An input method has to implement the [Input] trait. Out of the box two different methods are provided:
-//! * [EventInput](crate::monitor::EventInput): Provides a basic input method for anything that already is an [Event](crate::monitor::Event) or that can be transformed into one using `Into<Event>`.
-//! * [RecordInput](crate::monitor::RecordInput): Is a more elaborate input method. It allows to provide a custom data structure to the monitor as an input, as long as it implements the [Record](crate::monitor::Record) trait.
+//! An input method has to implement the [EventFactory] trait. Out of the box two different methods are provided:
+//! * [EventInput](crate::input::ArrayFactory): Provides a basic input method for anything that already is an [Event](crate::monitor::Event) or that can be transformed into one using `TryInto<[Value]>`.
+//! * [RecordInput](crate::input::MappedFactory): Is a more elaborate input method. It allows to provide a custom data structure to the monitor as an input, as long as it implements the [Record](crate::input::InputMap) trait.
 //!     If implemented this traits provides functionality to generate a new value for any input stream from the data structure.
 //!
 //! # Output Method
@@ -39,7 +39,8 @@ use serde::Serialize;
 use crate::config::{Config, ExecutionMode};
 use crate::configuration::time::{init_start_time, OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
 use crate::evaluator::{Evaluator, EvaluatorData};
-use crate::monitor::{Incremental, Input, RawVerdict, Tracer, VerdictRepresentation, Verdicts};
+use crate::input::EventFactory;
+use crate::monitor::{Incremental, RawVerdict, Tracer, VerdictRepresentation, Verdicts};
 use crate::schedule::schedule_manager::ScheduleManager;
 use crate::schedule::DynamicSchedule;
 use crate::Monitor;
@@ -135,7 +136,7 @@ Timed streams are evaluated automatically at their deadline. The resulting verdi
 Note that the [start](QueuedMonitor::start) function *has* to be invoked before any event can be evaluated.
 Finally, a calling [end](QueuedMonitor::end) will block until all events have been evaluated.
 
-The generic argument `Source` implements the [Input] trait describing the input source of the API.
+The generic argument `Source` implements the [EventFactory] trait describing the input source of the API.
 The generic argument `SourceTime` implements the [TimeRepresentation] trait defining the input time format.
 The generic argument `Verdict` implements the [VerdictRepresentation] trait describing the output format of the API that is by default [Incremental].
 The generic argument `VerdictTime` implements the [TimeRepresentation] trait defining the output time format. It defaults to [RelativeFloat]
@@ -143,7 +144,7 @@ The generic argument `VerdictTime` implements the [TimeRepresentation] trait def
 #[allow(missing_debug_implementations)]
 pub struct QueuedMonitor<Source, SourceTime, Verdict = Incremental, VerdictTime = RelativeFloat>
 where
-    Source: Input,
+    Source: EventFactory,
     SourceTime: TimeRepresentation,
     Verdict: VerdictRepresentation,
     VerdictTime: OutputTimeRepresentation + 'static,
@@ -157,7 +158,7 @@ where
 
 impl<Source, SourceTime, Verdict, VerdictTime> QueuedMonitor<Source, SourceTime, Verdict, VerdictTime>
 where
-    Source: Input + 'static,
+    Source: EventFactory + 'static,
     SourceTime: TimeRepresentation,
     Verdict: VerdictRepresentation,
     VerdictTime: OutputTimeRepresentation,
@@ -379,14 +380,14 @@ where
     }
 }
 
-enum WorkItem<Source: Input, SourceTime: TimeRepresentation> {
+enum WorkItem<Source: EventFactory, SourceTime: TimeRepresentation> {
     Start,
     Event(Source::Record, SourceTime::InnerTime),
 }
 
 trait Worker<Source, SourceTime, Verdict, VerdictTime>: Sized
 where
-    Source: Input,
+    Source: EventFactory,
     SourceTime: TimeRepresentation,
     Verdict: VerdictRepresentation,
     VerdictTime: OutputTimeRepresentation + 'static,
@@ -428,7 +429,7 @@ where
 
 struct OnlineWorker<Source, SourceTime, Verdict, VerdictTime>
 where
-    Source: Input,
+    Source: EventFactory,
     SourceTime: TimeRepresentation,
     Verdict: VerdictRepresentation,
     VerdictTime: OutputTimeRepresentation + 'static,
@@ -445,7 +446,7 @@ where
 }
 
 impl<
-        Source: Input,
+        Source: EventFactory,
         SourceTime: TimeRepresentation,
         Verdict: VerdictRepresentation,
         VerdictTime: OutputTimeRepresentation,
@@ -551,7 +552,7 @@ impl<
 
 struct OfflineWorker<Source, SourceTime, Verdict, VerdictTime>
 where
-    Source: Input,
+    Source: EventFactory,
     SourceTime: TimeRepresentation,
     Verdict: VerdictRepresentation,
     VerdictTime: OutputTimeRepresentation + 'static,
@@ -565,7 +566,7 @@ where
 }
 
 impl<
-        Source: Input,
+        Source: EventFactory,
         SourceTime: TimeRepresentation,
         Verdict: VerdictRepresentation,
         VerdictTime: OutputTimeRepresentation,
@@ -656,25 +657,27 @@ impl<
 
 #[cfg(test)]
 mod tests {
+    use std::convert::Infallible;
     use std::time::{Duration, Instant};
 
     use crate::api::monitor::Change;
-    use crate::monitor::{Event, EventInput, Incremental, Total, VerdictRepresentation};
+    use crate::input::ArrayFactory;
+    use crate::monitor::{Incremental, Total, VerdictRepresentation};
     use crate::queued::{QueuedVerdict, VerdictKind};
     use crate::time::RelativeFloat;
     use crate::{ConfigBuilder, QueuedMonitor, Value};
 
-    fn setup<V: VerdictRepresentation>(
+    fn setup<const N: usize, V: VerdictRepresentation>(
         spec: &str,
     ) -> (
         Instant,
-        QueuedMonitor<EventInput<Event>, RelativeFloat, V, RelativeFloat>,
+        QueuedMonitor<ArrayFactory<N, Infallible, [Value; N]>, RelativeFloat, V, RelativeFloat>,
     ) {
         // Init Monitor API
         let monitor = ConfigBuilder::new()
             .spec_str(spec)
             .offline::<RelativeFloat>()
-            .event_input::<Event>()
+            .with_array_events::<N, Infallible, [Value; N]>()
             .with_verdict::<V>()
             .queued_monitor();
         (Instant::now(), monitor)
@@ -693,7 +696,7 @@ mod tests {
 
     #[test]
     fn test_const_output_literals() {
-        let (start, mut monitor) = setup::<Total>(
+        let (start, mut monitor) = setup::<1, Total>(
             r#"
         input i_0: UInt8
 
@@ -710,7 +713,7 @@ mod tests {
         let timeout = Duration::from_millis(500);
 
         monitor
-            .accept_event(vec![v.clone()], start.elapsed())
+            .accept_event([v.clone()], start.elapsed())
             .expect("Failed to accept event");
         let res = queue.recv_timeout(timeout).unwrap();
 
@@ -727,7 +730,7 @@ mod tests {
     #[test]
     fn test_count_window() {
         let (_, mut monitor) =
-            setup::<Incremental>("input a: UInt16\noutput b: UInt16 @0.25Hz := a.aggregate(over: 40s, using: #)");
+            setup::<1, Incremental>("input a: UInt16\noutput b: UInt16 @0.25Hz := a.aggregate(over: 40s, using: #)");
 
         let timeout = Duration::from_millis(500);
         let output = monitor.output_queue();
@@ -735,7 +738,7 @@ mod tests {
         let n = 25;
         let mut time = Duration::from_secs(45);
         monitor
-            .accept_event(vec![Value::Unsigned(1)], time)
+            .accept_event([Value::Unsigned(1)], time)
             .expect("Failed to accept event");
 
         let res: Vec<_> = (0..11).map(|_| output.recv_timeout(timeout).unwrap()).collect();
@@ -748,7 +751,7 @@ mod tests {
         for v in 2..=n {
             time += Duration::from_secs(1);
             monitor
-                .accept_event(vec![Value::Unsigned(v)], time)
+                .accept_event([Value::Unsigned(v)], time)
                 .expect("Failed to accept event");
             if (v - 1) % 4 == 0 {
                 let res = output.recv_timeout(timeout).unwrap();
@@ -762,7 +765,7 @@ mod tests {
 
     #[test]
     fn test_spawn_eventbased() {
-        let (_, mut monitor) = setup::<Total>(
+        let (_, mut monitor) = setup::<2, Total>(
             "input a: Int32\n\
                   input b: Int32\n\
                   output c(x: Int32) spawn with a eval with x + a\n\
@@ -773,7 +776,7 @@ mod tests {
         let output = monitor.output_queue();
         monitor.start().expect("Failed to start monitor");
         monitor
-            .accept_event(vec![Value::Signed(15), Value::None], Duration::from_secs(1))
+            .accept_event([Value::Signed(15), Value::None], Duration::from_secs(1))
             .expect("Failed to accept event");
         let res = output.recv_timeout(timeout).unwrap();
 
@@ -788,7 +791,7 @@ mod tests {
         assert_eq!(sort_total(res.verdict), sort_total(expected));
 
         monitor
-            .accept_event(vec![Value::Signed(20), Value::Signed(7)], Duration::from_secs(2))
+            .accept_event([Value::Signed(20), Value::Signed(7)], Duration::from_secs(2))
             .expect("Failed to accept event");
         let res = output.recv_timeout(timeout).unwrap();
 
@@ -806,7 +809,7 @@ mod tests {
         assert_eq!(sort_total(res.verdict), sort_total(expected));
 
         monitor
-            .accept_event(vec![Value::None, Value::Signed(42)], Duration::from_secs(3))
+            .accept_event([Value::None, Value::Signed(42)], Duration::from_secs(3))
             .expect("Failed to accept event");
         let res = output.recv_timeout(timeout).unwrap();
 
@@ -826,7 +829,7 @@ mod tests {
 
     #[test]
     fn test_eval_close() {
-        let (_, mut monitor) = setup::<Incremental>(
+        let (_, mut monitor) = setup::<1, Incremental>(
             "input a: Int32\n\
                   output c(x: Int32)\n\
                     spawn with a \n\
@@ -838,7 +841,7 @@ mod tests {
         let output = monitor.output_queue();
         monitor.start().expect("Failed to start monitor");
         monitor
-            .accept_event(vec![Value::Signed(15)], Duration::from_secs(1))
+            .accept_event([Value::Signed(15)], Duration::from_secs(1))
             .expect("Failed to accept event");
         let res = output.recv_timeout(timeout).unwrap();
 

@@ -39,7 +39,8 @@ hex = "0.4.3" # parse hex strings to bytes
 either = "1.5.3"
 string_template = "0.2.1" # Format Trigger Messages
 priority-queue = "1.1.0" # For the dynamic schedule
-itertools = "0.10.3"
+
+itertools = "0.11.0"
 
 [features]
 queued-api = ["dep:crossbeam-channel"]

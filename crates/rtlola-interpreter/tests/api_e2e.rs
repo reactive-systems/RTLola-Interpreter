@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
+use std::convert::{Infallible, TryFrom};
 use std::env;
 use std::error::Error;
 use std::fs::{self, File};
@@ -17,9 +17,10 @@ use itertools::{Itertools, Position};
 use junit_report::{Duration as JunitDuration, OffsetDateTime, ReportBuilder, TestCase, TestSuiteBuilder};
 use ordered_float::NotNan;
 use rtlola_frontend::mir::Type;
-use rtlola_interpreter::monitor::{Monitor, Record, RecordInput, TriggerMessages};
+use rtlola_interpreter::input::{InputMap, MappedFactory};
+use rtlola_interpreter::monitor::{Monitor, TriggerMessages};
 use rtlola_interpreter::time::RelativeFloat;
-use rtlola_interpreter::{ConfigBuilder, NoError, Value};
+use rtlola_interpreter::{ConfigBuilder, Value};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 // inspired by: https://github.com/johnterickson/cargo2junit/blob/master/src/main.rs
@@ -200,9 +201,9 @@ impl From<StringRecord> for CsvRecord {
     }
 }
 
-impl Record for CsvRecord {
+impl InputMap for CsvRecord {
     type CreationData = HashMap<String, (Type, usize)>;
-    type Error = NoError;
+    type Error = Infallible;
 
     fn func_for_input(
         name: &str,
@@ -294,7 +295,7 @@ impl Test {
         let config = ConfigBuilder::new()
             .spec_file(self.spec_file.clone())
             .offline::<RelativeFloat>()
-            .record_input::<CsvRecord>()
+            .with_mapped_events::<CsvRecord>()
             .with_verdict::<TriggerMessages>()
             .build();
 
@@ -316,13 +317,13 @@ impl Test {
             })
             .collect();
 
-        let mut monitor: Monitor<RecordInput<CsvRecord>, _, TriggerMessages, _> =
+        let mut monitor: Monitor<MappedFactory<CsvRecord>, _, TriggerMessages, _> =
             config.monitor_with_data(inputs).expect("Failed to create Monitor");
 
         let mut actual = Vec::new();
-        for line in csv.records().with_position() {
-            let is_last = matches!(line, Position::Last(_));
-            let line = line.into_inner()?;
+        for (pos, line) in csv.records().with_position() {
+            let is_last = matches!(pos, Position::Last);
+            let line = line?;
             let time = timestamp_to_duration(&line[time_idx])?;
 
             let verdict = monitor.accept_event(line.into(), time).expect("Failed to accept event");

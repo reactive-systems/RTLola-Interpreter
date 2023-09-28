@@ -1,17 +1,18 @@
+use std::error::Error;
 use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
 use rtlola_frontend::mir::RtLolaMir;
 
-use crate::api::monitor::{Event, EventInput, Input, Record, RecordInput, VerdictRepresentation};
 use crate::config::{Config, ExecutionMode, MonitorConfig};
 use crate::configuration::time::{OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
-use crate::monitor::{NoTracer, Tracer, TracingVerdict};
+use crate::input::{ArrayFactory, EventFactory, EventFactoryError, InputMap, MappedFactory};
+use crate::monitor::{NoTracer, Tracer, TracingVerdict, VerdictRepresentation};
 use crate::time::RealTime;
 #[cfg(feature = "queued-api")]
 use crate::QueuedMonitor;
-use crate::{CondDeserialize, CondSerialize, Monitor};
+use crate::{CondDeserialize, CondSerialize, Monitor, Value};
 
 /* Type state of shared config */
 /// Represents a state of the [ConfigBuilder]
@@ -41,24 +42,24 @@ impl<InputTime: TimeRepresentation> ConfigState for ModeConfigured<InputTime> {}
 
 /// An API configuration state in which the input source is configured but the input time is not.
 #[derive(Debug, Clone)]
-pub struct InputConfigured<InputTime: TimeRepresentation, Source: Input> {
+pub struct InputConfigured<InputTime: TimeRepresentation, Source: EventFactory> {
     ir: RtLolaMir,
     input_time_representation: InputTime,
     mode: ExecutionMode,
     source: PhantomData<Source>,
 }
-impl<Source: Input, InputTime: TimeRepresentation> ConfigState for InputConfigured<InputTime, Source> {}
+impl<Source: EventFactory, InputTime: TimeRepresentation> ConfigState for InputConfigured<InputTime, Source> {}
 
 /// An API configuration state in which the input source is configured but the input time is not.
 #[derive(Debug, Clone)]
-pub struct VerdictConfigured<InputTime: TimeRepresentation, Source: Input, Verdict: VerdictRepresentation> {
+pub struct VerdictConfigured<InputTime: TimeRepresentation, Source: EventFactory, Verdict: VerdictRepresentation> {
     ir: RtLolaMir,
     input_time_representation: InputTime,
     mode: ExecutionMode,
     source: PhantomData<Source>,
     verdict: PhantomData<Verdict>,
 }
-impl<Source: Input, Verdict: VerdictRepresentation, InputTime: TimeRepresentation> ConfigState
+impl<Source: EventFactory, Verdict: VerdictRepresentation, InputTime: TimeRepresentation> ConfigState
     for VerdictConfigured<InputTime, Source, Verdict>
 {
 }
@@ -68,14 +69,16 @@ impl<Source: Input, Verdict: VerdictRepresentation, InputTime: TimeRepresentatio
 ///
 /// An example construction of the API:
 /// ````
-/// use rtlola_interpreter::monitor::{EventInput, Incremental};
+/// use std::convert::Infallible;
+/// use rtlola_interpreter::monitor::Incremental;
+/// use rtlola_interpreter::input::ArrayFactory;
 /// use rtlola_interpreter::time::RelativeFloat;
 /// use rtlola_interpreter::{ConfigBuilder, Monitor, Value};
 ///
 /// let monitor: Monitor<_, _, Incremental, _> = ConfigBuilder::new()
 ///     .spec_str("input i: Int64")
 ///     .offline::<RelativeFloat>()
-///     .event_input::<Vec<Value>>()
+///     .with_array_events::<1, Infallible, [Value; 1]>()
 ///     .with_verdict::<Incremental>()
 ///     .monitor().expect("Failed to create monitor.");
 /// ````
@@ -235,10 +238,14 @@ impl<OutputTime: OutputTimeRepresentation> ConfigBuilder<IrConfigured, OutputTim
 impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation>
     ConfigBuilder<ModeConfigured<InputTime>, OutputTime>
 {
-    /// Use the predefined [EventInput] method to provide inputs to the API.
-    pub fn event_input<E: Into<Event> + CondSerialize + CondDeserialize + Send>(
+    /// Use the predefined [ArrayFactory] method to provide inputs to the API.
+    pub fn with_array_events<
+        const N: usize,
+        I: Error + Send + 'static,
+        E: TryInto<[Value; N], Error = I> + CondSerialize + CondDeserialize + Send,
+    >(
         self,
-    ) -> ConfigBuilder<InputConfigured<InputTime, EventInput<E>>, OutputTime> {
+    ) -> ConfigBuilder<InputConfigured<InputTime, ArrayFactory<N, I, E>>, OutputTime> {
         let ConfigBuilder {
             output_time_representation,
             start_time,
@@ -262,10 +269,11 @@ impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation>
         }
     }
 
-    /// Use the predefined [RecordInput] method to provide inputs to the API.
-    pub fn record_input<Inner: Record>(
+    /// Use the predefined [MappedFactory] method to provide inputs to the API.
+    /// Requires implementing [InputMap] for your type defining how the values of input streams are extracted from it.
+    pub fn with_mapped_events<Inner: InputMap>(
         self,
-    ) -> ConfigBuilder<InputConfigured<InputTime, RecordInput<Inner>>, OutputTime> {
+    ) -> ConfigBuilder<InputConfigured<InputTime, MappedFactory<Inner>>, OutputTime> {
         let ConfigBuilder {
             output_time_representation,
             start_time,
@@ -290,7 +298,9 @@ impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation>
     }
 
     /// Use a custom input method to provide inputs to the API.
-    pub fn custom_input<Source: Input>(self) -> ConfigBuilder<InputConfigured<InputTime, Source>, OutputTime> {
+    pub fn with_event_factory<Source: EventFactory>(
+        self,
+    ) -> ConfigBuilder<InputConfigured<InputTime, Source>, OutputTime> {
         let ConfigBuilder {
             output_time_representation,
             start_time,
@@ -315,7 +325,7 @@ impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation>
     }
 }
 
-impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation, Source: Input>
+impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation, Source: EventFactory>
     ConfigBuilder<InputConfigured<InputTime, Source>, OutputTime>
 {
     /// Sets the [VerdictRepresentation] for the monitor
@@ -348,7 +358,7 @@ impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation, Source
 }
 
 impl<
-        Source: Input + 'static,
+        Source: EventFactory + 'static,
         InputTime: TimeRepresentation,
         Verdict: VerdictRepresentation<Tracing = NoTracer>,
         OutputTime: OutputTimeRepresentation,
@@ -385,7 +395,7 @@ impl<
 }
 
 impl<
-        Source: Input + 'static,
+        Source: EventFactory + 'static,
         InputTime: TimeRepresentation,
         Verdict: VerdictRepresentation,
         OutputTime: OutputTimeRepresentation,
@@ -414,24 +424,24 @@ impl<
         MonitorConfig::new(config)
     }
 
-    /// Create a [Monitor] from the configuration. The entrypoint of the API. The data is provided to the [Input](crate::monitor::Input) source at creation.
+    /// Create a [Monitor] from the configuration. The entrypoint of the API. The data is provided to the [Input](crate::input::EventFactory) source at creation.
     pub fn monitor_with_data(
         self,
         data: Source::CreationData,
-    ) -> Result<Monitor<Source, InputTime, Verdict, OutputTime>, Source::Error> {
+    ) -> Result<Monitor<Source, InputTime, Verdict, OutputTime>, EventFactoryError> {
         self.build().monitor_with_data(data)
     }
 
     /// Create a [Monitor] from the configuration. The entrypoint of the API.
-    pub fn monitor(self) -> Result<Monitor<Source, InputTime, Verdict, OutputTime>, Source::Error>
+    pub fn monitor(self) -> Result<Monitor<Source, InputTime, Verdict, OutputTime>, EventFactoryError>
     where
-        Source: Input<CreationData = ()> + 'static,
+        Source: EventFactory<CreationData = ()> + 'static,
     {
         self.build().monitor()
     }
 
     #[cfg(feature = "queued-api")]
-    /// Create a [QueuedMonitor] from the configuration. The entrypoint of the API. The data is provided to the [Input](crate::monitor::Input) source at creation.
+    /// Create a [QueuedMonitor] from the configuration. The entrypoint of the API. The data is provided to the [Input](crate::input::EventFactory) source at creation.
     pub fn queued_monitor_with_data(
         self,
         data: Source::CreationData,
@@ -443,7 +453,7 @@ impl<
     /// Create a [QueuedMonitor] from the configuration. The entrypoint of the API.
     pub fn queued_monitor(self) -> QueuedMonitor<Source, InputTime, Verdict, OutputTime>
     where
-        Source: Input<CreationData = ()> + 'static,
+        Source: EventFactory<CreationData = ()> + 'static,
     {
         self.build().queued_monitor()
     }

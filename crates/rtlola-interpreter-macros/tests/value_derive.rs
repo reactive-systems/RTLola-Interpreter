@@ -1,10 +1,10 @@
-use rtlola_interpreter::monitor::Record;
+use rtlola_interpreter::input::InputMap;
 use rtlola_interpreter::Value;
-use rtlola_interpreter_macros::Record;
+use rtlola_interpreter_macros::ValueFactory;
 
 #[test]
 fn simple() {
-    #[derive(Record)]
+    #[derive(ValueFactory)]
     struct Test {
         a: usize,
         b: f64,
@@ -31,8 +31,8 @@ fn simple() {
 
 #[test]
 fn prefix() {
-    #[derive(Record)]
-    #[record(prefix)]
+    #[derive(ValueFactory)]
+    #[factory(prefix)]
     struct StructPrefix {
         a: usize,
         b: f64,
@@ -59,12 +59,12 @@ fn prefix() {
 
 #[test]
 fn custom() {
-    #[derive(Record)]
-    #[record(custom_prefix = YourAdHere)]
+    #[derive(ValueFactory)]
+    #[factory(custom_prefix = YourAdHere)]
     struct TestCustomNames {
         a: usize,
         b: f64,
-        #[record(custom_name = Different)]
+        #[factory(custom_name = Different)]
         c: String,
     }
 
@@ -88,11 +88,11 @@ fn custom() {
 
 #[test]
 fn ignore() {
-    #[derive(Record)]
+    #[derive(ValueFactory)]
     struct TestCustomNames {
         a: usize,
         b: f64,
-        #[record(ignore)]
+        #[factory(ignore)]
         #[allow(dead_code)]
         c: String,
     }

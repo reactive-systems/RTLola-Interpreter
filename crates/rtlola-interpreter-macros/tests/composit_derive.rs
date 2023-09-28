@@ -1,27 +1,27 @@
 use std::collections::HashMap;
 
-use rtlola_interpreter::monitor::{DerivedInput, Input, RecordError};
+use rtlola_interpreter::input::{AssociatedFactory, EventFactory, EventFactoryError};
 use rtlola_interpreter::rtlola_mir::InputReference;
 use rtlola_interpreter::Value;
-use rtlola_interpreter_macros::{Input, Record};
+use rtlola_interpreter_macros::{CompositFactory, ValueFactory};
 
 #[test]
 fn simple() {
-    #[derive(Record)]
-    #[record(prefix)]
+    #[derive(ValueFactory)]
+    #[factory(prefix)]
     struct Msg1 {
         a: usize,
         b: f64,
     }
 
-    #[derive(Record)]
-    #[record(prefix)]
+    #[derive(ValueFactory)]
+    #[factory(prefix)]
     struct Msg2 {
         c: String,
         d: i64,
     }
 
-    #[derive(Input)]
+    #[derive(CompositFactory)]
     enum Rec {
         Var1(Msg1),
         Var2(Msg2),
@@ -36,7 +36,7 @@ fn simple() {
     .into_iter()
     .collect();
 
-    let input = <Rec as DerivedInput>::Input::new(map, ()).unwrap();
+    let input = <Rec as AssociatedFactory>::Factory::new(map, ()).unwrap();
 
     let t1 = Rec::Var1(Msg1 { a: 42, b: 13.37 });
     let expected = vec![
@@ -62,31 +62,31 @@ fn simple() {
 
 #[test]
 fn ignore() {
-    #[derive(Record)]
-    #[record(prefix)]
+    #[derive(ValueFactory)]
+    #[factory(prefix)]
     struct Msg1 {
         a: usize,
         b: f64,
     }
 
-    #[derive(Record)]
-    #[record(prefix)]
+    #[derive(ValueFactory)]
+    #[factory(prefix)]
     struct Msg2 {
         c: String,
         d: i64,
     }
 
-    #[derive(Input)]
+    #[derive(CompositFactory)]
     enum Rec {
         Var1(Msg1),
         Var2(Msg2),
-        #[input(ignore)]
+        #[factory(ignore)]
         #[allow(dead_code)]
         Var3,
-        #[input(ignore)]
+        #[factory(ignore)]
         #[allow(dead_code)]
         Var4(String),
-        #[input(ignore)]
+        #[factory(ignore)]
         Var5 {
             #[allow(dead_code)]
             x: usize,
@@ -102,7 +102,7 @@ fn ignore() {
     .into_iter()
     .collect();
 
-    let input = <Rec as DerivedInput>::Input::new(map, ()).unwrap();
+    let input = <Rec as AssociatedFactory>::Factory::new(map, ()).unwrap();
 
     let t1 = Rec::Var1(Msg1 { a: 42, b: 13.37 });
     let expected = vec![
@@ -125,32 +125,34 @@ fn ignore() {
     ];
     assert_eq!(input.get_event(t2).unwrap(), expected);
 
-    assert!(matches!(input.get_event(Rec::Var3), Err(RecordError::VariantIgnored(name)) if name == "Var3"));
+    assert!(matches!(input.get_event(Rec::Var3), Err(EventFactoryError::VariantIgnored(name)) if name == "Var3"));
     assert!(
-        matches!(input.get_event(Rec::Var4("Asd".to_string())), Err(RecordError::VariantIgnored(name)) if name == "Var4")
+        matches!(input.get_event(Rec::Var4("Asd".to_string())), Err(EventFactoryError::VariantIgnored(name)) if name == "Var4")
     );
-    assert!(matches!(input.get_event(Rec::Var5 {x: 5}), Err(RecordError::VariantIgnored(name)) if name == "Var5"));
+    assert!(
+        matches!(input.get_event(Rec::Var5 {x: 5}), Err(EventFactoryError::VariantIgnored(name)) if name == "Var5")
+    );
 }
 
 #[test]
 fn overlap() {
-    #[derive(Record)]
-    #[record(prefix)]
+    #[derive(ValueFactory)]
+    #[factory(prefix)]
     struct Msg1 {
         a: usize,
-        #[record(custom_name = time)]
+        #[factory(custom_name = time)]
         time: f64,
     }
 
-    #[derive(Record)]
-    #[record(prefix)]
+    #[derive(ValueFactory)]
+    #[factory(prefix)]
     struct Msg2 {
         b: i64,
-        #[record(custom_name = time)]
+        #[factory(custom_name = time)]
         time: f64,
     }
 
-    #[derive(Input)]
+    #[derive(CompositFactory)]
     enum Rec {
         Var1(Msg1),
         Var2(Msg2),
@@ -164,7 +166,7 @@ fn overlap() {
     .into_iter()
     .collect();
 
-    let input = <Rec as DerivedInput>::Input::new(map, ()).unwrap();
+    let input = <Rec as AssociatedFactory>::Factory::new(map, ()).unwrap();
 
     let t1 = Rec::Var1(Msg1 { a: 42, time: 13.37 });
     let expected = vec![Value::Unsigned(42), Value::None, Value::try_from(13.37).unwrap()];
@@ -177,23 +179,23 @@ fn overlap() {
 
 #[test]
 fn missing() {
-    #[derive(Record)]
-    #[record(prefix)]
+    #[derive(ValueFactory)]
+    #[factory(prefix)]
     struct Msg1 {
         a: usize,
-        #[record(custom_name = time)]
+        #[factory(custom_name = time)]
         time: f64,
     }
 
-    #[derive(Record)]
-    #[record(prefix)]
+    #[derive(ValueFactory)]
+    #[factory(prefix)]
     struct Msg2 {
         b: i64,
-        #[record(custom_name = time)]
+        #[factory(custom_name = time)]
         time: f64,
     }
 
-    #[derive(Input)]
+    #[derive(CompositFactory)]
     #[allow(dead_code)]
     enum Rec {
         Var1(Msg1),
@@ -209,18 +211,11 @@ fn missing() {
     .into_iter()
     .collect();
 
-    let res = <Rec as DerivedInput>::Input::new(map, ());
-    let Err(RecordError::InputStreamNotFound(errs)) = res else {
+    let res = <Rec as AssociatedFactory>::Factory::new(map, ());
+    let Err(EventFactoryError::InputStreamUnknown(errs)) = res else {
         panic!("Expected error reporting unknown stream!")
     };
     assert_eq!(errs.len(), 1);
-    let (name, reasons) = errs.into_iter().next().unwrap();
+    let name = errs.into_iter().next().unwrap();
     assert_eq!(name.as_str(), "unknown");
-
-    for reason in reasons {
-        let RecordError::InputStreamUnknown(name) = reason else {
-            panic!("Expected stream unknown error from record")
-        };
-        assert_eq!(name.as_str(), "unknown");
-    }
 }

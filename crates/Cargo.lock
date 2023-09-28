@@ -338,6 +338,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "acbf1af155f9b9ef647e42cdc158db4b64a1b61f743629225fde6f3e0be2a7c7"
 
 [[package]]
+name = "convert_case"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec182b0ca2f35d8fc196cf3404988fd8b8c739a4d270ff118a398feb0cbec1ca"
+dependencies = [
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "cpufeatures"
 version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -709,6 +718,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1c173a5686ce8bfa551b3563d0c2170bf24ca44da99c7ca4bfdab5418c3fe57"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -957,6 +975,12 @@ dependencies = [
  "smallvec",
  "windows-targets 0.48.0",
 ]
+
+[[package]]
+name = "paste"
+version = "1.0.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de3145af08024dea9fa9914f381a17b8fc6034dfb00f3a84013f7ff43f29ed4c"
 
 [[package]]
 name = "pcap"
@@ -1260,7 +1284,7 @@ version = "0.6.2"
 source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#d4e14e5a7f586bb8b9b84e8d06eb5eb517db712c"
 dependencies = [
  "dot",
- "itertools",
+ "itertools 0.10.5",
  "lazy_static",
  "num",
  "num-rational 0.3.2",
@@ -1277,7 +1301,7 @@ name = "rtlola-hir"
 version = "0.4.2"
 source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#d4e14e5a7f586bb8b9b84e8d06eb5eb517db712c"
 dependencies = [
- "itertools",
+ "itertools 0.10.5",
  "lazy_static",
  "num",
  "num-rational 0.4.1",
@@ -1317,7 +1341,7 @@ dependencies = [
  "either",
  "hex",
  "humantime",
- "itertools",
+ "itertools 0.11.0",
  "junit-report",
  "lazy_static",
  "num-traits",
@@ -1336,7 +1360,9 @@ dependencies = [
 name = "rtlola-interpreter-macros"
 version = "0.1.0"
 dependencies = [
+ "convert_case",
  "deluxe",
+ "paste",
  "proc-macro-error",
  "proc-macro2",
  "quote",
@@ -1754,6 +1780,12 @@ name = "unicode-ident"
 version = "1.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b15811caf2415fb889178633e7724bad2509101cde276048e013b9def5e51fa0"
+
+[[package]]
+name = "unicode-segmentation"
+version = "1.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1dd624098567895118886609431a7c3b8f516e41d30e0643f03d94592a147e36"
 
 [[package]]
 name = "unicode-width"

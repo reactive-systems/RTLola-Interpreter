@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use csv::{ByteRecord, Reader as CSVReader, ReaderBuilder, Result as ReaderResult, StringRecord, Trim};
 use rtlola_frontend::mir::InputStream;
-use rtlola_interpreter::monitor::{Record, ValueProjection};
+use rtlola_interpreter::input::{EventFactoryError, InputMap, ValueGetter};
 use rtlola_interpreter::rtlola_mir::{RtLolaMir, Type};
 use rtlola_interpreter::time::TimeRepresentation;
 use rtlola_interpreter::Value;
@@ -81,6 +81,12 @@ impl Error for CsvError {
     }
 }
 
+impl From<CsvError> for EventFactoryError {
+    fn from(value: CsvError) -> Self {
+        EventFactoryError::Other(Box::new(value))
+    }
+}
+
 /// The record as read from the csv data
 pub struct CsvRecord(ByteRecord);
 
@@ -90,11 +96,11 @@ impl From<ByteRecord> for CsvRecord {
     }
 }
 
-impl Record for CsvRecord {
+impl InputMap for CsvRecord {
     type CreationData = CsvColumnMapping;
     type Error = CsvError;
 
-    fn func_for_input(name: &str, data: Self::CreationData) -> Result<ValueProjection<Self, Self::Error>, Self::Error> {
+    fn func_for_input(name: &str, data: Self::CreationData) -> Result<ValueGetter<Self, Self::Error>, Self::Error> {
         let col_idx = data.name2col[name];
         let ty = data.name2type[name].clone();
         let name = name.to_string();
@@ -232,7 +238,7 @@ impl<InputTime: TimeRepresentation> EventSource<InputTime> for CsvEventSource<In
     type Error = CsvError;
     type Rec = CsvRecord;
 
-    fn init_data(&self) -> Result<<CsvRecord as Record>::CreationData, CsvError> {
+    fn init_data(&self) -> Result<<CsvRecord as InputMap>::CreationData, CsvError> {
         Ok(self.csv_column_mapping.clone())
     }
 

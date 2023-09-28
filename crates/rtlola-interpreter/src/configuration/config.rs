@@ -5,7 +5,8 @@ use std::time::SystemTime;
 
 use rtlola_frontend::RtLolaMir;
 
-use crate::api::monitor::{Incremental, Input, VerdictRepresentation};
+use crate::input::{EventFactory, EventFactoryError};
+use crate::monitor::{Incremental, VerdictRepresentation};
 use crate::time::{OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
 use crate::Monitor;
 #[cfg(feature = "queued-api")]
@@ -35,7 +36,7 @@ pub struct Config<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresent
 #[derive(Debug, Clone)]
 pub struct MonitorConfig<Source, SourceTime, Verdict = Incremental, VerdictTime = RelativeFloat>
 where
-    Source: Input,
+    Source: EventFactory,
     SourceTime: TimeRepresentation,
     Verdict: VerdictRepresentation,
     VerdictTime: OutputTimeRepresentation,
@@ -46,7 +47,7 @@ where
 }
 
 impl<
-        Source: Input + 'static,
+        Source: EventFactory + 'static,
         SourceTime: TimeRepresentation,
         Verdict: VerdictRepresentation,
         VerdictTime: OutputTimeRepresentation,
@@ -70,14 +71,14 @@ impl<
     pub fn monitor_with_data(
         self,
         data: Source::CreationData,
-    ) -> Result<Monitor<Source, SourceTime, Verdict, VerdictTime>, Source::Error> {
+    ) -> Result<Monitor<Source, SourceTime, Verdict, VerdictTime>, EventFactoryError> {
         Monitor::setup(self.config, data)
     }
 
     /// Transforms the configuration into a [Monitor]
-    pub fn monitor(self) -> Result<Monitor<Source, SourceTime, Verdict, VerdictTime>, Source::Error>
+    pub fn monitor(self) -> Result<Monitor<Source, SourceTime, Verdict, VerdictTime>, EventFactoryError>
     where
-        Source: Input<CreationData = ()>,
+        Source: EventFactory<CreationData = ()>,
     {
         Monitor::setup(self.config, ())
     }
@@ -95,7 +96,7 @@ impl<
     /// Transforms the configuration into a [QueuedMonitor]
     pub fn queued_monitor(self) -> QueuedMonitor<Source, SourceTime, Verdict, VerdictTime>
     where
-        Source: Input<CreationData = ()>,
+        Source: EventFactory<CreationData = ()>,
     {
         QueuedMonitor::setup(self.config, ())
     }
@@ -136,10 +137,10 @@ impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation> Config
     }
 
     /// Turn the configuration into the [Monitor] API.
-    pub fn monitor<Source: Input, Verdict: VerdictRepresentation>(
+    pub fn monitor<Source: EventFactory, Verdict: VerdictRepresentation>(
         self,
         data: Source::CreationData,
-    ) -> Result<Monitor<Source, InputTime, Verdict, OutputTime>, Source::Error> {
+    ) -> Result<Monitor<Source, InputTime, Verdict, OutputTime>, EventFactoryError> {
         Monitor::setup(self, data)
     }
 }

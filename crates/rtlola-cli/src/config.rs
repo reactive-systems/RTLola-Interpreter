@@ -16,7 +16,8 @@ use rtlola_input_plugins::csv_plugin::CsvInputSourceKind;
 use rtlola_input_plugins::pcap_plugin::PcapInputSource;
 use rtlola_input_plugins::EventSource;
 use rtlola_interpreter::config::ExecutionMode;
-use rtlola_interpreter::monitor::{RecordInput, TotalIncremental, TracingVerdict};
+use rtlola_interpreter::input::MappedFactory;
+use rtlola_interpreter::monitor::{TotalIncremental, TracingVerdict};
 use rtlola_interpreter::time::{OutputTimeRepresentation, TimeRepresentation};
 use rtlola_interpreter::QueuedMonitor;
 
@@ -146,7 +147,7 @@ impl<Source: EventSource<InputTime> + 'static, InputTime: TimeRepresentation, Ou
 
         // init monitor
         let mut monitor: QueuedMonitor<
-            RecordInput<Source::Rec>,
+            MappedFactory<Source::Rec>,
             InputTime,
             TracingVerdict<EvalTimeTracer, TotalIncremental>,
             OutputTime,

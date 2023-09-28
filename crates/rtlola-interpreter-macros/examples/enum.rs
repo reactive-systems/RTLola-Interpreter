@@ -1,30 +1,40 @@
-use rtlola_interpreter::monitor::{DerivedInput, Incremental};
+use rtlola_interpreter::input::AssociatedFactory;
+use rtlola_interpreter::monitor::Incremental;
 use rtlola_interpreter::time::RelativeFloat;
 use rtlola_interpreter::{ConfigBuilder, Monitor};
-use rtlola_interpreter_macros::{Input, Record};
+use rtlola_interpreter_macros::{CompositFactory, ValueFactory};
 
-#[derive(Record)]
+#[derive(ValueFactory)]
 struct A {
     a: usize,
     b: f64,
 }
 
-#[derive(Record)]
+#[derive(ValueFactory)]
 struct B {
     b: f64,
     c: String,
 }
 
-#[derive(Input)]
+#[derive(CompositFactory)]
+struct C;
+
+#[derive(CompositFactory)]
 #[allow(dead_code)]
 enum TestEnum {
     A(A),
     B(B),
-    #[input(ignore)]
+    #[factory(ignore)]
     C {
         e: usize,
         d: String,
     },
+    D {
+        a: A,
+        b: B,
+    },
+    E(A, B),
+    F,
 }
 
 fn main() {
@@ -35,7 +45,7 @@ fn main() {
                    input c: String\n",
         )
         .offline::<RelativeFloat>()
-        .custom_input::<<TestEnum as DerivedInput>::Input>()
+        .with_event_factory::<<TestEnum as AssociatedFactory>::Factory>()
         .with_verdict::<Incremental>()
         .monitor()
         .expect("Failed to create monitor.");
