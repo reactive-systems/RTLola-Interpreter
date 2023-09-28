@@ -251,7 +251,8 @@ impl<I: Error + Send + 'static> From<ArrayFactoryError<I>> for EventFactoryError
         Self::Other(Box::new(value.0))
     }
 }
-/// The simplest input method to the monitor. It accepts any type that can be turned into `[Value; N]` where `N` is the number of input streams.
+/// The simplest input method to the monitor. It accepts any type that can be turned into `[Value; N]` where `N` is ideally the number of input streams.
+/// If N is smaller than the number of windows the array is extended with `Value::None`.
 /// The conversion to values and the order of inputs must be handled externally.
 #[derive(Debug, Clone)]
 pub struct ArrayFactory<
@@ -259,6 +260,7 @@ pub struct ArrayFactory<
     I: Error + Send + 'static,
     E: TryInto<[Value; N], Error = I> + CondSerialize + CondDeserialize,
 > {
+    num_inputs: usize,
     phantom: PhantomData<E>,
 }
 
@@ -276,18 +278,28 @@ impl<
         map: HashMap<String, InputReference>,
         _setup_data: Self::CreationData,
     ) -> Result<(Self, Vec<String>), EventFactoryError> {
+        let num_inputs = map.len();
         let found: Vec<_> = map
             .into_iter()
             .sorted_by(|a, b| Ord::cmp(&a.1, &b.1))
             .map(|(name, _)| name)
             .take(N)
             .collect();
-        Ok((ArrayFactory { phantom: PhantomData }, found))
+        Ok((
+            ArrayFactory {
+                num_inputs,
+                phantom: PhantomData,
+            },
+            found,
+        ))
     }
 
     fn get_event(&self, rec: Self::Record) -> Result<Event, EventFactoryError> {
         let arr = rec.try_into().map_err(ArrayFactoryError)?;
-        Ok(Vec::from(arr))
+        let mut v = Vec::from(arr);
+        // Fill rest of the event with nones;
+        v.resize(self.num_inputs, Value::None);
+        Ok(v)
     }
 }
 

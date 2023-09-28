@@ -5,14 +5,14 @@ error[E0277]: the trait bound `rtlola_interpreter::Value: From<Duration>` is not
   |          ^^^^^^^^^^^^ the trait `From<Duration>` is not implemented for `rtlola_interpreter::Value`
   |
   = help: the following other types implement trait `From<T>`:
+            <rtlola_interpreter::Value as From<&[u8]>>
+            <rtlola_interpreter::Value as From<&str>>
+            <rtlola_interpreter::Value as From<Vec<u8>>>
             <rtlola_interpreter::Value as From<bool>>
             <rtlola_interpreter::Value as From<i16>>
             <rtlola_interpreter::Value as From<i32>>
             <rtlola_interpreter::Value as From<i64>>
-            <rtlola_interpreter::Value as From<usize>>
-            <rtlola_interpreter::Value as From<u16>>
-            <rtlola_interpreter::Value as From<u32>>
-            <rtlola_interpreter::Value as From<u64>>
+            <rtlola_interpreter::Value as From<rtlola_interpreter::storage::window_aggregations::AvgIv<G>>>
           and $N others
   = note: required for `Duration` to implement `Into<rtlola_interpreter::Value>`
   = note: required for `rtlola_interpreter::Value` to implement `TryFrom<Duration>`
