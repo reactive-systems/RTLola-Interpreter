@@ -264,7 +264,7 @@ test:nightly:
       - crates/target/
       - $CARGO_HOME
   variables:
-    RUSTFLAGS: "-Cinstrument-coverage -Zgcc-ld=lld"
+    RUSTFLAGS: "-Cinstrument-coverage"
     LLVM_PROFILE_FILE: "json5format-%m.profraw"
   script:
     - apt-get update -yqq
