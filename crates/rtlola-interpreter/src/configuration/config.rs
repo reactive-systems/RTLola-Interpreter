@@ -132,6 +132,7 @@ impl<
     }
 }
 
+#[cfg(feature = "queued-api")]
 impl<
         Source: EventFactory + 'static,
         SourceTime: TimeRepresentation,
@@ -156,6 +157,7 @@ impl<
     }
 }
 
+#[cfg(feature = "queued-api")]
 impl<Source: EventFactory + 'static, Verdict: VerdictRepresentation, VerdictTime: OutputTimeRepresentation>
     MonitorConfig<Source, OnlineMode, Verdict, VerdictTime>
 {
