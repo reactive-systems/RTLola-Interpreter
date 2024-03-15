@@ -7,7 +7,7 @@ use rtlola_frontend::RtLolaMir;
 
 use crate::input::{EventFactory, EventFactoryError};
 use crate::monitor::{Incremental, VerdictRepresentation};
-use crate::time::{OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
+use crate::time::{OutputTimeRepresentation, RealTime, RelativeFloat, TimeRepresentation};
 use crate::Monitor;
 #[cfg(feature = "queued-api")]
 use crate::QueuedMonitor;
@@ -19,42 +19,90 @@ The configuration describes how the specification should be executed.
 The `Config` can then be turned into a monitor for use via the API or simply executed.
  */
 #[derive(Clone, Debug)]
-pub struct Config<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation> {
+pub struct Config<Mode: ExecutionMode, OutputTime: OutputTimeRepresentation> {
     /// The representation of the specification
     pub ir: RtLolaMir,
     /// In which mode the evaluator is executed
-    pub mode: ExecutionMode,
-    /// Which format the time is given to the monitor
-    pub input_time_representation: InputTime,
+    pub mode: Mode,
     /// Which format to use to output time
     pub output_time_representation: PhantomData<OutputTime>,
     /// The start time to assume
     pub start_time: Option<SystemTime>,
 }
 
+/// The execution mode of the interpreter. See the `README` for more details.
+pub trait ExecutionMode: Default {
+    /// The TimeRepresentation used during execution.
+    type SourceTime: TimeRepresentation;
+
+    /// Creates a new ExecutionMode with initíalized Time.
+    fn new(time: Self::SourceTime) -> Self;
+
+    /// Returns the inner TimeRepresentation.
+    fn time_representation(&self) -> Self::SourceTime;
+}
+
+/// Time is taken by the monitor.
+#[derive(Debug, Copy, Clone, Default)]
+pub struct OnlineMode {
+    input_time_representation: RealTime,
+}
+impl ExecutionMode for OnlineMode {
+    type SourceTime = RealTime;
+
+    fn new(time: Self::SourceTime) -> Self {
+        Self {
+            input_time_representation: time,
+        }
+    }
+
+    fn time_representation(&self) -> Self::SourceTime {
+        self.input_time_representation
+    }
+}
+
+/// Time is provided by the input source in the format defined by the [TimeRepresentation].
+#[derive(Debug, Copy, Clone, Default)]
+pub struct OfflineMode<InputTime: TimeRepresentation> {
+    input_time_representation: InputTime,
+}
+impl<InputTime: TimeRepresentation> ExecutionMode for OfflineMode<InputTime> {
+    type SourceTime = InputTime;
+
+    fn new(time: Self::SourceTime) -> Self {
+        Self {
+            input_time_representation: time,
+        }
+    }
+
+    fn time_representation(&self) -> Self::SourceTime {
+        self.input_time_representation.clone()
+    }
+}
+
 /// A configuration struct containing all information (including type information) to initialize a Monitor.
 #[derive(Debug, Clone)]
-pub struct MonitorConfig<Source, SourceTime, Verdict = Incremental, VerdictTime = RelativeFloat>
+pub struct MonitorConfig<Source, Mode, Verdict = Incremental, VerdictTime = RelativeFloat>
 where
     Source: EventFactory,
-    SourceTime: TimeRepresentation,
+    Mode: ExecutionMode,
     Verdict: VerdictRepresentation,
     VerdictTime: OutputTimeRepresentation,
 {
-    config: Config<SourceTime, VerdictTime>,
+    config: Config<Mode, VerdictTime>,
     input: PhantomData<Source>,
     verdict: PhantomData<Verdict>,
 }
 
 impl<
         Source: EventFactory + 'static,
-        SourceTime: TimeRepresentation,
+        Mode: ExecutionMode,
         Verdict: VerdictRepresentation,
         VerdictTime: OutputTimeRepresentation,
-    > MonitorConfig<Source, SourceTime, Verdict, VerdictTime>
+    > MonitorConfig<Source, Mode, Verdict, VerdictTime>
 {
     /// Creates a new monitor config from a config
-    pub fn new(config: Config<SourceTime, VerdictTime>) -> Self {
+    pub fn new(config: Config<Mode, VerdictTime>) -> Self {
         Self {
             config,
             input: PhantomData,
@@ -63,7 +111,7 @@ impl<
     }
 
     /// Returns the underlying configuration
-    pub fn inner(&self) -> &Config<SourceTime, VerdictTime> {
+    pub fn inner(&self) -> &Config<Mode, VerdictTime> {
         &self.config
     }
 
@@ -71,66 +119,81 @@ impl<
     pub fn monitor_with_data(
         self,
         data: Source::CreationData,
-    ) -> Result<Monitor<Source, SourceTime, Verdict, VerdictTime>, EventFactoryError> {
+    ) -> Result<Monitor<Source, Mode, Verdict, VerdictTime>, EventFactoryError> {
         Monitor::setup(self.config, data)
     }
 
     /// Transforms the configuration into a [Monitor]
-    pub fn monitor(self) -> Result<Monitor<Source, SourceTime, Verdict, VerdictTime>, EventFactoryError>
+    pub fn monitor(self) -> Result<Monitor<Source, Mode, Verdict, VerdictTime>, EventFactoryError>
     where
         Source: EventFactory<CreationData = ()>,
     {
         Monitor::setup(self.config, ())
     }
+}
 
-    #[cfg(feature = "queued-api")]
+impl<
+        Source: EventFactory + 'static,
+        SourceTime: TimeRepresentation,
+        Verdict: VerdictRepresentation,
+        VerdictTime: OutputTimeRepresentation,
+    > MonitorConfig<Source, OfflineMode<SourceTime>, Verdict, VerdictTime>
+{
     /// Transforms the configuration into a [QueuedMonitor] using the provided data to setup the input source.
     pub fn queued_monitor_with_data(
         self,
         data: Source::CreationData,
-    ) -> QueuedMonitor<Source, SourceTime, Verdict, VerdictTime> {
-        QueuedMonitor::setup(self.config, data)
+    ) -> QueuedMonitor<Source, OfflineMode<SourceTime>, Verdict, VerdictTime> {
+        <QueuedMonitor<Source, OfflineMode<SourceTime>, Verdict, VerdictTime>>::setup(self.config, data)
     }
 
-    #[cfg(feature = "queued-api")]
     /// Transforms the configuration into a [QueuedMonitor]
-    pub fn queued_monitor(self) -> QueuedMonitor<Source, SourceTime, Verdict, VerdictTime>
+    pub fn queued_monitor(self) -> QueuedMonitor<Source, OfflineMode<SourceTime>, Verdict, VerdictTime>
     where
         Source: EventFactory<CreationData = ()>,
     {
-        QueuedMonitor::setup(self.config, ())
+        <QueuedMonitor<Source, OfflineMode<SourceTime>, Verdict, VerdictTime>>::setup(self.config, ())
     }
 }
 
-/// The execution mode of the interpreter. See the `README` for more details.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum ExecutionMode {
-    /// Time provided by input source
-    Offline,
-    /// Time taken by evaluator
-    Online,
+impl<Source: EventFactory + 'static, Verdict: VerdictRepresentation, VerdictTime: OutputTimeRepresentation>
+    MonitorConfig<Source, OnlineMode, Verdict, VerdictTime>
+{
+    /// Transforms the configuration into a [QueuedMonitor] using the provided data to setup the input source.
+    pub fn queued_monitor_with_data(
+        self,
+        data: Source::CreationData,
+    ) -> QueuedMonitor<Source, OnlineMode, Verdict, VerdictTime> {
+        <QueuedMonitor<Source, OnlineMode, Verdict, VerdictTime>>::setup(self.config, data)
+    }
+
+    /// Transforms the configuration into a [QueuedMonitor]
+    pub fn queued_monitor(self) -> QueuedMonitor<Source, OnlineMode, Verdict, VerdictTime>
+    where
+        Source: EventFactory<CreationData = ()>,
+    {
+        <QueuedMonitor<Source, OnlineMode, Verdict, VerdictTime>>::setup(self.config, ())
+    }
 }
 
-impl Config<RelativeFloat, RelativeFloat> {
+impl Config<OfflineMode<RelativeFloat>, RelativeFloat> {
     /// Creates a new Debug config.
     pub fn debug(ir: RtLolaMir) -> Self {
         Config {
             ir,
-            mode: ExecutionMode::Offline,
-            input_time_representation: RelativeFloat::default(),
+            mode: OfflineMode::default(),
             output_time_representation: PhantomData,
             start_time: None,
         }
     }
 }
 
-impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation> Config<InputTime, OutputTime> {
+impl<Mode: ExecutionMode, OutputTime: OutputTimeRepresentation> Config<Mode, OutputTime> {
     /// Creates a new API config
-    pub fn api(ir: RtLolaMir) -> Self {
+    pub fn api(ir: RtLolaMir) -> Config<OfflineMode<RelativeFloat>, OutputTime> {
         Config {
             ir,
-            mode: ExecutionMode::Offline,
-            input_time_representation: InputTime::default(),
+            mode: OfflineMode::default(),
             output_time_representation: PhantomData,
             start_time: None,
         }
@@ -140,7 +203,7 @@ impl<InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation> Config
     pub fn monitor<Source: EventFactory, Verdict: VerdictRepresentation>(
         self,
         data: Source::CreationData,
-    ) -> Result<Monitor<Source, InputTime, Verdict, OutputTime>, EventFactoryError> {
+    ) -> Result<Monitor<Source, Mode, Verdict, OutputTime>, EventFactoryError> {
         Monitor::setup(self, data)
     }
 }

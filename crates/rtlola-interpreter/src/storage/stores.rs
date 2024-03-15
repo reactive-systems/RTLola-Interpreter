@@ -1,6 +1,5 @@
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::default::Default;
 
 use bimap::BiHashMap;
 use either::Either;

@@ -29,7 +29,7 @@ use rtlola_frontend::mir::{InputReference, OutputReference, RtLolaMir, Type};
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-use crate::config::Config;
+use crate::config::{Config, ExecutionMode};
 use crate::configuration::time::{init_start_time, OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
 use crate::evaluator::{Evaluator, EvaluatorData};
 use crate::input::{EventFactory, EventFactoryError};
@@ -339,10 +339,10 @@ The generic argument `Verdict` implements the [VerdictRepresentation] trait desc
 The generic argument `VerdictTime` implements the [TimeRepresentation] trait defining the output time format. It defaults to [RelativeFloat]
  */
 #[allow(missing_debug_implementations)]
-pub struct Monitor<Source, SourceTime, Verdict = Incremental, VerdictTime = RelativeFloat>
+pub struct Monitor<Source, Mode, Verdict = Incremental, VerdictTime = RelativeFloat>
 where
     Source: EventFactory,
-    SourceTime: TimeRepresentation,
+    Mode: ExecutionMode,
     Verdict: VerdictRepresentation,
     VerdictTime: OutputTimeRepresentation + 'static,
 {
@@ -353,30 +353,30 @@ where
 
     source: Source,
 
-    source_time: SourceTime,
+    source_time: Mode::SourceTime,
     output_time: VerdictTime,
 
     phantom: PhantomData<Verdict>,
 }
 
 /// Crate-public interface
-impl<Source, SourceTime, Verdict, VerdictTime> Monitor<Source, SourceTime, Verdict, VerdictTime>
+impl<Source, Mode, Verdict, VerdictTime> Monitor<Source, Mode, Verdict, VerdictTime>
 where
     Source: EventFactory,
-    SourceTime: TimeRepresentation,
+    Mode: ExecutionMode,
     Verdict: VerdictRepresentation,
     VerdictTime: OutputTimeRepresentation,
 {
     ///setup
     pub fn setup(
-        config: Config<SourceTime, VerdictTime>,
+        config: Config<Mode, VerdictTime>,
         setup_data: Source::CreationData,
-    ) -> Result<Monitor<Source, SourceTime, Verdict, VerdictTime>, EventFactoryError> {
+    ) -> Result<Monitor<Source, Mode, Verdict, VerdictTime>, EventFactoryError> {
         let dyn_schedule = Rc::new(RefCell::new(DynamicSchedule::new()));
-        let source_time = config.input_time_representation;
+        let source_time = config.mode.time_representation();
         let output_time = VerdictTime::default();
 
-        init_start_time::<SourceTime>(config.start_time);
+        init_start_time::<Mode::SourceTime>(config.start_time);
 
         let input_map = config
             .ir
@@ -438,10 +438,10 @@ impl<'a> From<&'a Evaluator> for RawVerdict<'a> {
 }
 
 /// Public interface
-impl<Source, SourceTime, Verdict, VerdictTime> Monitor<Source, SourceTime, Verdict, VerdictTime>
+impl<Source, Mode, Verdict, VerdictTime> Monitor<Source, Mode, Verdict, VerdictTime>
 where
     Source: EventFactory,
-    SourceTime: TimeRepresentation,
+    Mode: ExecutionMode,
     Verdict: VerdictRepresentation,
     VerdictTime: OutputTimeRepresentation,
 {
@@ -453,7 +453,7 @@ where
     pub fn accept_event(
         &mut self,
         ev: Source::Record,
-        ts: SourceTime::InnerTime,
+        ts: <Mode::SourceTime as TimeRepresentation>::InnerTime,
     ) -> Result<Verdicts<Verdict, VerdictTime>, EventFactoryError> {
         let mut tracer = Verdict::Tracing::default();
 
@@ -490,7 +490,10 @@ where
     /**
     Computes all periodic streams up through and including the timestamp.
     */
-    pub fn accept_time(&mut self, ts: SourceTime::InnerTime) -> Vec<(VerdictTime::InnerTime, Verdict)> {
+    pub fn accept_time(
+        &mut self,
+        ts: <Mode::SourceTime as TimeRepresentation>::InnerTime,
+    ) -> Vec<(VerdictTime::InnerTime, Verdict)> {
         let ts = self.source_time.convert_from(ts);
 
         let timed = if self.ir.has_time_driven_features() {
@@ -597,7 +600,7 @@ where
     }
 
     /// Switch [VerdictRepresentation]s of the [Monitor].
-    pub fn with_verdict_representation<T: VerdictRepresentation>(self) -> Monitor<Source, SourceTime, T, VerdictTime> {
+    pub fn with_verdict_representation<T: VerdictRepresentation>(self) -> Monitor<Source, Mode, T, VerdictTime> {
         let Monitor {
             ir,
             eval,
@@ -625,6 +628,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use crate::api::monitor::Change;
+    use crate::config::OfflineMode;
     use crate::input::ArrayFactory;
     use crate::monitor::{Incremental, Monitor, Total, Value, VerdictRepresentation};
     use crate::time::RelativeFloat;
@@ -634,7 +638,7 @@ mod tests {
         spec: &str,
     ) -> (
         Instant,
-        Monitor<ArrayFactory<N, Infallible, [Value; N]>, RelativeFloat, V, RelativeFloat>,
+        Monitor<ArrayFactory<N, Infallible, [Value; N]>, OfflineMode<RelativeFloat>, V, RelativeFloat>,
     ) {
         // Init Monitor API
         let monitor = ConfigBuilder::new()

@@ -1070,7 +1070,6 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use ordered_float::{Float, NotNan};
-    use rtlola_frontend::mir::RtLolaMir;
     use rtlola_frontend::ParserConfig;
 
     use super::*;
