@@ -29,7 +29,7 @@ format:cli:
   stage: check-format
   tags:
     - docker
-  image: rustlang/rust:latest
+  image: rust:latest
   script:
     - rustc --version && cargo --version # Print version info for debugging
     - cargo fmt -p rtlola-cli --verbose -- --check
@@ -38,7 +38,7 @@ format:plugins:
   stage: check-format
   tags:
     - docker
-  image: rustlang/rust:latest
+  image: rust:latest
   script:
     - rustc --version && cargo --version # Print version info for debugging
     - cargo fmt -p rtlola-input-plugins --verbose -- --check
@@ -48,7 +48,7 @@ format:interpreter:
   stage: check-format
   tags:
     - docker
-  image: rustlang/rust:latest
+  image: rust:latest
   script:
     - rustc --version && cargo --version # Print version info for debugging
     - cargo fmt -p rtlola-interpreter --verbose -- --check
@@ -57,7 +57,7 @@ format:macros:
   stage: check-format
   tags:
     - docker
-  image: rustlang/rust:latest
+  image: rust:latest
   script:
     - rustc --version && cargo --version # Print version info for debugging
     - cargo fmt -p rtlola-interpreter-macros --verbose -- --check
