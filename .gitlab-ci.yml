@@ -29,7 +29,7 @@ format:cli:
   stage: check-format
   tags:
     - docker
-  image: rust:latest
+  image: rustlang/rust:nightly
   script:
     - rustup component add rustfmt
     - rustc --version && cargo --version # Print version info for debugging
@@ -39,7 +39,7 @@ format:plugins:
   stage: check-format
   tags:
     - docker
-  image: rust:latest
+  image: rustlang/rust:nightly
   script:
     - rustup component add rustfmt
     - rustc --version && cargo --version # Print version info for debugging
@@ -50,7 +50,7 @@ format:interpreter:
   stage: check-format
   tags:
     - docker
-  image: rust:latest
+  image: rustlang/rust:nightly
   script:
     - rustup component add rustfmt
     - rustc --version && cargo --version # Print version info for debugging
@@ -60,7 +60,7 @@ format:macros:
   stage: check-format
   tags:
     - docker
-  image: rust:latest
+  image: rustlang/rust:nightly
   script:
     - rustup component add rustfmt
     - rustc --version && cargo --version # Print version info for debugging
