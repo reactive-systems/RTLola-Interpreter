@@ -29,38 +29,38 @@ format:cli:
   stage: check-format
   tags:
     - docker
-  image: rustlang/rust:nightly
+  image: rustlang/rust:latest
   script:
     - rustc --version && cargo --version # Print version info for debugging
-    - cargo +nightly fmt -p rtlola-cli --verbose -- --check
+    - cargo fmt -p rtlola-cli --verbose -- --check
 
 format:plugins:
   stage: check-format
   tags:
     - docker
-  image: rustlang/rust:nightly
+  image: rustlang/rust:latest
   script:
     - rustc --version && cargo --version # Print version info for debugging
-    - cargo +nightly fmt -p rtlola-input-plugins --verbose -- --check
+    - cargo fmt -p rtlola-input-plugins --verbose -- --check
 
 # Use cargo to check the source code formatting
 format:interpreter:
   stage: check-format
   tags:
     - docker
-  image: rustlang/rust:nightly
+  image: rustlang/rust:latest
   script:
     - rustc --version && cargo --version # Print version info for debugging
-    - cargo +nightly fmt -p rtlola-interpreter --verbose -- --check
+    - cargo fmt -p rtlola-interpreter --verbose -- --check
 
 format:macros:
   stage: check-format
   tags:
     - docker
-  image: rustlang/rust:nightly
+  image: rustlang/rust:latest
   script:
     - rustc --version && cargo --version # Print version info for debugging
-    - cargo +nightly fmt -p rtlola-interpreter-macros --verbose -- --check
+    - cargo fmt -p rtlola-interpreter-macros --verbose -- --check
 
 # Use cargo to run clippy (Rust linter)
 clippy:cli:
