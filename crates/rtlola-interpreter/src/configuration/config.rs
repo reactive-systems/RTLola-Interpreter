@@ -39,7 +39,7 @@ pub trait ExecutionMode: Default {
     fn new(time: Self::SourceTime) -> Self;
 
     /// Returns the inner TimeRepresentation.
-    fn time_representation(&self) -> Self::SourceTime;
+    fn time_representation(&self) -> &Self::SourceTime;
 }
 
 /// Time is taken by the monitor.
@@ -56,8 +56,8 @@ impl ExecutionMode for OnlineMode {
         }
     }
 
-    fn time_representation(&self) -> Self::SourceTime {
-        self.input_time_representation.clone()
+    fn time_representation(&self) -> &Self::SourceTime {
+        &self.input_time_representation
     }
 }
 
@@ -75,8 +75,8 @@ impl<InputTime: TimeRepresentation> ExecutionMode for OfflineMode<InputTime> {
         }
     }
 
-    fn time_representation(&self) -> Self::SourceTime {
-        self.input_time_representation.clone()
+    fn time_representation(&self) -> &Self::SourceTime {
+        &self.input_time_representation
     }
 }
 

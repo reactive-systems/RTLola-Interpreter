@@ -506,7 +506,7 @@ impl<Source: EventFactory, Verdict: VerdictRepresentation, VerdictTime: OutputTi
         output: Sender<QueuedVerdict<Verdict, VerdictTime>>,
     ) -> Result<Self, QueueError> {
         // setup monitor
-        let source_time = config.mode.time_representation();
+        let source_time = config.mode.time_representation().clone();
         let source = Source::new(input_names, setup_data).map_err(|e| QueueError::SourceError(Box::new(e)))?;
 
         // Setup evaluator
@@ -544,7 +544,7 @@ impl<Source: EventFactory, Verdict: VerdictRepresentation, VerdictTime: OutputTi
                 // Deadlines always in the future, if not, i.e. the max evaluates to 0 we should output a warning as the monitor is falling behind its schedule...
                 let now = self.source_time.convert_from(());
                 let wait_time = if due <= now {
-                    eprintln!("Monitor is falling behind schedule by: {}s", (now - due).as_secs_f64());
+                    // eprintln!("Monitor is falling behind schedule by: {}s", (now - due).as_secs_f64());
                     Duration::ZERO
                 } else {
                     due - now

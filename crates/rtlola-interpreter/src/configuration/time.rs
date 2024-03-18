@@ -58,10 +58,6 @@ const NANOS_IN_SECOND: u64 = 1_000_000_000;
 
 pub(crate) type StartTime = Arc<RwLock<Option<SystemTime>>>;
 
-// pub(crate) fn init_start_time<T: TimeRepresentation>(start_time: Option<SystemTime>) {
-//     *START_TIME.write().unwrap() = start_time.or_else(T::default_start_time);
-// }
-
 /// Precisely parses an duration from a string of the form '{secs}.{sub-secs}'
 pub fn parse_float_time(s: &str) -> Result<Duration, String> {
     let num = Decimal::from_str(s).map_err(|e| e.to_string())?;

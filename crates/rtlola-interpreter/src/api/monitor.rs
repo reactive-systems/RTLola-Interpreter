@@ -373,7 +373,7 @@ where
         setup_data: Source::CreationData,
     ) -> Result<Monitor<Source, Mode, Verdict, VerdictTime>, EventFactoryError> {
         let dyn_schedule = Rc::new(RefCell::new(DynamicSchedule::new()));
-        let mut source_time = config.mode.time_representation();
+        let mut source_time = config.mode.time_representation().clone();
         let mut output_time = VerdictTime::default();
 
         let st = source_time.init_start_time(config.start_time);
