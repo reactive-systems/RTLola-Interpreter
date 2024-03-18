@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Fixed
 - critical Bug in handling deadlines in online mode.
+- Bug when executing two monitor instances in parallel.
 
 ### Changed
 - Refactored input handling types into their own file.

@@ -37,14 +37,14 @@ use rtlola_frontend::mir::{InputReference, OutputReference, RtLolaMir, Type};
 use serde::Serialize;
 
 use crate::config::{Config, ExecutionMode, OfflineMode, OnlineMode};
-use crate::configuration::time::{init_start_time, OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
+use crate::configuration::time::{OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
 use crate::evaluator::{Evaluator, EvaluatorData};
 use crate::input::EventFactory;
 use crate::monitor::{Incremental, RawVerdict, Tracer, VerdictRepresentation, Verdicts};
 use crate::schedule::schedule_manager::ScheduleManager;
 use crate::schedule::DynamicSchedule;
 use crate::time::RealTime;
-use crate::{Monitor, Time};
+use crate::Monitor;
 
 /// Represents the kind of the verdict. I.e. whether the evaluation was triggered by an event, or by a deadline.
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -488,7 +488,6 @@ where
     source_time: RealTime,
     output_time: Option<VerdictTime>,
     start_time: Option<SystemTime>,
-    current_time: Time,
 
     schedule_manager: ScheduleManager,
     evaluator: Evaluator,
@@ -507,7 +506,7 @@ impl<Source: EventFactory, Verdict: VerdictRepresentation, VerdictTime: OutputTi
         output: Sender<QueuedVerdict<Verdict, VerdictTime>>,
     ) -> Result<Self, QueueError> {
         // setup monitor
-        let source_time = config.mode.time_representation();
+        let source_time = config.mode.time_representation().clone();
         let source = Source::new(input_names, setup_data).map_err(|e| QueueError::SourceError(Box::new(e)))?;
 
         // Setup evaluator
@@ -522,7 +521,6 @@ impl<Source: EventFactory, Verdict: VerdictRepresentation, VerdictTime: OutputTi
             source_time,
             output_time: None,
             start_time: config.start_time,
-            current_time: Duration::from_secs(0),
             schedule_manager,
             evaluator,
             input,
@@ -531,8 +529,10 @@ impl<Source: EventFactory, Verdict: VerdictRepresentation, VerdictTime: OutputTi
     }
 
     fn init(&mut self) -> Result<(), QueueError> {
-        init_start_time::<RealTime>(self.start_time);
-        self.output_time.replace(VerdictTime::default());
+        let st = self.source_time.init_start_time(self.start_time);
+        let mut ot = VerdictTime::default();
+        ot.set_start_time(st);
+        self.output_time.replace(ot);
         Ok(())
     }
 
@@ -561,7 +561,6 @@ impl<Source: EventFactory, Verdict: VerdictRepresentation, VerdictTime: OutputTi
                         .get_event(e)
                         .map_err(|e| QueueError::SourceError(Box::new(e)))?;
                     let ts = self.source_time.convert_from(ts);
-                    self.current_time = ts;
 
                     let mut tracer = Verdict::Tracing::default();
                     tracer.eval_start();
@@ -580,7 +579,6 @@ impl<Source: EventFactory, Verdict: VerdictRepresentation, VerdictTime: OutputTi
                     let mut tracer = Verdict::Tracing::default();
                     tracer.eval_start();
                     let due = next_deadline.expect("timeout to only happen for a deadline.");
-                    self.current_time = due;
                     //println!("Deadline at: {:?} evaluated at: {:?}", self.current_time, self.source_time.convert_from(()));
 
                     let deadline = self.schedule_manager.get_next_deadline(due);
