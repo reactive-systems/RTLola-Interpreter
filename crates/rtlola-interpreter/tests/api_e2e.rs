@@ -1,10 +1,9 @@
 use std::collections::{HashMap, HashSet};
-use std::convert::{Infallible, TryFrom};
+use std::convert::Infallible;
 use std::env;
 use std::error::Error;
 use std::fs::{self, File};
 use std::io::BufReader;
-use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 use std::process::exit;
 use std::str::FromStr;

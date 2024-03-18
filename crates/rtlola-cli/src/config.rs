@@ -15,10 +15,10 @@ use rtlola_input_plugins::csv_plugin::CsvInputSourceKind;
 #[cfg(feature = "pcap_interface")]
 use rtlola_input_plugins::pcap_plugin::PcapInputSource;
 use rtlola_input_plugins::EventSource;
-use rtlola_interpreter::config::ExecutionMode;
+use rtlola_interpreter::config::{ExecutionMode, OfflineMode, OnlineMode};
 use rtlola_interpreter::input::MappedFactory;
 use rtlola_interpreter::monitor::{TotalIncremental, TracingVerdict};
-use rtlola_interpreter::time::{OutputTimeRepresentation, TimeRepresentation};
+use rtlola_interpreter::time::{OutputTimeRepresentation, RealTime, TimeRepresentation};
 use rtlola_interpreter::QueuedMonitor;
 
 use crate::output::{EvalTimeTracer, OutputChannel, OutputHandler};
@@ -31,6 +31,7 @@ The `Config` can then be turned into a monitor for use via the API or simply exe
  */
 pub(crate) struct Config<
     Source: EventSource<InputTime>,
+    Mode: ExecutionMode<SourceTime = InputTime>,
     InputTime: TimeRepresentation,
     OutputTime: OutputTimeRepresentation,
 > {
@@ -45,9 +46,7 @@ pub(crate) struct Config<
     /// Where the output should go
     pub(crate) output_channel: OutputChannel,
     /// In which mode the evaluator is executed
-    pub(crate) mode: ExecutionMode,
-    /// Which format the time is given to the monitor
-    pub(crate) input_time_representation: InputTime,
+    pub(crate) mode: Mode,
     /// Which format to use to output time
     pub(crate) output_time_representation: PhantomData<OutputTime>,
     /// The start time to assume
@@ -118,7 +117,7 @@ pub enum EventSourceConfig {
 }
 
 impl<Source: EventSource<InputTime> + 'static, InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation>
-    Config<Source, InputTime, OutputTime>
+    Config<Source, OfflineMode<InputTime>, InputTime, OutputTime>
 {
     pub(crate) fn run(self) -> Result<(), Box<dyn Error>> {
         // Convert config
@@ -130,7 +129,6 @@ impl<Source: EventSource<InputTime> + 'static, InputTime: TimeRepresentation, Ou
             verbosity,
             output_channel,
             mode,
-            input_time_representation,
             output_time_representation,
             start_time,
         } = self;
@@ -140,7 +138,6 @@ impl<Source: EventSource<InputTime> + 'static, InputTime: TimeRepresentation, Ou
         let cfg = InterpreterConfig {
             ir,
             mode,
-            input_time_representation,
             output_time_representation,
             start_time,
         };
@@ -148,10 +145,77 @@ impl<Source: EventSource<InputTime> + 'static, InputTime: TimeRepresentation, Ou
         // init monitor
         let mut monitor: QueuedMonitor<
             MappedFactory<Source::Rec>,
-            InputTime,
+            OfflineMode<InputTime>,
             TracingVerdict<EvalTimeTracer, TotalIncremental>,
             OutputTime,
-        > = QueuedMonitor::setup(cfg, source.init_data()?);
+        > = <QueuedMonitor<
+            MappedFactory<Source::Rec>,
+            OfflineMode<InputTime>,
+            TracingVerdict<EvalTimeTracer, TotalIncremental>,
+            OutputTime,
+        >>::setup(cfg, source.init_data()?);
+
+        let queue = monitor.output_queue();
+        let output_handler = match output_channel {
+            OutputChannel::StdOut => thread::spawn(move || output.run(stdout(), queue)),
+            OutputChannel::StdErr => thread::spawn(move || output.run(stderr(), queue)),
+            OutputChannel::File(f) => {
+                let file = File::create(f.as_path()).expect("Could not open output file!");
+                thread::spawn(move || output.run(BufWriter::new(file), queue))
+            },
+        };
+
+        // start evaluation
+        monitor.start()?;
+        while let Some((ev, ts)) = source.next_event()? {
+            monitor.accept_event(ev, ts)?;
+        }
+        // Wait for all events to be processed
+        monitor.end()?;
+        // Wait for the output queue to empty up.
+        output_handler.join().expect("Failed to join on output handler");
+        Ok(())
+    }
+}
+
+impl<Source: EventSource<RealTime> + 'static, OutputTime: OutputTimeRepresentation>
+    Config<Source, OnlineMode, RealTime, OutputTime>
+{
+    pub(crate) fn run(self) -> Result<(), Box<dyn Error>> {
+        // Convert config
+        use rtlola_interpreter::config::Config as InterpreterConfig;
+        let Config {
+            ir,
+            mut source,
+            statistics,
+            verbosity,
+            output_channel,
+            mode,
+            output_time_representation,
+            start_time,
+        } = self;
+
+        let output: OutputHandler<OutputTime> = OutputHandler::new(&ir, verbosity, statistics);
+
+        let cfg = InterpreterConfig {
+            ir,
+            mode,
+            output_time_representation,
+            start_time,
+        };
+
+        // init monitor
+        let mut monitor: QueuedMonitor<
+            MappedFactory<Source::Rec>,
+            OnlineMode,
+            TracingVerdict<EvalTimeTracer, TotalIncremental>,
+            OutputTime,
+        > = <QueuedMonitor<
+            MappedFactory<Source::Rec>,
+            OnlineMode,
+            TracingVerdict<EvalTimeTracer, TotalIncremental>,
+            OutputTime,
+        >>::setup(cfg, source.init_data()?);
 
         let queue = monitor.output_queue();
         let output_handler = match output_channel {

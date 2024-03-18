@@ -129,7 +129,7 @@ impl ScheduleManager {
                         let dyn_deadline = (*self.dyn_schedule).borrow_mut().get_next_deadline(now).unwrap().tasks;
                         let mut res = static_deadline
                             .into_iter()
-                            .chain(dyn_deadline.into_iter())
+                            .chain(dyn_deadline)
                             .collect::<Vec<EvaluationTask>>();
                         res.sort_by_key(|t| t.get_sort_key(&self.ir));
                         res

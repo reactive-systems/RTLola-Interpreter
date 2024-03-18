@@ -1,6 +1,5 @@
 //! This plugins enables the parsing of network packets either from a pcap file or from a network device.
 
-use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;

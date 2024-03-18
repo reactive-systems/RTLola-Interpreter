@@ -3,7 +3,6 @@ use std::ops::Add;
 
 use ordered_float::NotNan;
 use rust_decimal::prelude::*;
-use rust_decimal::Decimal;
 
 use crate::storage::window::{WindowGeneric, WindowIv};
 use crate::storage::Value;
@@ -500,7 +499,6 @@ impl<G: WindowGeneric> PercentileIv<G> {
     pub(crate) fn percentile_get_value(self, percentile: u8) -> Value {
         let idx: f32 = self.count as f32 * (percentile as f32 / 100.0);
         let int_idx = (idx.ceil() as usize) - 1;
-        let idx = idx;
         if self.values.is_empty() {
             return Value::None;
         }

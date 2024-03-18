@@ -21,6 +21,7 @@
 
 use std::any::Any;
 use std::cell::RefCell;
+use std::cmp::max;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
@@ -36,14 +37,15 @@ use rtlola_frontend::mir::{InputReference, OutputReference, RtLolaMir, Type};
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-use crate::config::{Config, ExecutionMode};
+use crate::config::{Config, ExecutionMode, OfflineMode, OnlineMode};
 use crate::configuration::time::{init_start_time, OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
 use crate::evaluator::{Evaluator, EvaluatorData};
 use crate::input::EventFactory;
 use crate::monitor::{Incremental, RawVerdict, Tracer, VerdictRepresentation, Verdicts};
 use crate::schedule::schedule_manager::ScheduleManager;
 use crate::schedule::DynamicSchedule;
-use crate::Monitor;
+use crate::time::RealTime;
+use crate::{Monitor, Time};
 
 /// Represents the kind of the verdict. I.e. whether the evaluation was triggered by an event, or by a deadline.
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -142,93 +144,32 @@ The generic argument `Verdict` implements the [VerdictRepresentation] trait desc
 The generic argument `VerdictTime` implements the [TimeRepresentation] trait defining the output time format. It defaults to [RelativeFloat]
  */
 #[allow(missing_debug_implementations)]
-pub struct QueuedMonitor<Source, SourceTime, Verdict = Incremental, VerdictTime = RelativeFloat>
+pub struct QueuedMonitor<Source, Mode, Verdict = Incremental, VerdictTime = RelativeFloat>
 where
     Source: EventFactory,
-    SourceTime: TimeRepresentation,
+    Mode: ExecutionMode,
     Verdict: VerdictRepresentation,
     VerdictTime: OutputTimeRepresentation + 'static,
 {
     ir: RtLolaMir,
     worker: Option<JoinHandle<Result<(), QueueError>>>,
 
-    input: Sender<WorkItem<Source, SourceTime>>,
+    input: Sender<WorkItem<Source, Mode::SourceTime>>,
     output: Receiver<QueuedVerdict<Verdict, VerdictTime>>,
 }
 
-impl<Source, SourceTime, Verdict, VerdictTime> QueuedMonitor<Source, SourceTime, Verdict, VerdictTime>
+impl<Source, Mode, Verdict, VerdictTime> QueuedMonitor<Source, Mode, Verdict, VerdictTime>
 where
     Source: EventFactory + 'static,
-    SourceTime: TimeRepresentation,
+    Mode: ExecutionMode,
     Verdict: VerdictRepresentation,
     VerdictTime: OutputTimeRepresentation,
 {
-    /// setup the api, while providing bounds for the queues.
-    pub fn bounded_setup(
-        config: Config<SourceTime, VerdictTime>,
-        setup_data: Source::CreationData,
-        input_queue_bound: QueueLength,
-        output_queue_bound: QueueLength,
-    ) -> QueuedMonitor<Source, SourceTime, Verdict, VerdictTime> {
-        let config_clone = config.clone();
-
-        let input_map = config
-            .ir
-            .inputs
-            .iter()
-            .map(|i| (i.name.clone(), i.reference.in_ix()))
-            .collect();
-
-        let (input_send, input_rcv) = input_queue_bound.to_queue();
-        let (output_send, output_rcv) = output_queue_bound.to_queue();
-
-        let worker = match config.mode {
-            ExecutionMode::Offline => {
-                thread::spawn(move || {
-                    Self::runner::<OfflineWorker<Source, SourceTime, Verdict, VerdictTime>>(
-                        config_clone,
-                        input_map,
-                        setup_data,
-                        input_rcv,
-                        output_send,
-                    )
-                })
-            },
-            ExecutionMode::Online => {
-                thread::spawn(move || {
-                    Self::runner::<OnlineWorker<Source, SourceTime, Verdict, VerdictTime>>(
-                        config_clone,
-                        input_map,
-                        setup_data,
-                        input_rcv,
-                        output_send,
-                    )
-                })
-            },
-        };
-
-        QueuedMonitor {
-            ir: config.ir,
-            worker: Some(worker),
-
-            input: input_send,
-            output: output_rcv,
-        }
-    }
-
-    /// setup the api
-    pub fn setup(
-        config: Config<SourceTime, VerdictTime>,
-        setup_data: Source::CreationData,
-    ) -> QueuedMonitor<Source, SourceTime, Verdict, VerdictTime> {
-        Self::bounded_setup(config, setup_data, QueueLength::Unbounded, QueueLength::Unbounded)
-    }
-
-    fn runner<W: Worker<Source, SourceTime, Verdict, VerdictTime>>(
-        config: Config<SourceTime, VerdictTime>,
+    fn runner<W: Worker<Source, Mode, Verdict, VerdictTime>>(
+        config: Config<Mode, VerdictTime>,
         input_names: HashMap<String, InputReference>,
         setup_data: Source::CreationData,
-        input: Receiver<WorkItem<Source, SourceTime>>,
+        input: Receiver<WorkItem<Source, Mode::SourceTime>>,
         output: Sender<QueuedVerdict<Verdict, VerdictTime>>,
     ) -> Result<(), QueueError> {
         let mut worker = W::setup(config, input_names, setup_data, input.clone(), output)?;
@@ -268,7 +209,11 @@ where
     /**
     Schedules a new event for evaluation. The verdict can be received through the Queue return by the [QueuedMonitor::output_queue].
     */
-    pub fn accept_event(&mut self, ev: Source::Record, ts: SourceTime::InnerTime) -> Result<(), QueueError> {
+    pub fn accept_event(
+        &mut self,
+        ev: Source::Record,
+        ts: <Mode::SourceTime as TimeRepresentation>::InnerTime,
+    ) -> Result<(), QueueError> {
         self.worker_alive()?;
         self.input
             .send(WorkItem::Event(ev, ts))
@@ -380,27 +325,134 @@ where
     }
 }
 
+impl<Source, SourceTime, Verdict, VerdictTime> QueuedMonitor<Source, OfflineMode<SourceTime>, Verdict, VerdictTime>
+where
+    Source: EventFactory + 'static,
+    SourceTime: TimeRepresentation,
+    Verdict: VerdictRepresentation,
+    VerdictTime: OutputTimeRepresentation,
+{
+    /// setup the api, while providing bounds for the queues.
+    pub fn bounded_setup(
+        config: Config<OfflineMode<SourceTime>, VerdictTime>,
+        setup_data: Source::CreationData,
+        input_queue_bound: QueueLength,
+        output_queue_bound: QueueLength,
+    ) -> QueuedMonitor<Source, OfflineMode<SourceTime>, Verdict, VerdictTime> {
+        let config_clone = config.clone();
+
+        let input_map = config
+            .ir
+            .inputs
+            .iter()
+            .map(|i| (i.name.clone(), i.reference.in_ix()))
+            .collect();
+
+        let (input_send, input_rcv) = input_queue_bound.to_queue();
+        let (output_send, output_rcv) = output_queue_bound.to_queue();
+
+        let worker = thread::spawn(move || {
+            Self::runner::<OfflineWorker<Source, SourceTime, Verdict, VerdictTime>>(
+                config_clone,
+                input_map,
+                setup_data,
+                input_rcv,
+                output_send,
+            )
+        });
+
+        QueuedMonitor {
+            ir: config.ir,
+            worker: Some(worker),
+
+            input: input_send,
+            output: output_rcv,
+        }
+    }
+
+    /// setup the api with unbounded queues
+    pub fn setup(
+        config: Config<OfflineMode<SourceTime>, VerdictTime>,
+        setup_data: Source::CreationData,
+    ) -> QueuedMonitor<Source, OfflineMode<SourceTime>, Verdict, VerdictTime> {
+        Self::bounded_setup(config, setup_data, QueueLength::Unbounded, QueueLength::Unbounded)
+    }
+}
+
+impl<Source, Verdict, VerdictTime> QueuedMonitor<Source, OnlineMode, Verdict, VerdictTime>
+where
+    Source: EventFactory + 'static,
+    Verdict: VerdictRepresentation,
+    VerdictTime: OutputTimeRepresentation,
+{
+    /// setup the api, while providing bounds for the queues.
+    pub fn bounded_setup(
+        config: Config<OnlineMode, VerdictTime>,
+        setup_data: Source::CreationData,
+        input_queue_bound: QueueLength,
+        output_queue_bound: QueueLength,
+    ) -> QueuedMonitor<Source, OnlineMode, Verdict, VerdictTime> {
+        let config_clone = config.clone();
+
+        let input_map = config
+            .ir
+            .inputs
+            .iter()
+            .map(|i| (i.name.clone(), i.reference.in_ix()))
+            .collect();
+
+        let (input_send, input_rcv) = input_queue_bound.to_queue();
+        let (output_send, output_rcv) = output_queue_bound.to_queue();
+
+        let worker = thread::spawn(move || {
+            Self::runner::<OnlineWorker<Source, Verdict, VerdictTime>>(
+                config_clone,
+                input_map,
+                setup_data,
+                input_rcv,
+                output_send,
+            )
+        });
+
+        QueuedMonitor {
+            ir: config.ir,
+            worker: Some(worker),
+
+            input: input_send,
+            output: output_rcv,
+        }
+    }
+
+    /// setup the api with unbounded queues
+    pub fn setup(
+        config: Config<OnlineMode, VerdictTime>,
+        setup_data: Source::CreationData,
+    ) -> QueuedMonitor<Source, OnlineMode, Verdict, VerdictTime> {
+        Self::bounded_setup(config, setup_data, QueueLength::Unbounded, QueueLength::Unbounded)
+    }
+}
+
 enum WorkItem<Source: EventFactory, SourceTime: TimeRepresentation> {
     Start,
     Event(Source::Record, SourceTime::InnerTime),
 }
 
-trait Worker<Source, SourceTime, Verdict, VerdictTime>: Sized
+trait Worker<Source, Mode, Verdict, VerdictTime>: Sized
 where
     Source: EventFactory,
-    SourceTime: TimeRepresentation,
+    Mode: ExecutionMode,
     Verdict: VerdictRepresentation,
     VerdictTime: OutputTimeRepresentation + 'static,
 {
     fn setup(
-        config: Config<SourceTime, VerdictTime>,
+        config: Config<Mode, VerdictTime>,
         input_names: HashMap<String, InputReference>,
         setup_data: Source::CreationData,
-        input: Receiver<WorkItem<Source, SourceTime>>,
+        input: Receiver<WorkItem<Source, Mode::SourceTime>>,
         output: Sender<QueuedVerdict<Verdict, VerdictTime>>,
     ) -> Result<Self, QueueError>;
 
-    fn wait_for_start(&mut self, input: &Receiver<WorkItem<Source, SourceTime>>) -> Result<(), QueueError> {
+    fn wait_for_start(&mut self, input: &Receiver<WorkItem<Source, Mode::SourceTime>>) -> Result<(), QueueError> {
         // Wait for Start command
         match input.recv() {
             Ok(WorkItem::Start) => Ok(()),
@@ -427,40 +479,36 @@ where
     }
 }
 
-struct OnlineWorker<Source, SourceTime, Verdict, VerdictTime>
+struct OnlineWorker<Source, Verdict, VerdictTime>
 where
     Source: EventFactory,
-    SourceTime: TimeRepresentation,
     Verdict: VerdictRepresentation,
     VerdictTime: OutputTimeRepresentation + 'static,
 {
     source: Source,
-    source_time: SourceTime,
+    source_time: RealTime,
     output_time: Option<VerdictTime>,
     start_time: Option<SystemTime>,
+    current_time: Time,
 
     schedule_manager: ScheduleManager,
     evaluator: Evaluator,
-    input: Receiver<WorkItem<Source, SourceTime>>,
+    input: Receiver<WorkItem<Source, RealTime>>,
     output: Sender<QueuedVerdict<Verdict, VerdictTime>>,
 }
 
-impl<
-        Source: EventFactory,
-        SourceTime: TimeRepresentation,
-        Verdict: VerdictRepresentation,
-        VerdictTime: OutputTimeRepresentation,
-    > Worker<Source, SourceTime, Verdict, VerdictTime> for OnlineWorker<Source, SourceTime, Verdict, VerdictTime>
+impl<Source: EventFactory, Verdict: VerdictRepresentation, VerdictTime: OutputTimeRepresentation>
+    Worker<Source, OnlineMode, Verdict, VerdictTime> for OnlineWorker<Source, Verdict, VerdictTime>
 {
     fn setup(
-        config: Config<SourceTime, VerdictTime>,
+        config: Config<OnlineMode, VerdictTime>,
         input_names: HashMap<String, InputReference>,
         setup_data: Source::CreationData,
-        input: Receiver<WorkItem<Source, SourceTime>>,
+        input: Receiver<WorkItem<Source, RealTime>>,
         output: Sender<QueuedVerdict<Verdict, VerdictTime>>,
     ) -> Result<Self, QueueError> {
         // setup monitor
-        let source_time = config.input_time_representation;
+        let source_time = config.mode.time_representation();
         let source = Source::new(input_names, setup_data).map_err(|e| QueueError::SourceError(Box::new(e)))?;
 
         // Setup evaluator
@@ -475,6 +523,7 @@ impl<
             source_time,
             output_time: None,
             start_time: config.start_time,
+            current_time: Duration::from_secs(0),
             schedule_manager,
             evaluator,
             input,
@@ -483,7 +532,7 @@ impl<
     }
 
     fn init(&mut self) -> Result<(), QueueError> {
-        init_start_time::<SourceTime>(self.start_time);
+        init_start_time::<RealTime>(self.start_time);
         self.output_time.replace(VerdictTime::default());
         Ok(())
     }
@@ -493,7 +542,9 @@ impl<
         loop {
             let next_deadline = self.schedule_manager.get_next_due();
             let item = if let Some(due) = next_deadline {
-                self.input.recv_timeout(due)
+                // Deadlines always in the future, if not, i.e. the max evaluates to 0 we should output a warning as the monitor is falling behind its schedule...
+                let wait_time = max(due - self.source_time.convert_from(()), Duration::from_secs(0));
+                self.input.recv_timeout(wait_time)
             } else {
                 self.input.recv().map_err(|_| RecvTimeoutError::Disconnected)
             };
@@ -505,6 +556,7 @@ impl<
                         .get_event(e)
                         .map_err(|e| QueueError::SourceError(Box::new(e)))?;
                     let ts = self.source_time.convert_from(ts);
+                    self.current_time = ts;
 
                     let mut tracer = Verdict::Tracing::default();
                     tracer.eval_start();
@@ -523,6 +575,8 @@ impl<
                     let mut tracer = Verdict::Tracing::default();
                     tracer.eval_start();
                     let due = next_deadline.expect("timeout to only happen for a deadline.");
+                    self.current_time = due;
+                    //println!("Deadline at: {:?} evaluated at: {:?}", self.current_time, self.source_time.convert_from(()));
 
                     let deadline = self.schedule_manager.get_next_deadline(due);
                     self.evaluator.eval_time_driven_tasks(deadline, due, &mut tracer);
@@ -557,10 +611,10 @@ where
     Verdict: VerdictRepresentation,
     VerdictTime: OutputTimeRepresentation + 'static,
 {
-    config: Config<SourceTime, VerdictTime>,
+    config: Config<OfflineMode<SourceTime>, VerdictTime>,
     setup_data: Source::CreationData,
 
-    monitor: Option<Monitor<Source, SourceTime, Verdict, VerdictTime>>,
+    monitor: Option<Monitor<Source, OfflineMode<SourceTime>, Verdict, VerdictTime>>,
     input: Receiver<WorkItem<Source, SourceTime>>,
     output: Sender<QueuedVerdict<Verdict, VerdictTime>>,
 }
@@ -570,10 +624,11 @@ impl<
         SourceTime: TimeRepresentation,
         Verdict: VerdictRepresentation,
         VerdictTime: OutputTimeRepresentation,
-    > Worker<Source, SourceTime, Verdict, VerdictTime> for OfflineWorker<Source, SourceTime, Verdict, VerdictTime>
+    > Worker<Source, OfflineMode<SourceTime>, Verdict, VerdictTime>
+    for OfflineWorker<Source, SourceTime, Verdict, VerdictTime>
 {
     fn setup(
-        config: Config<SourceTime, VerdictTime>,
+        config: Config<OfflineMode<SourceTime>, VerdictTime>,
         _input_names: HashMap<String, InputReference>,
         setup_data: Source::CreationData,
         input: Receiver<WorkItem<Source, SourceTime>>,
@@ -590,7 +645,7 @@ impl<
 
     fn init(&mut self) -> Result<(), QueueError> {
         // Setup evaluator
-        let monitor: Monitor<Source, SourceTime, Verdict, VerdictTime> =
+        let monitor: Monitor<Source, OfflineMode<SourceTime>, Verdict, VerdictTime> =
             Monitor::setup(self.config.clone(), self.setup_data.clone())
                 .map_err(|e| QueueError::SourceError(Box::new(e)))?;
         self.monitor.replace(monitor);
@@ -658,11 +713,13 @@ impl<
 #[cfg(test)]
 mod tests {
     use std::convert::Infallible;
+    use std::thread::sleep;
     use std::time::{Duration, Instant};
 
     use crate::api::monitor::Change;
+    use crate::config::OfflineMode;
     use crate::input::ArrayFactory;
-    use crate::monitor::{Incremental, Total, VerdictRepresentation};
+    use crate::monitor::{Incremental, Total, TotalIncremental, VerdictRepresentation};
     use crate::queued::{QueuedVerdict, VerdictKind};
     use crate::time::RelativeFloat;
     use crate::{ConfigBuilder, QueuedMonitor, Value};
@@ -671,7 +728,7 @@ mod tests {
         spec: &str,
     ) -> (
         Instant,
-        QueuedMonitor<ArrayFactory<N, Infallible, [Value; N]>, RelativeFloat, V, RelativeFloat>,
+        QueuedMonitor<ArrayFactory<N, Infallible, [Value; N]>, OfflineMode<RelativeFloat>, V, RelativeFloat>,
     ) {
         // Init Monitor API
         let monitor = ConfigBuilder::new()
@@ -855,5 +912,24 @@ mod tests {
         assert_eq!(res.verdict[0].0, 0);
 
         assert_eq!(sort_incremental(res.verdict)[0].1, expected);
+    }
+
+    #[test]
+    fn test_online_time() {
+        let spec = "\
+            input i: UInt64\n\
+            output o @10Hz := true\
+        ";
+        let mut monitor = ConfigBuilder::new()
+            .spec_str(spec)
+            .online()
+            .with_array_events::<1, Infallible, [Value; 1]>()
+            .with_verdict::<TotalIncremental>()
+            .queued_monitor();
+        let output = monitor.output_queue();
+        monitor.start().expect("Failed to start monitor");
+        sleep(Duration::from_millis(1090));
+        monitor.end().unwrap();
+        assert_eq!(output.len(), 10);
     }
 }
