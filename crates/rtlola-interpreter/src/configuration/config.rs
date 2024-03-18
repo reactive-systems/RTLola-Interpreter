@@ -43,7 +43,7 @@ pub trait ExecutionMode: Default {
 }
 
 /// Time is taken by the monitor.
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct OnlineMode {
     input_time_representation: RealTime,
 }
@@ -57,7 +57,7 @@ impl ExecutionMode for OnlineMode {
     }
 
     fn time_representation(&self) -> Self::SourceTime {
-        self.input_time_representation
+        self.input_time_representation.clone()
     }
 }
 

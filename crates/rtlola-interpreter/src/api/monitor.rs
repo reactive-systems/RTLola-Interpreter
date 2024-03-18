@@ -30,7 +30,7 @@ use rtlola_frontend::mir::{InputReference, OutputReference, RtLolaMir, Type};
 use serde::Serialize;
 
 use crate::config::{Config, ExecutionMode};
-use crate::configuration::time::{init_start_time, OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
+use crate::configuration::time::{OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
 use crate::evaluator::{Evaluator, EvaluatorData};
 use crate::input::{EventFactory, EventFactoryError};
 use crate::schedule::schedule_manager::ScheduleManager;
@@ -373,10 +373,11 @@ where
         setup_data: Source::CreationData,
     ) -> Result<Monitor<Source, Mode, Verdict, VerdictTime>, EventFactoryError> {
         let dyn_schedule = Rc::new(RefCell::new(DynamicSchedule::new()));
-        let source_time = config.mode.time_representation();
-        let output_time = VerdictTime::default();
+        let mut source_time = config.mode.time_representation();
+        let mut output_time = VerdictTime::default();
 
-        init_start_time::<Mode::SourceTime>(config.start_time);
+        let st = source_time.init_start_time(config.start_time);
+        output_time.set_start_time(st);
 
         let input_map = config
             .ir

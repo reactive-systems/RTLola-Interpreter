@@ -42,12 +42,11 @@
 use std::fmt::Debug;
 use std::ops::Sub;
 use std::str::FromStr;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime};
 
 #[cfg(not(feature = "serde"))]
 use humantime::Rfc3339Timestamp;
-use lazy_static::lazy_static;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 #[cfg(feature = "serde")]
@@ -57,14 +56,11 @@ use crate::{CondDeserialize, CondSerialize, Time};
 
 const NANOS_IN_SECOND: u64 = 1_000_000_000;
 
-lazy_static! {
-    /// Used to synchronise the start time across the program
-    static ref START_TIME: RwLock<Option<SystemTime>> = RwLock::new(None);
-}
+pub(crate) type StartTime = Arc<RwLock<Option<SystemTime>>>;
 
-pub(crate) fn init_start_time<T: TimeRepresentation>(start_time: Option<SystemTime>) {
-    *START_TIME.write().unwrap() = start_time.or_else(T::default_start_time);
-}
+// pub(crate) fn init_start_time<T: TimeRepresentation>(start_time: Option<SystemTime>) {
+//     *START_TIME.write().unwrap() = start_time.or_else(T::default_start_time);
+// }
 
 /// Precisely parses an duration from a string of the form '{secs}.{sub-secs}'
 pub fn parse_float_time(s: &str) -> Result<Duration, String> {
@@ -77,7 +73,7 @@ pub fn parse_float_time(s: &str) -> Result<Duration, String> {
 }
 
 /// The functionality a time format has to provide.
-pub trait TimeRepresentation: TimeMode + Default + Clone + Send + CondSerialize + CondDeserialize + 'static {
+pub trait TimeRepresentation: TimeMode + Clone + Send + Default + CondSerialize + CondDeserialize + 'static {
     /// The internal representation of the time format.
     type InnerTime: Debug + Clone + Clone + Send + CondSerialize + CondDeserialize;
 
@@ -95,6 +91,14 @@ pub trait TimeRepresentation: TimeMode + Default + Clone + Send + CondSerialize 
     fn default_start_time() -> Option<SystemTime> {
         Some(SystemTime::now())
     }
+
+    /// Initializes the start time of the time representation.
+    fn init_start_time(&mut self, start: Option<SystemTime>) -> StartTime {
+        Arc::new(RwLock::new(start.or_else(Self::default_start_time)))
+    }
+
+    /// Set an already initialized start time.
+    fn set_start_time(&mut self, _start_time: StartTime) {}
 }
 
 /// This trait captures whether the time is given explicitly through a timestamp or is indirectly obtained through measurements.
@@ -228,25 +232,27 @@ impl TimeMode for OffsetFloat {}
 
 /// Time represented as wall clock time given as a positive real number representing seconds and sub-seconds since the start of the Unix Epoch.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Copy, Clone, Default)]
-pub struct AbsoluteFloat {}
+#[derive(Debug, Clone, Default)]
+pub struct AbsoluteFloat {
+    start: StartTime,
+}
 
 impl TimeRepresentation for AbsoluteFloat {
     type InnerTime = Duration;
 
     fn convert_from(&mut self, ts: Duration) -> Time {
         let current = SystemTime::UNIX_EPOCH + ts;
-        let st_read = *START_TIME.read().unwrap();
+        let st_read = *self.start.read().unwrap();
         if let Some(st) = st_read {
             current.duration_since(st).expect("Time did not behave monotonically!")
         } else {
-            *START_TIME.write().unwrap() = Some(current);
+            *self.start.write().unwrap() = Some(current);
             Duration::ZERO
         }
     }
 
     fn convert_into(&self, ts: Time) -> Self::InnerTime {
-        let ts = START_TIME.read().unwrap().unwrap() + ts;
+        let ts = self.start.read().unwrap().unwrap() + ts;
         ts.duration_since(SystemTime::UNIX_EPOCH)
             .expect("Time did not behave monotonically!")
     }
@@ -259,6 +265,15 @@ impl TimeRepresentation for AbsoluteFloat {
         parse_float_time(s)
     }
 
+    fn init_start_time(&mut self, start: Option<SystemTime>) -> StartTime {
+        self.start = Arc::new(RwLock::new(start));
+        self.start.clone()
+    }
+
+    fn set_start_time(&mut self, start_time: StartTime) {
+        self.start = start_time;
+    }
+
     fn default_start_time() -> Option<SystemTime> {
         None
     }
@@ -268,8 +283,10 @@ impl TimeMode for AbsoluteFloat {}
 
 /// Time represented as wall clock time in RFC3339 format.
 #[cfg(not(feature = "serde"))]
-#[derive(Debug, Copy, Clone, Default)]
-pub struct AbsoluteRfc {}
+#[derive(Debug, Clone, Default)]
+pub struct AbsoluteRfc {
+    start: StartTime,
+}
 
 #[cfg(not(feature = "serde"))]
 impl TimeRepresentation for AbsoluteRfc {
@@ -277,17 +294,17 @@ impl TimeRepresentation for AbsoluteRfc {
 
     fn convert_from(&mut self, rfc: Self::InnerTime) -> Time {
         let current = rfc.get_ref();
-        let st_read = *START_TIME.read().unwrap();
+        let st_read = *self.start.read().unwrap();
         if let Some(st) = st_read {
             current.duration_since(st).expect("Time did not behave monotonically!")
         } else {
-            *START_TIME.write().unwrap() = Some(*current);
+            *self.start.write().unwrap() = Some(*current);
             Duration::ZERO
         }
     }
 
     fn convert_into(&self, ts: Time) -> Self::InnerTime {
-        let ts = START_TIME.read().unwrap().unwrap() + ts;
+        let ts = self.start.read().unwrap().unwrap() + ts;
         humantime::format_rfc3339(ts)
     }
 
@@ -298,6 +315,15 @@ impl TimeRepresentation for AbsoluteRfc {
     fn parse(s: &'_ str) -> Result<Self::InnerTime, String> {
         let ts = humantime::parse_rfc3339(s).map_err(|e| e.to_string())?;
         Ok(humantime::format_rfc3339(ts))
+    }
+
+    fn init_start_time(&mut self, start: Option<SystemTime>) -> StartTime {
+        self.start = Arc::new(RwLock::new(start));
+        self.start.clone()
+    }
+
+    fn set_start_time(&mut self, start_time: StartTime) {
+        self.start = start_time;
     }
 
     fn default_start_time() -> Option<SystemTime> {
@@ -355,20 +381,21 @@ impl TimeMode for DelayTime {
 
 /// Time is set to be real-time. I.e. the input time is ignored and the current timestamp in rfc3339 format is taken instead.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct RealTime {
     last_ts: Time,
+    start: StartTime,
 }
 impl TimeRepresentation for RealTime {
     type InnerTime = ();
 
     fn convert_from(&mut self, _inner: Self::InnerTime) -> Time {
         let current = SystemTime::now();
-        let st_read = *START_TIME.read().unwrap();
+        let st_read = *self.start.read().unwrap();
         self.last_ts = if let Some(st) = st_read {
             current.duration_since(st).expect("Time did not behave monotonically!")
         } else {
-            *START_TIME.write().unwrap() = Some(current);
+            *self.start.write().unwrap() = Some(current);
             Duration::ZERO
         };
         self.last_ts
@@ -377,8 +404,17 @@ impl TimeRepresentation for RealTime {
     fn convert_into(&self, _ts: Time) -> Self::InnerTime {}
 
     fn to_string(&self, _ts: Self::InnerTime) -> String {
-        let ts = START_TIME.read().unwrap().unwrap() + self.last_ts;
+        let ts = self.start.read().unwrap().unwrap() + self.last_ts;
         humantime::format_rfc3339(ts).to_string()
+    }
+
+    fn init_start_time(&mut self, start: Option<SystemTime>) -> StartTime {
+        self.start = Arc::new(RwLock::new(start.or_else(Self::default_start_time)));
+        self.start.clone()
+    }
+
+    fn set_start_time(&mut self, start_time: StartTime) {
+        self.start = start_time;
     }
 
     fn parse(_s: &str) -> Result<(), String> {
