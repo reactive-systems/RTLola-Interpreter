@@ -21,7 +21,6 @@
 
 use std::any::Any;
 use std::cell::RefCell;
-use std::cmp::max;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
@@ -543,7 +542,13 @@ impl<Source: EventFactory, Verdict: VerdictRepresentation, VerdictTime: OutputTi
             let next_deadline = self.schedule_manager.get_next_due();
             let item = if let Some(due) = next_deadline {
                 // Deadlines always in the future, if not, i.e. the max evaluates to 0 we should output a warning as the monitor is falling behind its schedule...
-                let wait_time = max(due - self.source_time.convert_from(()), Duration::from_secs(0));
+                let now = self.source_time.convert_from(());
+                let wait_time = if due <= now {
+                    // eprintln!("Monitor is falling behind schedule by: {}s", (now - due).as_secs_f64());
+                    Duration::ZERO
+                } else {
+                    due - now
+                };
                 self.input.recv_timeout(wait_time)
             } else {
                 self.input.recv().map_err(|_| RecvTimeoutError::Disconnected)
