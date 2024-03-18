@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.10.0] - t.b.d
 
+## Fixed
+- critical Bug in handling deadlines in online mode.
+
 ### Changed
 - Refactored input handling types into their own file.
 - Renamed most input types to be clearer.
@@ -14,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `DerivedInput` -> `AssociatedFactory`
   - `ValueProjection` -> `ValueGetter`
   - `RecordInput` -> `MappedFactory`
+- Type Parameters of the Api to include the monitoring mode. 
 
 ### Removed
 - `EventInput` in favor of the new `ArrayFactory`
