@@ -9,7 +9,8 @@ use rtlola_frontend::mir::{
     RtLolaMir, SlidingWindow as MirSlidingWindow, Stream, StreamAccessKind, StreamReference, Type, WindowReference,
 };
 
-use super::Value;
+use super::{InstanceAggregationTrait, Value};
+use crate::storage::instance_aggregations::InstanceAggregation;
 use crate::storage::SlidingWindow;
 use crate::Time;
 
@@ -73,15 +74,21 @@ impl InstanceCollection {
         self.closed.insert(parameter.to_vec());
     }
 
-    pub(crate) fn delete_instances(&mut self) {
-        for inst in self.closed.iter() {
-            self.instances.remove(inst);
-        }
+    /// Deletes all instances marked for deletion, returning their last value.
+    pub(crate) fn delete_instances(&mut self) -> Vec<Value> {
+        self.closed
+            .iter()
+            .filter_map(|paras| self.instances.remove(paras).and_then(|inst| inst.get_value(0)))
+            .collect()
     }
 
     /// Returns a vector of all parameters for which an instance exists
-    pub(crate) fn all_instances(&self) -> Vec<Vec<Value>> {
-        self.instances.keys().cloned().collect()
+    pub(crate) fn all_parameter(&self) -> impl Iterator<Item = &Vec<Value>> {
+        self.instances.keys()
+    }
+
+    pub(crate) fn instances(&self) -> impl Iterator<Item = &InstanceStore> {
+        self.instances.values()
     }
 
     /// Returns an iterator over all instances that got a new value
@@ -521,6 +528,9 @@ pub(crate) struct GlobalStore {
     /// Windows that are parameterized by caller and target.
     /// A typical access looks like this: `both_p_discrete_windows[discrete_window_index_map[window_index]]`
     both_p_discrete_windows: Vec<TwoLayerSlidingWindowCollection>,
+
+    /// Instance aggregations indexed directly by their window reference.
+    instance_aggregations: Vec<InstanceAggregation>,
 }
 
 impl GlobalStore {
@@ -716,6 +726,12 @@ impl GlobalStore {
             .map(|w| TwoLayerSlidingWindowCollection::new_for_discrete(w))
             .collect();
 
+        let instance_aggregations = ir
+            .instance_aggregations
+            .iter()
+            .map(|ia| InstanceAggregation::from(ia))
+            .collect();
+
         GlobalStore {
             inputs,
             stream_index_map,
@@ -731,6 +747,7 @@ impl GlobalStore {
             np_discrete_windows,
             p_discrete_windows,
             both_p_discrete_windows,
+            instance_aggregations,
         }
     }
 
@@ -756,8 +773,7 @@ impl GlobalStore {
     /// Returns all InstanceStores of this output as an [InstanceCollection]
     /// Note: OutputReference *must* point to parameterized stream
     pub(crate) fn get_out_instance_collection(&self, inst: OutputReference) -> &InstanceCollection {
-        let ix = inst;
-        &self.p_outputs[self.stream_index_map[ix]]
+        &self.p_outputs[self.stream_index_map[inst]]
     }
 
     /// Returns the storage of an output stream instance (mutable)
@@ -780,7 +796,7 @@ impl GlobalStore {
         match window {
             WindowReference::Sliding(x) => &self.np_windows[self.window_index_map[x]],
             WindowReference::Discrete(x) => &self.np_discrete_windows[self.discrete_window_index_map[x]],
-            WindowReference::Instance(_) => todo!(),
+            WindowReference::Instance(_) => unreachable!("Called window function with instance aggregation reference"),
         }
     }
 
@@ -790,7 +806,7 @@ impl GlobalStore {
         match window {
             WindowReference::Sliding(x) => &mut self.np_windows[self.window_index_map[x]],
             WindowReference::Discrete(x) => &mut self.np_discrete_windows[self.discrete_window_index_map[x]],
-            WindowReference::Instance(_) => todo!(),
+            WindowReference::Instance(_) => unreachable!("Called window function with instance aggregation reference"),
         }
     }
 
@@ -799,7 +815,7 @@ impl GlobalStore {
         match window {
             WindowReference::Sliding(x) => &mut self.p_windows[self.window_index_map[x]],
             WindowReference::Discrete(x) => &mut self.p_discrete_windows[self.discrete_window_index_map[x]],
-            WindowReference::Instance(_) => todo!(),
+            WindowReference::Instance(_) => unreachable!("Called window function with instance aggregation reference"),
         }
     }
 
@@ -810,7 +826,7 @@ impl GlobalStore {
         match window {
             WindowReference::Sliding(x) => &mut self.both_p_windows[self.window_index_map[x]],
             WindowReference::Discrete(x) => &mut self.both_p_discrete_windows[self.discrete_window_index_map[x]],
-            WindowReference::Instance(_) => todo!(),
+            WindowReference::Instance(_) => unreachable!("Called window function with instance aggregation reference"),
         }
     }
 
@@ -818,13 +834,33 @@ impl GlobalStore {
         match window {
             WindowReference::Sliding(x) => self.window_parameterization[x],
             WindowReference::Discrete(x) => self.discrete_window_parameterization[x],
-            WindowReference::Instance(_) => todo!(),
+            WindowReference::Instance(_) => unreachable!("Called window function with instance aggregation reference"),
+        }
+    }
+
+    pub(crate) fn get_instance_aggregation_mut(&mut self, window: WindowReference) -> &mut InstanceAggregation {
+        if let WindowReference::Instance(idx) = window {
+            &mut self.instance_aggregations[idx]
+        } else {
+            unreachable!("Called get_instance_aggregation_mut for non instance");
+        }
+    }
+
+    /// Updates the instance aggregation with all instances and returns a mutable reference to the aggregation.
+    pub(crate) fn update_instance_aggregation(&mut self, window: WindowReference) -> &mut InstanceAggregation {
+        if let WindowReference::Instance(idx) = window {
+            let aggr = &mut self.instance_aggregations[idx];
+            let target = &self.p_outputs[self.stream_index_map[aggr.target.out_ix()]];
+            aggr.all_instances(target);
+            aggr
+        } else {
+            unreachable!("Called update_instance_aggregation for non instance");
         }
     }
 
     /// Marks all instances in the store as fresh
     pub(crate) fn new_cycle(&mut self) {
-        self.p_outputs.iter_mut().for_each(|is| is.new_cycle())
+        self.p_outputs.iter_mut().for_each(|is| is.new_cycle());
     }
 }
 

@@ -24,7 +24,6 @@ authors = [
 [dependencies]
 rtlola-interpreter = {path="../rtlola-interpreter"}
 rtlola-input-plugins = {path="../rtlola-input-plugins", default-features = false, features=["csv_plugin"]}
-rtlola-frontend = {git="ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git", branch="development"}
 clap = { version = "4.0.9", features = ["derive", "cargo", "wrap_help"] } # command line parsing
 clap_complete = "4.0.2"
 crossterm = "0.25.0"  # terminal output
