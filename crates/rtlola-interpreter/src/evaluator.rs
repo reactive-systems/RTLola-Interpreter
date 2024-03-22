@@ -492,7 +492,7 @@ impl Evaluator {
                 windows
                     .iter()
                     .filter(|w| self.window_parameterization(**w).is_spawned())
-                    .map(|win| *win)
+                    .copied()
                     .collect()
             })
             .unwrap_or_default();
@@ -598,7 +598,7 @@ impl Evaluator {
                 windows
                     .iter()
                     .filter(|w| self.window_parameterization(**w).is_spawned())
-                    .map(|win| *win)
+                    .copied()
                     .collect()
             })
             .unwrap_or_default();
@@ -677,16 +677,14 @@ impl Evaluator {
         for o in self.closed_outputs.iter() {
             if self.ir.output(StreamReference::Out(o)).is_parameterized() {
                 let vals = self.global_store.get_out_instance_collection_mut(o).delete_instances();
-                self.stream_instance_aggregations
-                    .get(&StreamReference::Out(o))
-                    .map(|wrefs| {
-                        wrefs.iter().for_each(|aggr| {
-                            let inst = self.global_store.get_instance_aggregation_mut(*aggr);
-                            vals.iter().for_each(|v| {
-                                inst.remove_value(v.clone());
-                            })
+                if let Some(wrefs) = self.stream_instance_aggregations.get(&StreamReference::Out(o)) {
+                    wrefs.iter().for_each(|aggr| {
+                        let inst = self.global_store.get_instance_aggregation_mut(*aggr);
+                        vals.iter().for_each(|v| {
+                            inst.remove_value(v.clone());
                         })
-                    });
+                    })
+                }
             } else {
                 self.global_store.get_out_instance_mut(o).deactivate();
             }
@@ -845,17 +843,15 @@ impl Evaluator {
         }
 
         // Update Instance aggregations
-        self.stream_instance_aggregations
-            .get(&StreamReference::Out(output))
-            .map(|aggrs| {
-                aggrs.iter().for_each(|w| {
-                    let aggr = self.global_store.get_instance_aggregation_mut(*w);
-                    if let Some(old) = old_value.clone() {
-                        aggr.remove_value(old);
-                    }
-                    aggr.accept_value(res.clone());
-                });
+        if let Some(aggrs) = self.stream_instance_aggregations.get(&StreamReference::Out(output)) {
+            aggrs.iter().for_each(|w| {
+                let aggr = self.global_store.get_instance_aggregation_mut(*w);
+                if let Some(old) = old_value.clone() {
+                    aggr.remove_value(old);
+                }
+                aggr.accept_value(res.clone());
             });
+        }
 
         // Check linked windows and inform them.
         let extended = &self.ir.outputs[ix];

@@ -729,7 +729,7 @@ impl GlobalStore {
         let instance_aggregations = ir
             .instance_aggregations
             .iter()
-            .map(|ia| InstanceAggregation::from(ia))
+            .map(InstanceAggregation::from)
             .collect();
 
         GlobalStore {
