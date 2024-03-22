@@ -25,7 +25,6 @@
     unused_qualifications
 )]
 
-
 // Public exports
 use std::time::Duration;
 

@@ -726,11 +726,7 @@ impl GlobalStore {
             .map(|w| TwoLayerSlidingWindowCollection::new_for_discrete(w))
             .collect();
 
-        let instance_aggregations = ir
-            .instance_aggregations
-            .iter()
-            .map(InstanceAggregation::from)
-            .collect();
+        let instance_aggregations = ir.instance_aggregations.iter().map(InstanceAggregation::from).collect();
 
         GlobalStore {
             inputs,
