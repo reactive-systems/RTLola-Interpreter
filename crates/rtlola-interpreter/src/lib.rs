@@ -25,7 +25,6 @@
     unused_qualifications
 )]
 
-extern crate core;
 
 // Public exports
 use std::time::Duration;
