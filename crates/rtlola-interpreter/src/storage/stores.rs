@@ -565,10 +565,11 @@ impl GlobalStore {
                     }
                 })
                 .expect("Window to actually occur in caller");
-            let is_spawned = (origin == Origin::Eval
-                || origin == Origin::Filter
-                || (origin == Origin::Close && caller.close.has_self_reference))
-                && caller.is_spawned();
+            let is_spawned = match origin {
+                Origin::Eval(_) | Origin::Filter(_) => caller.is_spawned(),
+                Origin::Close => caller.close.has_self_reference && caller.is_spawned(),
+                _ => false,
+            };
 
             let (idx, kind) = match (
                 ps_refs.contains(&window.target),
@@ -626,10 +627,11 @@ impl GlobalStore {
                     }
                 })
                 .expect("Window to actually occur in caller");
-            let is_spawned = (origin == Origin::Eval
-                || origin == Origin::Filter
-                || (origin == Origin::Close && caller.close.has_self_reference))
-                && caller.is_spawned();
+            let is_spawned = match origin {
+                Origin::Eval(_) | Origin::Filter(_) => caller.is_spawned(),
+                Origin::Close => caller.close.has_self_reference && caller.is_spawned(),
+                _ => false,
+            };
 
             let (idx, kind) = match (
                 ps_refs.contains(&window.target),

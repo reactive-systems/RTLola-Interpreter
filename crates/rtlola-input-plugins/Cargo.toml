@@ -17,7 +17,7 @@ authors = [
 
 [dependencies]
 rtlola-interpreter = {path="../rtlola-interpreter"}
-rtlola-frontend = {git="ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git", branch="development"}
+rtlola-frontend = {git="ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git", branch="multiple_evals"}
 
 # Csv plugin dependencies
 csv = {version = "1.1.6", optional = true} # For CSV Parsing

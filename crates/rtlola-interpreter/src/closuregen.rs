@@ -10,7 +10,7 @@ use regex::bytes::Regex as BytesRegex;
 use regex::Regex;
 use rtlola_frontend::mir::{Constant, Expression, ExpressionKind, Offset, StreamAccessKind, Type};
 
-use crate::evaluator::EvaluationContext;
+use crate::evaluator::{ActivationConditionOp, EvaluationContext};
 use crate::storage::Value;
 
 pub(crate) trait Expr {
@@ -34,6 +34,31 @@ impl CompiledExpr {
         CompiledExpr::new(move |ctx| {
             if filter_exp.execute(ctx).as_bool() {
                 value_exp.execute(ctx)
+            } else {
+                Value::None
+            }
+        })
+    }
+
+    /// Creates a compiled expression returning the value of the first clause that returned a value
+    pub(crate) fn create_clauses(clauses: Vec<CompiledExpr>) -> Self {
+        CompiledExpr::new(move |ctx| {
+            clauses
+                .iter()
+                .map(|expr| expr.execute(ctx))
+                .find(|value| !matches!(value, Value::None))
+                .unwrap_or(Value::None)
+        })
+    }
+
+    /// Creates a compiled expression checking whether the given activation condition is satisfied
+    ///
+    /// Is only used if the event-driven pacing of a single eval clause is different than the pacing of the
+    /// whole output.
+    pub(crate) fn create_activation(expr: CompiledExpr, ac: ActivationConditionOp) -> Self {
+        CompiledExpr::new(move |ctx| {
+            if ctx.is_active(&ac) {
+                expr.execute(ctx)
             } else {
                 Value::None
             }
