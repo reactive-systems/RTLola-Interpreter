@@ -108,10 +108,10 @@ impl EvaluatorData {
             .outputs
             .iter()
             .map(|o| {
-                if let Some(ac) = ir.get_ac(o.reference) {
-                    ActivationConditionOp::new(ac, ir.inputs.len())
-                } else {
-                    ActivationConditionOp::TimeDriven
+                match &o.eval.eval_pacing {
+                    PacingType::Periodic(_) => ActivationConditionOp::TimeDriven,
+                    PacingType::Event(ac) => ActivationConditionOp::new(ac, ir.inputs.len()),
+                    PacingType::Constant => ActivationConditionOp::True,
                 }
             })
             .collect();
@@ -213,11 +213,33 @@ impl EvaluatorData {
             .outputs
             .iter()
             .map(|o| {
-                match o.eval.condition.as_ref() {
-                    None => o.eval.expression.clone().compile(),
-                    Some(filter_exp) => {
-                        CompiledExpr::create_filter(filter_exp.clone().compile(), o.eval.expression.clone().compile())
-                    },
+                let clauses = o
+                    .eval
+                    .clauses
+                    .iter()
+                    .map(|clause| {
+                        let exp = match &clause.condition {
+                        None => clause.expression.clone().compile(),
+                        Some(filter_exp) => CompiledExpr::create_filter(
+                            filter_exp.clone().compile(),
+                            clause.expression.clone().compile(),
+                        ),
+                    };
+                    if clause.pacing != o.eval.eval_pacing {
+                        if let PacingType::Event(ac) = &clause.pacing {
+                        CompiledExpr::create_activation(exp, ActivationConditionOp::new(ac, leaked_data.ir.inputs.len()))
+                        } else {
+                            unreachable!("different pacing types of multiple eval clauses are only supported for event-driven streams. This is ensured by the frontend.")
+                        }
+                    } else {
+                        exp
+                    }
+                })
+                    .collect::<Vec<_>>();
+                if clauses.len() == 1 {
+                    clauses.into_iter().next().expect("has exactly one element")
+                } else {
+                    CompiledExpr::create_clauses(clauses)
                 }
             })
             .collect();
@@ -1005,6 +1027,10 @@ impl<'e> EvaluationContext<'e> {
                 }
             },
         }
+    }
+
+    pub(crate) fn is_active(&self, ac: &ActivationConditionOp) -> bool {
+        ac.eval(self.fresh_inputs)
     }
 }
 
@@ -3086,5 +3112,105 @@ mod tests {
 
         eval_stream_instances!(eval, start, out_ref);
         assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Bool(true));
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses() {
+        let (_, eval, start) = setup(
+            "input a : UInt64\n\
+            output b
+                eval @a when a < 10 with a + 1
+                eval @a when a < 20 with a + 2
+                eval @a with a + 3",
+        );
+        let mut eval = eval.into_evaluator();
+        let out_ref = StreamReference::Out(0);
+        let a_ref = StreamReference::In(0);
+
+        accept_input!(eval, start, a_ref, Unsigned(0));
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Unsigned(1));
+        accept_input!(eval, start, a_ref, Unsigned(12));
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Unsigned(14));
+        accept_input!(eval, start, a_ref, Unsigned(20));
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Unsigned(23));
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses_no_filter() {
+        let (_, eval, start) = setup(
+            "input a : UInt64\n\
+            output b
+                eval @a with a + 1
+                eval @a when a < 20 with a + 2",
+        );
+        let mut eval = eval.into_evaluator();
+        let out_ref = StreamReference::Out(0);
+        let a_ref = StreamReference::In(0);
+
+        accept_input!(eval, start, a_ref, Unsigned(0));
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Unsigned(1));
+        accept_input!(eval, start, a_ref, Unsigned(12));
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Unsigned(13));
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses_different_ac() {
+        let (_, eval, start) = setup(
+            "input a : UInt64\ninput b : UInt64\n\
+            output c : UInt64
+                eval @a&&b with 1
+                eval @a with 2",
+        );
+        let mut eval = eval.into_evaluator();
+        let out_ref = StreamReference::Out(0);
+        let a_ref = StreamReference::In(0);
+        let b_ref = StreamReference::In(1);
+
+        accept_input!(eval, start, a_ref, Unsigned(0));
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Unsigned(2));
+        accept_input!(eval, start, a_ref, Unsigned(1));
+        accept_input!(eval, start, b_ref, Unsigned(1));
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Unsigned(1));
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses_ac_and_filter() {
+        let (_, eval, start) = setup(
+            "input a : UInt64\ninput b : UInt64\n\
+            output c : UInt64
+                eval @a&&b when b < 10 with 1
+                eval @a&&b with 3
+                eval @a when a < 10 with 2
+                eval @a with 4",
+        );
+        let mut eval = eval.into_evaluator();
+        let out_ref = StreamReference::Out(0);
+        let a_ref = StreamReference::In(0);
+        let b_ref = StreamReference::In(1);
+
+        accept_input!(eval, start, a_ref, Unsigned(11));
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Unsigned(4));
+
+        accept_input!(eval, start, a_ref, Unsigned(0));
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Unsigned(2));
+
+        accept_input!(eval, start, a_ref, Unsigned(1));
+        accept_input!(eval, start, b_ref, Unsigned(11));
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Unsigned(3));
+
+        accept_input!(eval, start, a_ref, Unsigned(1));
+        accept_input!(eval, start, b_ref, Unsigned(1));
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Unsigned(1));
     }
 }

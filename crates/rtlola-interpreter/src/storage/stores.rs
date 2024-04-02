@@ -565,10 +565,11 @@ impl GlobalStore {
                     }
                 })
                 .expect("Window to actually occur in caller");
-            let is_spawned = (origin == Origin::Eval
-                || origin == Origin::Filter
-                || (origin == Origin::Close && caller.close.has_self_reference))
-                && caller.is_spawned();
+            let is_spawned = match origin {
+                Origin::Eval(_) | Origin::Filter(_) => caller.is_spawned(),
+                Origin::Close => caller.close.has_self_reference && caller.is_spawned(),
+                _ => false,
+            };
 
             let (idx, kind) = match (
                 ps_refs.contains(&window.target),
@@ -626,10 +627,11 @@ impl GlobalStore {
                     }
                 })
                 .expect("Window to actually occur in caller");
-            let is_spawned = (origin == Origin::Eval
-                || origin == Origin::Filter
-                || (origin == Origin::Close && caller.close.has_self_reference))
-                && caller.is_spawned();
+            let is_spawned = match origin {
+                Origin::Eval(_) | Origin::Filter(_) => caller.is_spawned(),
+                Origin::Close => caller.close.has_self_reference && caller.is_spawned(),
+                _ => false,
+            };
 
             let (idx, kind) = match (
                 ps_refs.contains(&window.target),
@@ -778,6 +780,7 @@ impl GlobalStore {
         match window {
             WindowReference::Sliding(x) => &self.np_windows[self.window_index_map[x]],
             WindowReference::Discrete(x) => &self.np_discrete_windows[self.discrete_window_index_map[x]],
+            WindowReference::Instance(_) => todo!(),
         }
     }
 
@@ -787,6 +790,7 @@ impl GlobalStore {
         match window {
             WindowReference::Sliding(x) => &mut self.np_windows[self.window_index_map[x]],
             WindowReference::Discrete(x) => &mut self.np_discrete_windows[self.discrete_window_index_map[x]],
+            WindowReference::Instance(_) => todo!(),
         }
     }
 
@@ -795,6 +799,7 @@ impl GlobalStore {
         match window {
             WindowReference::Sliding(x) => &mut self.p_windows[self.window_index_map[x]],
             WindowReference::Discrete(x) => &mut self.p_discrete_windows[self.discrete_window_index_map[x]],
+            WindowReference::Instance(_) => todo!(),
         }
     }
 
@@ -805,6 +810,7 @@ impl GlobalStore {
         match window {
             WindowReference::Sliding(x) => &mut self.both_p_windows[self.window_index_map[x]],
             WindowReference::Discrete(x) => &mut self.both_p_discrete_windows[self.discrete_window_index_map[x]],
+            WindowReference::Instance(_) => todo!(),
         }
     }
 
@@ -812,6 +818,7 @@ impl GlobalStore {
         match window {
             WindowReference::Sliding(x) => self.window_parameterization[x],
             WindowReference::Discrete(x) => self.discrete_window_parameterization[x],
+            WindowReference::Instance(_) => todo!(),
         }
     }
 
