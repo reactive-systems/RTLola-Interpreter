@@ -12,6 +12,7 @@ use rtlola_input_plugins::csv_plugin::{CsvEventSource, CsvInputSourceKind};
 #[cfg(feature = "pcap_interface")]
 use rtlola_input_plugins::pcap_plugin::{PcapEventSource, PcapInputSource};
 use rtlola_interpreter::config::{ExecutionMode, OfflineMode, OnlineMode};
+use rtlola_interpreter::rtlola_frontend;
 use rtlola_interpreter::time::{
     parse_float_time, AbsoluteFloat, AbsoluteRfc, DelayTime, OffsetFloat, OffsetNanos, RealTime, RelativeFloat,
     RelativeNanos,

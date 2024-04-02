@@ -10,7 +10,6 @@ use std::time::SystemTime;
 
 use clap::ValueEnum;
 use crossterm::style::Color;
-use rtlola_frontend::RtLolaMir;
 use rtlola_input_plugins::csv_plugin::CsvInputSourceKind;
 #[cfg(feature = "pcap_interface")]
 use rtlola_input_plugins::pcap_plugin::PcapInputSource;
@@ -18,6 +17,7 @@ use rtlola_input_plugins::EventSource;
 use rtlola_interpreter::config::{ExecutionMode, OfflineMode, OnlineMode};
 use rtlola_interpreter::input::MappedFactory;
 use rtlola_interpreter::monitor::{TotalIncremental, TracingVerdict};
+use rtlola_interpreter::rtlola_mir::RtLolaMir;
 use rtlola_interpreter::time::{OutputTimeRepresentation, RealTime, TimeRepresentation};
 use rtlola_interpreter::QueuedMonitor;
 

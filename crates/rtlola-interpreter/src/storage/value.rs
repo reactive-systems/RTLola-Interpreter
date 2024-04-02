@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::ops;
+use std::ops::{AddAssign, DivAssign, MulAssign, RemAssign, SubAssign};
 
 use num_traits::FromPrimitive;
 use ordered_float::NotNan;
@@ -157,6 +158,26 @@ impl Value {
             _ => self,
         }
     }
+
+    /// Returns the value for the given type.
+    pub fn from_int(ty: &Type, val: i64) -> Value {
+        match ty {
+            Type::Int(_) => Signed(val),
+            Type::UInt(_) => Unsigned(val as u64),
+            Type::Float(_) => Float(NotNan::new(val as f64).unwrap()),
+            _ => unreachable!("Incompatible Value Type."),
+        }
+    }
+
+    /// Returns the value in the same variant as self.
+    pub fn for_int(&self, val: i64) -> Value {
+        match self {
+            Signed(_) => Signed(val),
+            Unsigned(_) => Unsigned(val as u64),
+            Float(_) => Float(NotNan::new(val as f64).unwrap()),
+            _ => unreachable!("Incompatible Value Type."),
+        }
+    }
 }
 
 impl ops::Add for Value {
@@ -167,6 +188,17 @@ impl ops::Add for Value {
             (Unsigned(v1), Unsigned(v2)) => Unsigned(v1 + v2),
             (Signed(v1), Signed(v2)) => Signed(v1 + v2),
             (Float(v1), Float(v2)) => Float(v1 + v2),
+            (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
+        }
+    }
+}
+
+impl AddAssign for Value {
+    fn add_assign(&mut self, rhs: Self) {
+        match (self, rhs) {
+            (Unsigned(v1), Unsigned(v2)) => v1.add_assign(v2),
+            (Signed(v1), Signed(v2)) => v1.add_assign(v2),
+            (Float(v1), Float(v2)) => v1.add_assign(v2),
             (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
         }
     }
@@ -185,6 +217,17 @@ impl ops::Sub for Value {
     }
 }
 
+impl SubAssign for Value {
+    fn sub_assign(&mut self, rhs: Self) {
+        match (self, rhs) {
+            (Unsigned(v1), Unsigned(v2)) => v1.sub_assign(v2),
+            (Signed(v1), Signed(v2)) => v1.sub_assign(v2),
+            (Float(v1), Float(v2)) => v1.sub_assign(v2),
+            (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
+        }
+    }
+}
+
 impl ops::Mul for Value {
     type Output = Value;
 
@@ -193,6 +236,17 @@ impl ops::Mul for Value {
             (Unsigned(v1), Unsigned(v2)) => Unsigned(v1 * v2),
             (Signed(v1), Signed(v2)) => Signed(v1 * v2),
             (Float(v1), Float(v2)) => Float(v1 * v2),
+            (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
+        }
+    }
+}
+
+impl MulAssign for Value {
+    fn mul_assign(&mut self, rhs: Self) {
+        match (self, rhs) {
+            (Unsigned(v1), Unsigned(v2)) => v1.mul_assign(v2),
+            (Signed(v1), Signed(v2)) => v1.mul_assign(v2),
+            (Float(v1), Float(v2)) => v1.mul_assign(v2),
             (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
         }
     }
@@ -211,6 +265,17 @@ impl ops::Div for Value {
     }
 }
 
+impl DivAssign for Value {
+    fn div_assign(&mut self, rhs: Self) {
+        match (self, rhs) {
+            (Unsigned(v1), Unsigned(v2)) => v1.div_assign(v2),
+            (Signed(v1), Signed(v2)) => v1.div_assign(v2),
+            (Float(v1), Float(v2)) => v1.div_assign(v2),
+            (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
+        }
+    }
+}
+
 impl ops::Rem for Value {
     type Output = Value;
 
@@ -219,6 +284,17 @@ impl ops::Rem for Value {
             (Unsigned(v1), Unsigned(v2)) => Unsigned(v1 % v2),
             (Signed(v1), Signed(v2)) => Signed(v1 % v2),
             (Float(v1), Float(v2)) => Float(v1 % v2),
+            (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
+        }
+    }
+}
+
+impl RemAssign for Value {
+    fn rem_assign(&mut self, rhs: Self) {
+        match (self, rhs) {
+            (Unsigned(v1), Unsigned(v2)) => v1.rem_assign(v2),
+            (Signed(v1), Signed(v2)) => v1.rem_assign(v2),
+            (Float(v1), Float(v2)) => v1.rem_assign(v2),
             (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
         }
     }

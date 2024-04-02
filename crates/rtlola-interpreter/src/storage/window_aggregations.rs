@@ -586,7 +586,7 @@ impl<G: WindowGeneric> Add for PercentileIv<G> {
 #[derive(Clone, Debug)]
 pub(crate) struct VarianceIv {
     count: usize,
-    var: Decimal,
+    m_2: Decimal,
     sum: Decimal,
 }
 
@@ -594,7 +594,7 @@ impl WindowIv for VarianceIv {
     fn default(_ts: Time) -> VarianceIv {
         VarianceIv {
             count: 0,
-            var: Decimal::zero(),
+            m_2: Decimal::zero(),
             sum: Decimal::zero(),
         }
     }
@@ -605,7 +605,7 @@ impl From<VarianceIv> for Value {
         if iv.count == 0 {
             return Value::Float(NotNan::from(0));
         }
-        Value::try_from(iv.var / Decimal::from(iv.count)).expect("")
+        Value::try_from(iv.m_2 / Decimal::from(iv.count)).expect("")
     }
 }
 
@@ -613,12 +613,13 @@ impl From<(Value, Time)> for VarianceIv {
     fn from(v: (Value, Time)) -> VarianceIv {
         VarianceIv {
             count: 1,
-            var: 0.0.try_into().unwrap(),
+            m_2: 0.0.try_into().unwrap(),
             sum: v.0.try_into().unwrap(),
         }
     }
 }
 
+// This is baded on: https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
 impl Add for VarianceIv {
     type Output = VarianceIv;
 
@@ -630,11 +631,11 @@ impl Add for VarianceIv {
             return self;
         }
 
-        let VarianceIv { count, var, sum } = self;
+        let VarianceIv { count, m_2: var, sum } = self;
 
         let VarianceIv {
             count: o_count,
-            var: o_var,
+            m_2: o_var,
             sum: o_sum,
         } = other;
 
@@ -646,7 +647,7 @@ impl Add for VarianceIv {
         let new_count = count + o_count;
         VarianceIv {
             count: new_count,
-            var: new_var,
+            m_2: new_var,
             sum: sum + o_sum,
         }
     }
@@ -692,8 +693,7 @@ impl Add for SdIv {
 ///////////////////////////////////////////////
 //////////////// Covariance //////////////////
 ///////////////////////////////////////////////
-
-//TODO NOT FINAL DO NOT USE
+// See https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Online for refernce
 #[derive(Clone, Debug)]
 pub(crate) struct CovIv {
     count: usize,
@@ -715,6 +715,9 @@ impl WindowIv for CovIv {
 
 impl From<CovIv> for Value {
     fn from(iv: CovIv) -> Value {
+        if iv.count == 0 {
+            return Value::None;
+        }
         Value::try_from(iv.co_moment / Decimal::from(iv.count)).unwrap()
     }
 }

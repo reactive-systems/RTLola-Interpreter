@@ -11,9 +11,9 @@ use crossterm::cursor::MoveToPreviousLine;
 use crossterm::execute;
 use crossterm::style::{Print, ResetColor, SetForegroundColor};
 use crossterm::terminal::{Clear, ClearType};
-use rtlola_frontend::mir::{OutputReference, RtLolaMir, TriggerReference};
 use rtlola_interpreter::monitor::{Change, Parameters, TotalIncremental, Tracer, TracingVerdict};
 use rtlola_interpreter::queued::{QueuedVerdict, Receiver, RecvTimeoutError, VerdictKind};
+use rtlola_interpreter::rtlola_frontend::mir::{OutputReference, RtLolaMir, TriggerReference};
 use rtlola_interpreter::time::OutputTimeRepresentation;
 
 use crate::config::Verbosity;

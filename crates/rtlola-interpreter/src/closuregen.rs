@@ -186,7 +186,9 @@ impl Expr for Expression {
                     },
                     StreamAccessKind::Get => create_access!(lookup_current, target),
                     StreamAccessKind::Fresh => create_access!(lookup_fresh, target),
-                    StreamAccessKind::InstanceAggregation(_) => todo!(),
+                    StreamAccessKind::InstanceAggregation(wref) => {
+                        CompiledExpr::new(move |ctx| ctx.lookup_instance_aggr(wref))
+                    },
                 }
             },
 
