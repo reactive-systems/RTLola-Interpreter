@@ -40,7 +40,6 @@ string_template = "0.2.1" # Format Trigger Messages
 priority-queue = "1.1.0" # For the dynamic schedule
 
 itertools = "0.11.0"
-log = "0.4.21"
 
 [features]
 queued-api = ["dep:crossbeam-channel"]
