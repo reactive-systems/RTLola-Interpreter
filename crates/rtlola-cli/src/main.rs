@@ -618,8 +618,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 eprintln!("{}", e);
                 std::process::exit(1)
             });
-            let handler = rtlola_frontend::Handler::from(config.clone());
-            let ir = rtlola_frontend::parse(config).unwrap_or_else(|e| {
+            let handler = rtlola_frontend::Handler::from(&config);
+            let ir = rtlola_frontend::parse(&config).unwrap_or_else(|e| {
                 handler.emit_error(&e);
                 std::process::exit(1);
             });
