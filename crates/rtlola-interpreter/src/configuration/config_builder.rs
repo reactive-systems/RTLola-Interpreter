@@ -155,8 +155,8 @@ impl<OutputTime: OutputTimeRepresentation> ConfigBuilder<ConfigureIR, OutputTime
             eprintln!("{}", e);
             std::process::exit(1)
         });
-        let handler = rtlola_frontend::Handler::from(config.clone());
-        let ir = rtlola_frontend::parse(config).unwrap_or_else(|e| {
+        let handler = rtlola_frontend::Handler::from(&config);
+        let ir = rtlola_frontend::parse(&config).unwrap_or_else(|e| {
             handler.emit_error(&e);
             std::process::exit(1);
         });
@@ -175,8 +175,8 @@ impl<OutputTime: OutputTimeRepresentation> ConfigBuilder<ConfigureIR, OutputTime
             state: _,
         } = self;
         let config = rtlola_frontend::ParserConfig::for_string(spec.to_string());
-        let handler = rtlola_frontend::Handler::from(config.clone());
-        let ir = rtlola_frontend::parse(config).unwrap_or_else(|e| {
+        let handler = rtlola_frontend::Handler::from(&config);
+        let ir = rtlola_frontend::parse(&config).unwrap_or_else(|e| {
             handler.emit_error(&e);
             std::process::exit(1);
         });

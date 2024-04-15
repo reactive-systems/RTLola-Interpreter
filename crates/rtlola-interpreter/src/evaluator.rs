@@ -1147,8 +1147,8 @@ mod tests {
 
     fn setup(spec: &str) -> (RtLolaMir, EvaluatorData, Instant) {
         let cfg = ParserConfig::for_string(spec.to_string());
-        let handler = rtlola_frontend::Handler::from(cfg.clone());
-        let ir = rtlola_frontend::parse(cfg).unwrap_or_else(|e| {
+        let handler = rtlola_frontend::Handler::from(&cfg);
+        let ir = rtlola_frontend::parse(&cfg).unwrap_or_else(|e| {
             handler.emit_error(&e);
             panic!();
         });
