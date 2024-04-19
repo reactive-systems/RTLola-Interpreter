@@ -9,7 +9,6 @@ use rtlola_frontend::mir::{
     ActivationCondition as Activation, InputReference, OutputReference, PacingType, RtLolaMir, Stream, StreamReference,
     Task, TimeDrivenStream, Trigger, WindowReference,
 };
-use string_template::Template;
 
 use crate::api::monitor::{Change, Instance};
 use crate::closuregen::{CompiledExpr, Expr};
@@ -44,7 +43,6 @@ pub(crate) struct EvaluatorData {
     fresh_triggers: BitSet,
     triggers: Vec<Option<Trigger>>,
     time_driven_streams: Vec<Option<TimeDrivenStream>>,
-    trigger_templates: Vec<Option<Template>>,
     closing_streams: Vec<OutputReference>,
     ir: RtLolaMir,
     dyn_schedule: Rc<RefCell<DynamicSchedule>>,
@@ -82,7 +80,6 @@ pub(crate) struct Evaluator {
     // Indexed by output reference
     time_driven_streams: &'static [Option<TimeDrivenStream>],
 
-    trigger_templates: &'static [Option<Template>],
     closing_streams: &'static [OutputReference],
     ir: &'static RtLolaMir,
     dyn_schedule: &'static RefCell<DynamicSchedule>,
@@ -163,16 +160,12 @@ impl EvaluatorData {
             .into_group_map();
 
         for t in &ir.triggers {
-            triggers[t.reference.out_ix()] = Some(t.clone());
+            triggers[t.output_reference.out_ix()] = Some(t.clone());
         }
         let mut time_driven_streams = vec![None; ir.outputs.len()];
         for t in &ir.time_driven {
             time_driven_streams[t.reference.out_ix()] = Some(*t);
         }
-        let trigger_templates = triggers
-            .iter()
-            .map(|t| t.as_ref().map(|t| Template::new(&t.message)))
-            .collect();
         EvaluatorData {
             layers,
             stream_activation_conditions: stream_acs,
@@ -188,7 +181,6 @@ impl EvaluatorData {
             fresh_triggers,
             triggers,
             time_driven_streams,
-            trigger_templates,
             closing_streams,
             ir,
             dyn_schedule,
@@ -290,7 +282,6 @@ impl EvaluatorData {
             fresh_triggers: &mut leaked_data.fresh_triggers,
             triggers: &leaked_data.triggers,
             time_driven_streams: &leaked_data.time_driven_streams,
-            trigger_templates: &leaked_data.trigger_templates,
             closing_streams: &leaked_data.closing_streams,
             ir: &leaked_data.ir,
             dyn_schedule: &leaked_data.dyn_schedule,
@@ -775,38 +766,11 @@ impl Evaluator {
         }
     }
 
-    /// Creates the current trigger message by substituting the format placeholders with he current values of the info streams.
-    /// NOT for external use because the values are volatile
     pub(crate) fn format_trigger_message(&self, trigger_ref: OutputReference) -> String {
         let trigger = self
             .is_trigger(trigger_ref)
             .expect("Output reference must refer to a trigger");
-        let values: Vec<String> = trigger
-            .info_streams
-            .iter()
-            .map(|sr| {
-                self.peek_value(*sr, &[], 0)
-                    .map_or("None".to_string(), |v| v.to_string())
-            })
-            .collect();
-        let args: Vec<&str> = values.iter().map(|s| s.as_str()).collect();
-        self.trigger_templates[trigger_ref]
-            .as_ref()
-            .expect("Output reference must refer to a trigger")
-            .render_positional(args.as_slice())
-    }
-
-    /// Return the current values of the info streams
-    /// NOT for external use because the values are volatile
-    pub(crate) fn peek_info_stream_values(&self, trigger_ref: OutputReference) -> Vec<Option<Value>> {
-        let trigger = self
-            .is_trigger(trigger_ref)
-            .expect("Output reference must refer to a trigger");
-        trigger
-            .info_streams
-            .iter()
-            .map(|sr| self.peek_value(*sr, &[], 0))
-            .collect()
+        self.peek_value(trigger.output_reference, &[], 0).unwrap().to_string()
     }
 
     fn eval_stream_instance(&mut self, output: OutputReference, parameter: &[Value], ts: Time) {
@@ -836,10 +800,7 @@ impl Evaluator {
         self.fresh_outputs.insert(ix);
 
         if self.is_trigger(output).is_some() {
-            // Check if we have to emit a trigger.
-            if let Value::Bool(true) = res.clone() {
-                self.fresh_triggers.insert(ix);
-            }
+            self.fresh_triggers.insert(ix);
         }
 
         // Update Instance aggregations

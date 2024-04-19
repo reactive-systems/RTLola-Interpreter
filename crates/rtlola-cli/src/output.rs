@@ -68,7 +68,7 @@ impl<OutputTime: OutputTimeRepresentation> OutputHandler<OutputTime> {
         let or_to_tr = ir
             .triggers
             .iter()
-            .map(|trigger| (trigger.reference.out_ix(), trigger.trigger_reference))
+            .map(|trigger| (trigger.output_reference.out_ix(), trigger.trigger_reference))
             .collect();
 
         OutputHandler {

@@ -1273,7 +1273,7 @@ dependencies = [
 [[package]]
 name = "rtlola-frontend"
 version = "0.6.2"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#3d74d79d8d1fc428308701a0b618ac15771f2563"
+source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=dynamic_trigger#858545d27e95938d953d502f75a5e789ffdba327"
 dependencies = [
  "dot",
  "itertools 0.10.5",
@@ -1292,7 +1292,7 @@ dependencies = [
 [[package]]
 name = "rtlola-hir"
 version = "0.4.2"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#3d74d79d8d1fc428308701a0b618ac15771f2563"
+source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=dynamic_trigger#858545d27e95938d953d502f75a5e789ffdba327"
 dependencies = [
  "itertools 0.10.5",
  "lazy_static",
@@ -1365,7 +1365,7 @@ dependencies = [
 [[package]]
 name = "rtlola-macros"
 version = "0.1.2"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#3d74d79d8d1fc428308701a0b618ac15771f2563"
+source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=dynamic_trigger#858545d27e95938d953d502f75a5e789ffdba327"
 dependencies = [
  "quote",
  "syn 1.0.109",
@@ -1374,7 +1374,7 @@ dependencies = [
 [[package]]
 name = "rtlola-parser"
 version = "0.3.2"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#3d74d79d8d1fc428308701a0b618ac15771f2563"
+source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=dynamic_trigger#858545d27e95938d953d502f75a5e789ffdba327"
 dependencies = [
  "lazy_static",
  "num",
@@ -1389,7 +1389,7 @@ dependencies = [
 [[package]]
 name = "rtlola-reporting"
 version = "0.2.2"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#3d74d79d8d1fc428308701a0b618ac15771f2563"
+source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=dynamic_trigger#858545d27e95938d953d502f75a5e789ffdba327"
 dependencies = [
  "codespan-reporting",
  "pest",
@@ -1456,18 +1456,18 @@ checksum = "1c107b6f4780854c8b126e228ea8869f4d7b71260f962fefb57b996b8959ba6b"
 
 [[package]]
 name = "serde"
-version = "1.0.201"
+version = "1.0.202"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "780f1cebed1629e4753a1a38a3c72d30b97ec044f0aef68cb26650a3c5cf363c"
+checksum = "226b61a0d411b2ba5ff6d7f73a476ac4f8bb900373459cd00fab8512828ba395"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.201"
+version = "1.0.202"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c5e405930b9796f1c00bee880d03fc7e0bb4b9a11afc776885ffe84320da2865"
+checksum = "6048858004bcff69094cd972ed40a32500f153bd3be9f716b2eed2e8217c4838"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1772,9 +1772,9 @@ dependencies = [
 
 [[package]]
 name = "trybuild"
-version = "1.0.95"
+version = "1.0.96"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ddb747392ea12569d501a5bbca08852e4c8cd88b92566074b2243b8846f09e6"
+checksum = "33a5f13f11071020bb12de7a16b925d2d58636175c20c11dc5f96cb64bb6c9b3"
 dependencies = [
  "glob",
  "serde",

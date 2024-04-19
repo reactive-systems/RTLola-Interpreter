@@ -287,30 +287,6 @@ impl VerdictRepresentation for TriggerMessages {
 }
 
 /**
-    Represents the index and the info values of all violated triggers.
-*/
-pub type TriggersWithInfoValues = Vec<(OutputReference, Vec<Option<Value>>)>;
-
-impl VerdictRepresentation for TriggersWithInfoValues {
-    type Tracing = NoTracer;
-
-    fn create(data: RawVerdict) -> Self
-    where
-        Self: Sized,
-    {
-        let violated_trigger = data.eval.peek_violated_triggers();
-        violated_trigger
-            .into_iter()
-            .map(|sr| (sr, data.eval.peek_info_stream_values(sr)))
-            .collect()
-    }
-
-    fn is_empty(&self) -> bool {
-        Vec::is_empty(self)
-    }
-}
-
-/**
     The [Verdicts] struct represents the verdict of the API.
 
     It contains the output of the periodic streams with the `timed` field and the output of the event-based streams with `event`.
@@ -533,19 +509,10 @@ where
     }
 
     /**
-    Get the message of a trigger based on its index.
-
-    The reference is valid for the lifetime of the monitor.
-    */
-    pub fn trigger_message(&self, id: usize) -> &str {
-        self.ir.triggers[id].message.as_str()
-    }
-
-    /**
     Get the [OutputReference] of a trigger based on its index.
     */
     pub fn trigger_stream_index(&self, id: usize) -> usize {
-        self.ir.triggers[id].reference.out_ix()
+        self.ir.triggers[id].output_reference.out_ix()
     }
 
     /**
