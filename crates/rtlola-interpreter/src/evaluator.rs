@@ -160,7 +160,7 @@ impl EvaluatorData {
             .into_group_map();
 
         for t in &ir.triggers {
-            triggers[t.output_reference.out_ix()] = Some(t.clone());
+            triggers[t.output_reference.out_ix()] = Some(*t);
         }
         let mut time_driven_streams = vec![None; ir.outputs.len()];
         for t in &ir.time_driven {
