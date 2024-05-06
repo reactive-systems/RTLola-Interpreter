@@ -12,6 +12,8 @@ use crate::{Time, Value};
 pub(crate) enum EvaluationTask {
     /// Evaluate a specific instance of the output stream.
     Evaluate(OutputReference, Vec<Value>),
+    /// Evalutate all instances of the output stream.
+    EvaluateInstances(OutputReference),
     /// Spawn a new instance of the output stream.
     Spawn(OutputReference),
     /// Evaluate the close condition for a specific instance.
@@ -22,6 +24,7 @@ impl From<Task> for EvaluationTask {
     fn from(task: Task) -> Self {
         match task {
             Task::Evaluate(idx) => EvaluationTask::Evaluate(idx, vec![]),
+            Task::EvaluateInstances(idx) => EvaluationTask::EvaluateInstances(idx),
             Task::Spawn(idx) => EvaluationTask::Spawn(idx),
             Task::Close(idx) => EvaluationTask::Close(idx, vec![]),
         }
@@ -31,7 +34,9 @@ impl From<Task> for EvaluationTask {
 impl EvaluationTask {
     pub(crate) fn get_sort_key(&self, ir: &RtLolaMir) -> usize {
         match self {
-            EvaluationTask::Evaluate(idx, _) => ir.outputs[*idx].eval_layer().inner(),
+            EvaluationTask::Evaluate(idx, _) | EvaluationTask::EvaluateInstances(idx) => {
+                ir.outputs[*idx].eval_layer().inner()
+            },
             EvaluationTask::Spawn(idx) => ir.outputs[*idx].spawn_layer().inner(),
             EvaluationTask::Close(_, _) => usize::MAX,
         }
@@ -125,6 +130,7 @@ impl ScheduleManager {
                 match sd.cmp(&dd) {
                     Ordering::Less => self.get_next_static_deadline(),
                     Ordering::Equal => {
+                        println!("Put deadline together: {sd:?}");
                         let static_deadline = self.get_next_static_deadline();
                         let dyn_deadline = (*self.dyn_schedule).borrow_mut().get_next_deadline(now).unwrap().tasks;
                         let mut res = static_deadline
@@ -132,7 +138,7 @@ impl ScheduleManager {
                             .chain(dyn_deadline)
                             .collect::<Vec<EvaluationTask>>();
                         res.sort_by_key(|t| t.get_sort_key(&self.ir));
-                        res
+                        dbg!(res)
                     },
                     Ordering::Greater => {
                         let mut dyn_deadline = (*self.dyn_schedule)

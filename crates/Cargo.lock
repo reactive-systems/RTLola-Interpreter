@@ -1273,7 +1273,7 @@ dependencies = [
 [[package]]
 name = "rtlola-frontend"
 version = "0.6.2"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=dynamic_trigger#858545d27e95938d953d502f75a5e789ffdba327"
+source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=global_frequencies#e938faa18c6e14ad2e9f3575d8c855516f30754b"
 dependencies = [
  "dot",
  "itertools 0.10.5",
@@ -1292,7 +1292,7 @@ dependencies = [
 [[package]]
 name = "rtlola-hir"
 version = "0.4.2"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=dynamic_trigger#858545d27e95938d953d502f75a5e789ffdba327"
+source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=global_frequencies#e938faa18c6e14ad2e9f3575d8c855516f30754b"
 dependencies = [
  "itertools 0.10.5",
  "lazy_static",
@@ -1335,6 +1335,7 @@ dependencies = [
  "humantime",
  "itertools 0.11.0",
  "junit-report",
+ "num",
  "num-traits",
  "ordered-float",
  "priority-queue",
@@ -1345,6 +1346,7 @@ dependencies = [
  "serde_json",
  "string_template",
  "tempfile",
+ "uom",
 ]
 
 [[package]]
@@ -1365,7 +1367,7 @@ dependencies = [
 [[package]]
 name = "rtlola-macros"
 version = "0.1.2"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=dynamic_trigger#858545d27e95938d953d502f75a5e789ffdba327"
+source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=global_frequencies#e938faa18c6e14ad2e9f3575d8c855516f30754b"
 dependencies = [
  "quote",
  "syn 1.0.109",
@@ -1374,7 +1376,7 @@ dependencies = [
 [[package]]
 name = "rtlola-parser"
 version = "0.3.2"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=dynamic_trigger#858545d27e95938d953d502f75a5e789ffdba327"
+source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=global_frequencies#e938faa18c6e14ad2e9f3575d8c855516f30754b"
 dependencies = [
  "lazy_static",
  "num",
@@ -1389,7 +1391,7 @@ dependencies = [
 [[package]]
 name = "rtlola-reporting"
 version = "0.2.2"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=dynamic_trigger#858545d27e95938d953d502f75a5e789ffdba327"
+source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=global_frequencies#e938faa18c6e14ad2e9f3575d8c855516f30754b"
 dependencies = [
  "codespan-reporting",
  "pest",
