@@ -770,7 +770,11 @@ impl Evaluator {
         let trigger = self
             .is_trigger(trigger_ref)
             .expect("Output reference must refer to a trigger");
-        self.peek_value(trigger.output_reference, &[], 0).unwrap().to_string()
+        if self.ir.output(trigger.output_reference).is_parameterized() {
+            String::new()
+        } else {
+            self.peek_value(trigger.output_reference, &[], 0).unwrap().to_string()
+        }
     }
 
     fn eval_stream_instance(&mut self, output: OutputReference, parameter: &[Value], ts: Time) {
