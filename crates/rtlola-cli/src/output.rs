@@ -143,9 +143,9 @@ impl<OutputTime: OutputTimeRepresentation> OutputHandler<OutputTime> {
 
                 for (out, changes) in outputs {
                     let kind = self.ir.outputs[out].kind;
-                    let (kind_str, name) = match kind {
-                        OutputKind::NamedOutput => ("Output", self.ir.outputs[out].name.clone()),
-                        OutputKind::Trigger => ("Trigger", format!("#{}", self.or_to_tr[&out])),
+                    let name = match kind {
+                        OutputKind::NamedOutput => format!("[Output][{}", self.ir.outputs[out].name.clone()),
+                        OutputKind::Trigger => format!("[#{}", self.or_to_tr[&out]),
                     };
                     let name = &name;
                     for change in changes {
@@ -153,27 +153,13 @@ impl<OutputTime: OutputTimeRepresentation> OutputHandler<OutputTime> {
                             Change::Spawn(parameter) => {
                                 self.debug(
                                     &mut output,
-                                    || {
-                                        format!(
-                                            "[{}][{}][Spawn] = {}",
-                                            kind_str,
-                                            name,
-                                            Self::display_parameter(Some(parameter))
-                                        )
-                                    },
+                                    || format!("{}][Spawn] = {}", name, Self::display_parameter(Some(parameter))),
                                     &ts,
                                 );
                             },
                             Change::Value(parameter, val) => {
-                                let msg = move || {
-                                    format!(
-                                        "[{}][{}{}][Value] = {}",
-                                        kind_str,
-                                        name,
-                                        Self::display_parameter(parameter),
-                                        val
-                                    )
-                                };
+                                let msg =
+                                    move || format!("{}{}][Value] = {}", name, Self::display_parameter(parameter), val);
                                 let is_trigger = matches!(kind, OutputKind::Trigger);
                                 self.stream(&mut output, msg, &ts, is_trigger);
                                 if is_trigger {
@@ -185,14 +171,7 @@ impl<OutputTime: OutputTimeRepresentation> OutputHandler<OutputTime> {
                             Change::Close(parameter) => {
                                 self.debug(
                                     &mut output,
-                                    move || {
-                                        format!(
-                                            "[{}][{}][Close] = {}",
-                                            kind_str,
-                                            name,
-                                            Self::display_parameter(Some(parameter))
-                                        )
-                                    },
+                                    move || format!("{}][Close] = {}", name, Self::display_parameter(Some(parameter))),
                                     &ts,
                                 );
                             },
