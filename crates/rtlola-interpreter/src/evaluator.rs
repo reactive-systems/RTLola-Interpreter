@@ -6,13 +6,13 @@ use std::rc::Rc;
 use bit_set::BitSet;
 use itertools::Itertools;
 use rtlola_frontend::mir::{
-    ActivationCondition as Activation, InputReference, OutputReference, PacingType, RtLolaMir, Stream, StreamReference,
-    Task, TimeDrivenStream, Trigger, WindowReference,
+    ActivationCondition as Activation, InputReference, OutputKind, OutputReference, PacingType, RtLolaMir, Stream,
+    StreamReference, Task, TimeDrivenStream, Trigger, WindowReference,
 };
 
 use crate::api::monitor::{Change, Instance};
 use crate::closuregen::{CompiledExpr, Expr};
-use crate::monitor::Tracer;
+use crate::monitor::{Parameters, Tracer};
 use crate::schedule::{DynamicSchedule, EvaluationTask};
 use crate::storage::{GlobalStore, InstanceAggregationTrait, InstanceStore, Value, WindowParameterization};
 use crate::Time;
@@ -348,6 +348,23 @@ impl Evaluator {
                     vec![]
                 };
                 changes.is_empty().not().then(|| (o.reference.out_ix(), changes))
+            })
+            .collect()
+    }
+
+    /// NOT for external use because the values are volatile
+    pub(crate) fn peek_violated_triggers_messages(&self) -> Vec<(OutputReference, Parameters, String)> {
+        self.peek_fresh_outputs()
+            .into_iter()
+            .filter(|(o_ref, _)| matches!(self.ir.outputs[*o_ref].kind, OutputKind::Trigger))
+            .flat_map(|(o_ref, changes)| {
+                changes.into_iter().filter_map(move |change| {
+                    match change {
+                        Change::Value(parameters, Value::Str(msg)) => Some((o_ref, parameters, msg.into())),
+                        Change::Value(_, _) => unreachable!("trigger values are strings; checked by the frontend"),
+                        _ => None,
+                    }
+                })
             })
             .collect()
     }
@@ -763,17 +780,6 @@ impl Evaluator {
                         .update_all(ts);
                 },
             }
-        }
-    }
-
-    pub(crate) fn format_trigger_message(&self, trigger_ref: OutputReference) -> String {
-        let trigger = self
-            .is_trigger(trigger_ref)
-            .expect("Output reference must refer to a trigger");
-        if self.ir.output(trigger.output_reference).is_parameterized() {
-            String::new()
-        } else {
-            self.peek_value(trigger.output_reference, &[], 0).unwrap().to_string()
         }
     }
 
