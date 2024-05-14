@@ -142,10 +142,10 @@ impl<OutputTime: OutputTimeRepresentation> OutputHandler<OutputTime> {
                 }
 
                 for (out, changes) in outputs {
-                    let kind = self.ir.outputs[out].kind;
+                    let kind = &self.ir.outputs[out].kind;
                     let name = match kind {
-                        OutputKind::NamedOutput => format!("[Output][{}", self.ir.outputs[out].name.clone()),
-                        OutputKind::Trigger => format!("[#{}", self.or_to_tr[&out]),
+                        OutputKind::NamedOutput(name) => format!("[Output][{name}"),
+                        OutputKind::Trigger(idx) => format!("[#{idx}"),
                     };
                     let name = &name;
                     for change in changes {
@@ -160,7 +160,7 @@ impl<OutputTime: OutputTimeRepresentation> OutputHandler<OutputTime> {
                             Change::Value(parameter, val) => {
                                 let msg =
                                     move || format!("{}{}][Value] = {}", name, Self::display_parameter(parameter), val);
-                                let is_trigger = matches!(kind, OutputKind::Trigger);
+                                let is_trigger = matches!(kind, OutputKind::Trigger(_));
                                 self.stream(&mut output, msg, &ts, is_trigger);
                                 if is_trigger {
                                     if let Some(statistics) = self.statistics.as_mut() {

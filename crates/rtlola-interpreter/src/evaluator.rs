@@ -356,7 +356,7 @@ impl Evaluator {
     pub(crate) fn peek_violated_triggers_messages(&self) -> Vec<(OutputReference, Parameters, String)> {
         self.peek_fresh_outputs()
             .into_iter()
-            .filter(|(o_ref, _)| matches!(self.ir.outputs[*o_ref].kind, OutputKind::Trigger))
+            .filter(|(o_ref, _)| matches!(self.ir.outputs[*o_ref].kind, OutputKind::Trigger(_)))
             .flat_map(|(o_ref, changes)| {
                 changes.into_iter().filter_map(move |change| {
                     match change {
