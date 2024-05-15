@@ -8,8 +8,8 @@ use bit_set::BitSet;
 use itertools::Itertools;
 use num::traits::Inv;
 use rtlola_frontend::mir::{
-    ActivationCondition as Activation, InputReference, OutputKind, OutputReference, PacingType, RtLolaMir, Stream,
-    StreamReference, Task, TimeDrivenStream, Trigger, WindowReference,
+    ActivationCondition as Activation, InputReference, OutputKind, OutputReference, PacingLocality, PacingType,
+    RtLolaMir, Stream, StreamReference, Task, TimeDrivenStream, Trigger, WindowReference,
 };
 use uom::si::rational64::Time as UOM_Time;
 use uom::si::time::nanosecond;
@@ -582,31 +582,14 @@ impl Evaluator {
         // Schedule instance evaluation if stream is periodic
         if let Some(tds) = self.time_driven_streams[output] {
             let mut schedule = (*self.dyn_schedule).borrow_mut();
-            let start_time_period = match tds.locality {
-                rtlola_frontend::mir::PacingLocality::Global => {
-                    let diff_to_global = ts.as_nanos() % tds.period_in_duration().as_nanos();
-                    let diff_to_global = Duration::new(
-                        (diff_to_global / 1_000_000_000) as u64,
-                        (diff_to_global % 1_000_000_000) as u32,
-                    );
 
-                    ts - diff_to_global
-                },
-                rtlola_frontend::mir::PacingLocality::Local => ts,
-            };
-            println!("TEST: start {start_time_period:?}");
+            // Schedule eval if it has local pacing
+            if tds.locality == PacingLocality::Local {
+                schedule.schedule_evaluation(output, parameter_values.as_slice(), ts, tds.period_in_duration());
+            }
 
-            schedule.schedule_evaluation(
-                output,
-                parameter_values.as_slice(),
-                start_time_period,
-                tds.period_in_duration(),
-            );
-
-            // Schedule close if it depends on current instance
+            // Schedule close if it has local pacing
             if let PacingType::LocalPeriodic(f) = stream.close.pacing {
-                // // we have a synchronous access to self -> period of close should be the same as og self
-                // debug_assert!(matches!(&stream.close.pacing, PacingType::LocalPeriodic(f) if *f == tds.frequency));
                 let period = Duration::from_nanos(
                     UOM_Time::new::<uom::si::time::second>(f.get::<uom::si::frequency::hertz>().inv())
                         .get::<nanosecond>()
