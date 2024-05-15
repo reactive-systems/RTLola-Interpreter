@@ -100,7 +100,7 @@ impl ScheduleManager {
         let deadline = &self.deadlines[self.cur_static_deadline_idx];
         assert!(deadline.pause > Duration::from_secs(0));
         self.next_static_deadline = self.next_static_deadline.map(|d| d + deadline.pause);
-        self.static_due_streams = deadline.due.clone();
+        self.static_due_streams.clone_from(&deadline.due);
         res
     }
 

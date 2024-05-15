@@ -214,23 +214,20 @@ impl SlidingWindowCollection {
 
     /// Returns the existing sliding window for the parameters or creates an instance if not existing
     pub(crate) fn get_or_create(&mut self, parameters: &[Value], ts: Time) -> &mut SlidingWindow {
-        self.delete_expired_windows(ts);
         if self.windows.contains_key(parameters) {
-            self.window_mut(parameters, ts).unwrap()
+            self.window_mut(parameters).unwrap()
         } else {
             self.create_window(parameters, ts).unwrap()
         }
     }
 
     /// Returns a reference to the sliding window corresponding to the parameters
-    pub(crate) fn window(&mut self, parameter: &[Value], ts: Time) -> Option<&SlidingWindow> {
-        self.delete_expired_windows(ts);
+    pub(crate) fn window(&self, parameter: &[Value]) -> Option<&SlidingWindow> {
         self.windows.get(parameter)
     }
 
     /// Returns a mutable reference to the sliding window corresponding to the parameters
-    pub(crate) fn window_mut(&mut self, parameter: &[Value], ts: Time) -> Option<&mut SlidingWindow> {
-        self.delete_expired_windows(ts);
+    pub(crate) fn window_mut(&mut self, parameter: &[Value]) -> Option<&mut SlidingWindow> {
         self.windows.get_mut(parameter)
     }
 
@@ -263,7 +260,6 @@ impl SlidingWindowCollection {
 
     /// Updates all windows in the collection with the given time
     pub(crate) fn update_all(&mut self, ts: Time) {
-        self.delete_expired_windows(ts);
         self.windows.iter_mut().for_each(|(_, w)| {
             if w.is_active() {
                 w.update(ts)
@@ -273,7 +269,6 @@ impl SlidingWindowCollection {
 
     /// Activates all windows in the collection with the given time
     pub(crate) fn activate_all(&mut self, ts: Time) {
-        self.delete_expired_windows(ts);
         self.windows.iter_mut().for_each(|(_, w)| {
             if !w.is_active() {
                 w.activate(ts);
@@ -282,8 +277,7 @@ impl SlidingWindowCollection {
     }
 
     /// Deactivates all windows in the collection with the given time
-    pub(crate) fn deactivate_all(&mut self, ts: Time) {
-        self.delete_expired_windows(ts);
+    pub(crate) fn deactivate_all(&mut self) {
         self.windows.iter_mut().for_each(|(_, w)| {
             if w.is_active() {
                 w.deactivate();
@@ -293,7 +287,6 @@ impl SlidingWindowCollection {
 
     /// Adds a new value to all windows in the collection with the given time
     pub(crate) fn accept_value_all(&mut self, value: Value, ts: Time) {
-        self.delete_expired_windows(ts);
         self.windows
             .iter_mut()
             .for_each(|(_, w)| w.accept_value(value.clone(), ts));
@@ -407,7 +400,6 @@ impl TwoLayerSlidingWindowCollection {
     }
 
     pub(crate) fn spawn_caller_instance(&mut self, parameters: &[Value], ts: Time) {
-        self.delete_expired_windows(ts);
         let next_caller_id = self.caller_instances.len();
         self.caller_parameters.insert(parameters.to_vec(), next_caller_id);
         let window = self.create_window(ts, true);
@@ -415,8 +407,7 @@ impl TwoLayerSlidingWindowCollection {
         self.windows.iter_mut().for_each(|callers| callers.push(window.clone()));
     }
 
-    pub(crate) fn close_caller_instance(&mut self, parameter: &[Value], ts: Time) {
-        self.delete_expired_windows(ts);
+    pub(crate) fn close_caller_instance(&mut self, parameter: &[Value]) {
         debug_assert!(!self.caller_instances.is_empty());
         let (_, id) = self
             .caller_parameters
@@ -442,13 +433,7 @@ impl TwoLayerSlidingWindowCollection {
     }
 
     /// Returns a reference to the sliding window corresponding to the parameters
-    pub(crate) fn window(
-        &mut self,
-        target_parameter: &[Value],
-        caller_parameter: &[Value],
-        ts: Time,
-    ) -> Option<&SlidingWindow> {
-        self.delete_expired_windows(ts);
+    pub(crate) fn window(&self, target_parameter: &[Value], caller_parameter: &[Value]) -> Option<&SlidingWindow> {
         self.target_parameters
             .get_by_left(target_parameter)
             .and_then(|target_id| {
@@ -461,7 +446,6 @@ impl TwoLayerSlidingWindowCollection {
 
     /// Updates all windows in the collection with the given time
     pub(crate) fn update_all(&mut self, ts: Time) {
-        self.delete_expired_windows(ts);
         self.windows
             .iter_mut()
             .for_each(|c| c.iter_mut().for_each(|w| w.update(ts)));
@@ -469,7 +453,6 @@ impl TwoLayerSlidingWindowCollection {
 
     /// Adds a new value to all windows in the collection with the given time
     pub(crate) fn accept_value(&mut self, target_parameter: &[Value], value: Value, ts: Time) {
-        self.delete_expired_windows(ts);
         let id = *self.target_parameters.get_by_left(target_parameter).unwrap();
         self.windows[id]
             .iter_mut()
@@ -806,11 +789,20 @@ impl GlobalStore {
         }
     }
 
-    /// Returns the collection of all sliding window instances
+    /// Returns the mutable collection of all sliding window instances
     pub(crate) fn get_window_collection_mut(&mut self, window: WindowReference) -> &mut SlidingWindowCollection {
         match window {
             WindowReference::Sliding(x) => &mut self.p_windows[self.window_index_map[x]],
             WindowReference::Discrete(x) => &mut self.p_discrete_windows[self.discrete_window_index_map[x]],
+            WindowReference::Instance(_) => unreachable!("Called window function with instance aggregation reference"),
+        }
+    }
+
+    /// Returns the immutable collection of all sliding window instances
+    pub(crate) fn get_window_collection(&self, window: WindowReference) -> &SlidingWindowCollection {
+        match window {
+            WindowReference::Sliding(x) => &self.p_windows[self.window_index_map[x]],
+            WindowReference::Discrete(x) => &self.p_discrete_windows[self.discrete_window_index_map[x]],
             WindowReference::Instance(_) => unreachable!("Called window function with instance aggregation reference"),
         }
     }
@@ -822,6 +814,14 @@ impl GlobalStore {
         match window {
             WindowReference::Sliding(x) => &mut self.both_p_windows[self.window_index_map[x]],
             WindowReference::Discrete(x) => &mut self.both_p_discrete_windows[self.discrete_window_index_map[x]],
+            WindowReference::Instance(_) => unreachable!("Called window function with instance aggregation reference"),
+        }
+    }
+
+    pub(crate) fn get_two_layer_window_collection(&self, window: WindowReference) -> &TwoLayerSlidingWindowCollection {
+        match window {
+            WindowReference::Sliding(x) => &self.both_p_windows[self.window_index_map[x]],
+            WindowReference::Discrete(x) => &self.both_p_discrete_windows[self.discrete_window_index_map[x]],
             WindowReference::Instance(_) => unreachable!("Called window function with instance aggregation reference"),
         }
     }
@@ -842,21 +842,28 @@ impl GlobalStore {
         }
     }
 
-    /// Updates the instance aggregation with all instances and returns a mutable reference to the aggregation.
-    pub(crate) fn update_instance_aggregation(&mut self, window: WindowReference) -> &mut InstanceAggregation {
+    /// Immediately evaluates the instance aggregation given all instances.
+    pub(crate) fn eval_instance_aggregation(&self, window: WindowReference) -> Value {
         if let WindowReference::Instance(idx) = window {
-            let aggr = &mut self.instance_aggregations[idx];
+            let aggr = &self.instance_aggregations[idx];
             let target = &self.p_outputs[self.stream_index_map[aggr.target.out_ix()]];
-            aggr.all_instances(target);
-            aggr
+            aggr.get_value(target)
         } else {
             unreachable!("Called update_instance_aggregation for non instance");
         }
     }
 
     /// Marks all instances in the store as fresh
-    pub(crate) fn new_cycle(&mut self) {
+    pub(crate) fn new_cycle(&mut self, ts: Time) {
         self.p_outputs.iter_mut().for_each(|is| is.new_cycle());
+        self.p_windows
+            .iter_mut()
+            .chain(self.p_discrete_windows.iter_mut())
+            .for_each(|swc| swc.delete_expired_windows(ts));
+        self.both_p_windows
+            .iter_mut()
+            .chain(self.both_p_discrete_windows.iter_mut())
+            .for_each(|swc| swc.delete_expired_windows(ts));
     }
 }
 

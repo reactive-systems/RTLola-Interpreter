@@ -91,7 +91,7 @@ pub(crate) struct Evaluator {
 
 pub(crate) struct EvaluationContext<'e> {
     ts: Time,
-    global_store: &'e mut GlobalStore,
+    global_store: &'e GlobalStore,
     fresh_inputs: &'e BitSet,
     fresh_outputs: &'e BitSet,
     pub(crate) parameter: Vec<Value>,
@@ -310,7 +310,7 @@ impl Evaluator {
     /// Values of event are expected in the order of the input streams
     /// Time should be relative to the starting time of the monitor
     pub(crate) fn eval_event(&mut self, event: &[Value], ts: Time, tracer: &mut impl Tracer) {
-        self.new_cycle();
+        self.new_cycle(ts);
         self.accept_inputs(event, ts);
         self.eval_event_driven(ts, tracer);
     }
@@ -475,8 +475,8 @@ impl Evaluator {
         debug_assert!(stream.is_spawned(), "tried to spawn stream that should not be spawned");
 
         let expr = self.compiled_spawn_exprs[output].clone();
-        let mut ctx = self.as_EvaluationContext(vec![], ts);
-        let res = expr.execute(&mut ctx);
+        let ctx = self.as_EvaluationContext(vec![], ts);
+        let res = expr.execute(&ctx);
 
         let parameter_values = match res {
             Value::None => return, // spawn condition evaluated to false
@@ -585,8 +585,8 @@ impl Evaluator {
         let stream = self.ir.output(StreamReference::Out(output));
 
         let expr = self.compiled_close_exprs[output].clone();
-        let mut ctx = self.as_EvaluationContext(parameter.to_vec(), ts);
-        let res = expr.execute(&mut ctx);
+        let ctx = self.as_EvaluationContext(parameter.to_vec(), ts);
+        let res = expr.execute(&ctx);
         if !res.as_bool() {
             return;
         }
@@ -620,7 +620,7 @@ impl Evaluator {
                     WindowParameterization::Both => {
                         self.global_store
                             .get_two_layer_window_collection_mut(win_ref)
-                            .close_caller_instance(parameter, ts);
+                            .close_caller_instance(parameter);
                     },
                 }
             }
@@ -650,7 +650,7 @@ impl Evaluator {
                         self.global_store.get_window_mut(win_ref).deactivate();
                     },
                     WindowParameterization::Target { .. } => {
-                        self.global_store.get_window_collection_mut(win_ref).deactivate_all(ts);
+                        self.global_store.get_window_collection_mut(win_ref).deactivate_all();
                     },
                     WindowParameterization::Caller | WindowParameterization::Both => {
                         unreachable!("Parameters are empty")
@@ -726,7 +726,7 @@ impl Evaluator {
         if tasks.is_empty() {
             return;
         }
-        self.new_cycle();
+        self.new_cycle(ts);
         self.prepare_evaluation(ts);
         for task in tasks {
             match task {
@@ -813,8 +813,8 @@ impl Evaluator {
         let ix = output;
 
         let expr = self.compiled_stream_exprs[ix].clone();
-        let mut ctx = self.as_EvaluationContext(parameter.to_vec(), ts);
-        let res = expr.execute(&mut ctx);
+        let ctx = self.as_EvaluationContext(parameter.to_vec(), ts);
+        let res = expr.execute(&ctx);
 
         // Filter evaluated to false
         if let Value::None = res {
@@ -875,7 +875,7 @@ impl Evaluator {
             WindowParameterization::Target { .. } => {
                 self.global_store
                     .get_window_collection_mut(win)
-                    .window_mut(own_parameter, ts)
+                    .window_mut(own_parameter)
                     .expect("tried to extend non existing window")
                     .accept_value(value, ts)
             },
@@ -888,7 +888,7 @@ impl Evaluator {
     }
 
     /// Marks a new evaluation cycle
-    fn new_cycle(&mut self) {
+    fn new_cycle(&mut self, ts: Time) {
         self.close_streams();
         self.fresh_inputs.clear();
         self.fresh_outputs.clear();
@@ -896,7 +896,7 @@ impl Evaluator {
 
         self.spawned_outputs.clear();
         self.closed_outputs.clear();
-        self.global_store.new_cycle();
+        self.global_store.new_cycle(ts);
     }
 
     fn is_trigger(&self, ix: OutputReference) -> Option<&Trigger> {
@@ -1034,25 +1034,24 @@ impl<'e> EvaluationContext<'e> {
         }
     }
 
-    pub(crate) fn lookup_instance_aggr(&mut self, window_reference: WindowReference) -> Value {
-        let aggr = self.global_store.update_instance_aggregation(window_reference);
-        aggr.get_value()
+    pub(crate) fn lookup_instance_aggr(&self, window_reference: WindowReference) -> Value {
+        self.global_store.eval_instance_aggregation(window_reference)
     }
 
-    pub(crate) fn lookup_window(&mut self, window_ref: WindowReference, target_parameter: &[Value]) -> Value {
+    pub(crate) fn lookup_window(&self, window_ref: WindowReference, target_parameter: &[Value]) -> Value {
         let parameterization = self.global_store.window_parameterization(window_ref);
         match parameterization {
             WindowParameterization::None { .. } => self.global_store.get_window(window_ref).get_value(self.ts),
             WindowParameterization::Caller => {
                 self.global_store
-                    .get_window_collection_mut(window_ref)
-                    .window(self.parameter.as_slice(), self.ts)
+                    .get_window_collection(window_ref)
+                    .window(self.parameter.as_slice())
                     .expect("Own window to exist")
                     .get_value(self.ts)
             },
             WindowParameterization::Target { .. } => {
-                let window_collection = self.global_store.get_window_collection_mut(window_ref);
-                let window = window_collection.window(target_parameter, self.ts);
+                let window_collection = self.global_store.get_window_collection(window_ref);
+                let window = window_collection.window(target_parameter);
                 if let Some(w) = window {
                     w.get_value(self.ts)
                 } else {
@@ -1060,8 +1059,8 @@ impl<'e> EvaluationContext<'e> {
                 }
             },
             WindowParameterization::Both => {
-                let collection = self.global_store.get_two_layer_window_collection_mut(window_ref);
-                let window = collection.window(target_parameter, self.parameter.as_slice(), self.ts);
+                let collection = self.global_store.get_two_layer_window_collection(window_ref);
+                let window = collection.window(target_parameter, self.parameter.as_slice());
                 if let Some(w) = window {
                     w.get_value(self.ts)
                 } else {
@@ -1135,7 +1134,7 @@ impl ActivationConditionOp {
 #[cfg(test)]
 mod tests {
 
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     use ordered_float::{Float, NotNan};
     use rtlola_frontend::ParserConfig;
@@ -1145,7 +1144,7 @@ mod tests {
     use crate::schedule::dynamic_schedule::*;
     use crate::storage::Value::*;
 
-    fn setup(spec: &str) -> (RtLolaMir, EvaluatorData, Instant) {
+    fn setup(spec: &str) -> (RtLolaMir, EvaluatorData, Duration) {
         let cfg = ParserConfig::for_string(spec.to_string());
         let handler = rtlola_frontend::Handler::from(&cfg);
         let ir = rtlola_frontend::parse(&cfg).unwrap_or_else(|e| {
@@ -1153,7 +1152,7 @@ mod tests {
             panic!();
         });
         let dyn_schedule = Rc::new(RefCell::new(DynamicSchedule::new()));
-        let now = Instant::now();
+        let now = Duration::ZERO;
         let eval = EvaluatorData::new(ir.clone(), dyn_schedule);
         (ir, eval, now)
     }
@@ -1185,7 +1184,7 @@ mod tests {
 
     macro_rules! eval_stream_instances {
         ($eval:expr, $start:expr, $ix:expr) => {
-            $eval.eval_event_driven_output($ix.out_ix(), $start.elapsed(), &mut NoTracer::default());
+            $eval.eval_event_driven_output($ix.out_ix(), $start, &mut NoTracer::default());
         };
     }
 
@@ -1198,13 +1197,13 @@ mod tests {
 
     macro_rules! eval_stream {
         ($eval:expr, $start:expr, $ix:expr, $parameter:expr) => {
-            $eval.eval_stream_instance($ix, $parameter.as_slice(), $start.elapsed());
+            $eval.eval_stream_instance($ix, $parameter.as_slice(), $start);
         };
     }
 
     macro_rules! spawn_stream {
         ($eval:expr, $start:expr, $ix:expr) => {
-            $eval.eval_event_driven_spawn($ix.out_ix(), $start.elapsed(), &mut NoTracer::default());
+            $eval.eval_event_driven_spawn($ix.out_ix(), $start, &mut NoTracer::default());
         };
     }
 
@@ -1216,7 +1215,7 @@ mod tests {
 
     macro_rules! eval_close {
         ($eval:expr, $start:expr, $ix:expr, $parameter:expr) => {
-            $eval.eval_close($ix.out_ix(), $parameter.as_slice(), $start.elapsed());
+            $eval.eval_close($ix.out_ix(), $parameter.as_slice(), $start);
             $eval.close_streams();
         };
     }
@@ -1250,7 +1249,7 @@ mod tests {
 
     macro_rules! accept_input {
         ($eval:expr, $start:expr, $str_ref:expr, $v:expr) => {
-            $eval.accept_input($str_ref.in_ix(), $v.clone(), $start.elapsed());
+            $eval.accept_input($str_ref.in_ix(), $v.clone(), $start);
         };
     }
 
@@ -3015,6 +3014,7 @@ mod tests {
 
         //Intance b(false) is spawned
         time += Duration::from_millis(500);
+        eval.new_cycle(time);
         accept_input_timed!(eval, in_ref, Signed(15), time);
         spawn_stream_timed!(eval, time, b_ref);
         assert!(stream_has_instance!(eval, b_ref, vec![Bool(false)]));
@@ -3026,6 +3026,7 @@ mod tests {
         //Intance b(true) is spawned
         //Timed streams are evaluated
         time += Duration::from_millis(500);
+        eval.new_cycle(time);
         accept_input_timed!(eval, in_ref, Signed(42), time);
         spawn_stream_timed!(eval, time, b_ref);
         assert!(stream_has_instance!(eval, b_ref, vec![Bool(true)]));
@@ -3040,6 +3041,7 @@ mod tests {
         //Intance b(false) gets new value
         // Instance b(false) is closed
         time += Duration::from_millis(500);
+        eval.new_cycle(time);
         accept_input_timed!(eval, in_ref, Signed(1337), time);
         eval.prepare_evaluation(time);
         eval_stream_instances_timed!(eval, time, b_ref);
@@ -3052,6 +3054,7 @@ mod tests {
 
         //Eval timed streams again
         time += Duration::from_millis(500);
+        eval.new_cycle(time);
         eval.prepare_evaluation(time);
         eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
         assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(1337));
@@ -3060,12 +3063,13 @@ mod tests {
 
         //Check window instance is closed
         time += Duration::from_millis(550);
+        eval.new_cycle(time);
         eval.prepare_evaluation(time);
         let window = eval.ir.sliding_windows[0].reference;
         assert!(eval
             .global_store
             .get_window_collection_mut(window)
-            .window(&[Bool(false)], time)
+            .window(&[Bool(false)])
             .is_none())
     }
 
@@ -3324,7 +3328,7 @@ mod tests {
         assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(true));
 
         let mut time = start + Duration::from_secs(1);
-        eval.new_cycle();
+        eval.new_cycle(time);
 
         accept_input!(eval, time, a_ref, Signed(6));
         accept_input!(eval, time, i_ref, Signed(0));
@@ -3339,7 +3343,7 @@ mod tests {
         assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(false));
 
         time += Duration::from_secs(1);
-        eval.new_cycle();
+        eval.new_cycle(time);
 
         accept_input!(eval, time, a_ref, Signed(11));
         accept_input!(eval, time, i_ref, Signed(1));
@@ -3355,7 +3359,7 @@ mod tests {
         assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(true));
 
         time += Duration::from_secs(1);
-        eval.new_cycle();
+        eval.new_cycle(time);
 
         accept_input!(eval, time, a_ref, Signed(42));
         accept_input!(eval, time, i_ref, Signed(1));
@@ -3377,7 +3381,7 @@ mod tests {
         eval_close!(eval, time, b_ref, vec![Signed(42)]);
 
         time += Duration::from_secs(1);
-        eval.new_cycle();
+        eval.new_cycle(time);
 
         accept_input!(eval, time, a_ref, Signed(4));
         accept_input!(eval, time, i_ref, Signed(0));

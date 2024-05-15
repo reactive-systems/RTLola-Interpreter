@@ -18,13 +18,13 @@ pub(crate) trait Expr {
 }
 
 #[derive(Clone)]
-pub(crate) struct CompiledExpr(Rc<dyn Fn(&mut EvaluationContext<'_>) -> Value>);
+pub(crate) struct CompiledExpr(Rc<dyn Fn(&EvaluationContext<'_>) -> Value>);
 // alternative: using Higher-Rank Trait Bounds (HRTBs)
 // pub(crate) struct CompiledExpr<'s>(Box<dyn 's + for<'a> Fn(&EvaluationContext<'a>) -> Value>);
 
 impl CompiledExpr {
     /// Creates a compiled expression IR from a generic closure.
-    pub(crate) fn new(closure: impl 'static + Fn(&mut EvaluationContext<'_>) -> Value) -> Self {
+    pub(crate) fn new(closure: impl 'static + Fn(&EvaluationContext<'_>) -> Value) -> Self {
         CompiledExpr(Rc::new(closure))
     }
 
@@ -66,7 +66,7 @@ impl CompiledExpr {
     }
 
     /// Executes a filter against a provided context with values.
-    pub(crate) fn execute(&self, ctx: &mut EvaluationContext) -> Value {
+    pub(crate) fn execute(&self, ctx: &EvaluationContext) -> Value {
         self.0(ctx)
     }
 }
