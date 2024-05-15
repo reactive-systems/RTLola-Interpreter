@@ -23,8 +23,7 @@ pub(crate) enum EvaluationTask {
 impl From<Task> for EvaluationTask {
     fn from(task: Task) -> Self {
         match task {
-            Task::Evaluate(idx) => EvaluationTask::Evaluate(idx, vec![]),
-            Task::EvaluateInstances(idx) => EvaluationTask::EvaluateInstances(idx),
+            Task::Evaluate(idx) => EvaluationTask::EvaluateInstances(idx),
             Task::Spawn(idx) => EvaluationTask::Spawn(idx),
             Task::Close(idx) => EvaluationTask::Close(idx, vec![]),
         }
