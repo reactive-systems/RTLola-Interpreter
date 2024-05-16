@@ -20,7 +20,7 @@ keywords = ["verification", "interpreter", "monitoring"]
 
 
 [dependencies]
-rtlola-frontend = { git = "ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git", branch = "development" }
+rtlola-frontend = {git="ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git", branch = "development" }
 ordered-float = "3.2.0"
 rust_decimal = "1.30.0"                                                                                                                          # accurate floating point addition
 num-traits = "0.2.16"
