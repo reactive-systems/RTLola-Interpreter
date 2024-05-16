@@ -2,13 +2,17 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::Not;
 use std::rc::Rc;
+use std::time::Duration;
 
 use bit_set::BitSet;
 use itertools::Itertools;
+use num::traits::Inv;
 use rtlola_frontend::mir::{
-    ActivationCondition as Activation, InputReference, OutputKind, OutputReference, PacingType, RtLolaMir, Stream,
-    StreamReference, Task, TimeDrivenStream, Trigger, WindowReference,
+    ActivationCondition as Activation, InputReference, OutputKind, OutputReference, PacingLocality, PacingType,
+    RtLolaMir, Stream, StreamReference, Task, TimeDrivenStream, Trigger, WindowReference,
 };
+use uom::si::rational64::Time as UOM_Time;
+use uom::si::time::nanosecond;
 
 use crate::api::monitor::{Change, Instance};
 use crate::closuregen::{CompiledExpr, Expr};
@@ -109,7 +113,7 @@ impl EvaluatorData {
             .iter()
             .map(|o| {
                 match &o.eval.eval_pacing {
-                    PacingType::Periodic(_) => ActivationConditionOp::TimeDriven,
+                    PacingType::GlobalPeriodic(_) | PacingType::LocalPeriodic(_) => ActivationConditionOp::TimeDriven,
                     PacingType::Event(ac) => ActivationConditionOp::new(ac, ir.inputs.len()),
                     PacingType::Constant => ActivationConditionOp::True,
                 }
@@ -120,7 +124,7 @@ impl EvaluatorData {
             .iter()
             .map(|o| {
                 match &o.spawn.pacing {
-                    PacingType::Periodic(_) => ActivationConditionOp::TimeDriven,
+                    PacingType::GlobalPeriodic(_) | PacingType::LocalPeriodic(_) => ActivationConditionOp::TimeDriven,
                     PacingType::Event(ac) => ActivationConditionOp::new(ac, ir.inputs.len()),
                     PacingType::Constant => ActivationConditionOp::True,
                 }
@@ -131,7 +135,7 @@ impl EvaluatorData {
             .iter()
             .map(|o| {
                 match &o.close.pacing {
-                    PacingType::Periodic(_) => ActivationConditionOp::TimeDriven,
+                    PacingType::GlobalPeriodic(_) | PacingType::LocalPeriodic(_) => ActivationConditionOp::TimeDriven,
                     PacingType::Event(ac) => ActivationConditionOp::new(ac, ir.inputs.len()),
                     PacingType::Constant => ActivationConditionOp::True,
                 }
@@ -578,13 +582,22 @@ impl Evaluator {
         // Schedule instance evaluation if stream is periodic
         if let Some(tds) = self.time_driven_streams[output] {
             let mut schedule = (*self.dyn_schedule).borrow_mut();
-            schedule.schedule_evaluation(output, parameter_values.as_slice(), ts, tds.period_in_duration());
 
-            // Schedule close if it depends on current instance
-            if stream.close.has_self_reference {
-                // we have a synchronous access to self -> period of close should be the same as og self
-                debug_assert!(matches!(&stream.close.pacing, PacingType::Periodic(f) if *f == tds.frequency));
-                schedule.schedule_close(output, parameter_values.as_slice(), ts, tds.period_in_duration());
+            // Schedule eval if it has local pacing
+            if tds.locality == PacingLocality::Local {
+                schedule.schedule_evaluation(output, parameter_values.as_slice(), ts, tds.period_in_duration());
+            }
+
+            // Schedule close if it has local pacing
+            if let PacingType::LocalPeriodic(f) = stream.close.pacing {
+                let period = Duration::from_nanos(
+                    UOM_Time::new::<uom::si::time::second>(f.get::<uom::si::frequency::hertz>().inv())
+                        .get::<nanosecond>()
+                        .to_integer()
+                        .try_into()
+                        .expect("Period [ns] too large for u64!"),
+                );
+                schedule.schedule_close(output, parameter_values.as_slice(), ts, period);
             }
         }
     }
@@ -674,8 +687,15 @@ impl Evaluator {
             schedule.remove_evaluation(output, parameter, tds.period_in_duration());
 
             // Remove close from schedule if it depends on current instance
-            if stream.close.has_self_reference {
-                schedule.remove_close(output, parameter, tds.period_in_duration());
+            if let PacingType::LocalPeriodic(f) = stream.close.pacing {
+                let period = Duration::from_nanos(
+                    UOM_Time::new::<uom::si::time::second>(f.get::<uom::si::frequency::hertz>().inv())
+                        .get::<nanosecond>()
+                        .to_integer()
+                        .try_into()
+                        .expect("Period [ns] too large for u64!"),
+                );
+                schedule.remove_close(output, parameter, period);
             }
         }
     }
@@ -707,25 +727,29 @@ impl Evaluator {
         }
     }
 
+    fn eval_stream_instances(&mut self, output: OutputReference, ts: Time, tracer: &mut impl Tracer) {
+        if self.ir.output(StreamReference::Out(output)).is_parameterized() {
+            let parameter: Vec<Vec<Value>> = self
+                .global_store
+                .get_out_instance_collection(output)
+                .all_parameter()
+                .cloned()
+                .collect();
+            for instance in parameter {
+                tracer.instance_eval_start(output, instance.as_slice());
+                self.eval_stream_instance(output, instance.as_slice(), ts);
+                tracer.instance_eval_end(output, instance.as_slice());
+            }
+        } else if self.global_store.get_out_instance(output).is_active() {
+            tracer.instance_eval_start(output, &[]);
+            self.eval_stream_instance(output, &[], ts);
+            tracer.instance_eval_end(output, &[]);
+        }
+    }
+
     fn eval_event_driven_output(&mut self, output: OutputReference, ts: Time, tracer: &mut impl Tracer) {
         if self.stream_activation_conditions[output].eval(self.fresh_inputs) {
-            if self.ir.output(StreamReference::Out(output)).is_parameterized() {
-                let parameter: Vec<Vec<Value>> = self
-                    .global_store
-                    .get_out_instance_collection(output)
-                    .all_parameter()
-                    .cloned()
-                    .collect();
-                for instance in parameter {
-                    tracer.instance_eval_start(output, instance.as_slice());
-                    self.eval_stream_instance(output, instance.as_slice(), ts);
-                    tracer.instance_eval_end(output, instance.as_slice());
-                }
-            } else if self.global_store.get_out_instance(output).is_active() {
-                tracer.instance_eval_start(output, &[]);
-                self.eval_stream_instance(output, &[], ts);
-                tracer.instance_eval_end(output, &[]);
-            }
+            self.eval_stream_instances(output, ts, tracer)
         }
     }
 
@@ -742,6 +766,9 @@ impl Evaluator {
                     tracer.instance_eval_start(idx, parameter.as_slice());
                     self.eval_stream_instance(idx, parameter.as_slice(), ts);
                     tracer.instance_eval_end(idx, parameter.as_slice());
+                },
+                EvaluationTask::EvaluateInstances(idx) => {
+                    self.eval_stream_instances(idx, ts, tracer);
                 },
                 EvaluationTask::Spawn(idx) => {
                     tracer.spawn_start(idx);

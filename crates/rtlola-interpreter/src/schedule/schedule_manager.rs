@@ -12,6 +12,8 @@ use crate::{Time, Value};
 pub(crate) enum EvaluationTask {
     /// Evaluate a specific instance of the output stream.
     Evaluate(OutputReference, Vec<Value>),
+    /// Evalutate all instances of the output stream.
+    EvaluateInstances(OutputReference),
     /// Spawn a new instance of the output stream.
     Spawn(OutputReference),
     /// Evaluate the close condition for a specific instance.
@@ -21,7 +23,7 @@ pub(crate) enum EvaluationTask {
 impl From<Task> for EvaluationTask {
     fn from(task: Task) -> Self {
         match task {
-            Task::Evaluate(idx) => EvaluationTask::Evaluate(idx, vec![]),
+            Task::Evaluate(idx) => EvaluationTask::EvaluateInstances(idx),
             Task::Spawn(idx) => EvaluationTask::Spawn(idx),
             Task::Close(idx) => EvaluationTask::Close(idx, vec![]),
         }
@@ -31,7 +33,9 @@ impl From<Task> for EvaluationTask {
 impl EvaluationTask {
     pub(crate) fn get_sort_key(&self, ir: &RtLolaMir) -> usize {
         match self {
-            EvaluationTask::Evaluate(idx, _) => ir.outputs[*idx].eval_layer().inner(),
+            EvaluationTask::Evaluate(idx, _) | EvaluationTask::EvaluateInstances(idx) => {
+                ir.outputs[*idx].eval_layer().inner()
+            },
             EvaluationTask::Spawn(idx) => ir.outputs[*idx].spawn_layer().inner(),
             EvaluationTask::Close(_, _) => usize::MAX,
         }
