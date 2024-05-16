@@ -9,6 +9,7 @@ use ordered_float::NotNan;
 use regex::bytes::Regex as BytesRegex;
 use regex::Regex;
 use rtlola_frontend::mir::{Constant, Expression, ExpressionKind, Offset, StreamAccessKind, Type};
+use string_template::Template;
 
 use crate::evaluator::{ActivationConditionOp, EvaluationContext};
 use crate::storage::Value;
@@ -316,6 +317,19 @@ impl Expr for Expression {
                                 },
                                 (val, _) => unreachable!("expected `Bytes`, found {:?}", val),
                             }
+                        })
+                    },
+                    "format" => {
+                        assert!(args.len() > 1);
+                        let LoadConstant(Constant::Str(fstr)) = &args[0].kind else {
+                            panic!("format string expected to be static");
+                        };
+                        let template = Template::new(fstr);
+                        let args: Vec<_> = args.into_iter().skip(1).map(Expression::compile).collect();
+                        CompiledExpr::new(move |ctx| {
+                            let vals = args.iter().map(|exp| exp.execute(ctx).to_string()).collect::<Vec<_>>();
+                            let vals_ref = vals.iter().map(|s| s.as_str()).collect::<Vec<_>>();
+                            template.render_positional(&vals_ref).into()
                         })
                     },
                     f => unreachable!("Unknown function: {}, args: {:?}", f, args),

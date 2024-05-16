@@ -326,11 +326,11 @@ impl Test {
             let time = timestamp_to_duration(&line[time_idx])?;
 
             let verdict = monitor.accept_event(line.into(), time).expect("Failed to accept event");
-            let triggers = verdict.event.into_iter().map(move |(_, name)| (name, time)).chain(
+            let triggers = verdict.event.into_iter().map(move |(_, _, name)| (name, time)).chain(
                 verdict
                     .timed
                     .into_iter()
-                    .flat_map(|(time, trig)| trig.into_iter().map(move |(_, name)| (name, time))),
+                    .flat_map(|(time, trig)| trig.into_iter().map(move |(_, _, name)| (name, time))),
             );
             actual.extend(triggers);
 
@@ -338,7 +338,7 @@ impl Test {
                 let triggers = monitor
                     .accept_time(time)
                     .into_iter()
-                    .flat_map(|(time, trig)| trig.into_iter().map(move |(_, name)| (name, time)));
+                    .flat_map(|(time, trig)| trig.into_iter().map(move |(_, _, name)| (name, time)));
                 actual.extend(triggers);
             }
         }

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Adapted to new interpreter version.
+- Adapt output format for triggers to support parameterized triggers.
 
 ## [0.1.0] - 19.12.2022
 

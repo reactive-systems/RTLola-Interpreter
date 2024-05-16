@@ -14,6 +14,7 @@ use crossterm::terminal::{Clear, ClearType};
 use rtlola_interpreter::monitor::{Change, Parameters, TotalIncremental, Tracer, TracingVerdict};
 use rtlola_interpreter::queued::{QueuedVerdict, Receiver, RecvTimeoutError, VerdictKind};
 use rtlola_interpreter::rtlola_frontend::mir::{OutputReference, RtLolaMir, TriggerReference};
+use rtlola_interpreter::rtlola_mir::OutputKind;
 use rtlola_interpreter::time::OutputTimeRepresentation;
 
 use crate::config::Verbosity;
@@ -68,7 +69,7 @@ impl<OutputTime: OutputTimeRepresentation> OutputHandler<OutputTime> {
         let or_to_tr = ir
             .triggers
             .iter()
-            .map(|trigger| (trigger.reference.out_ix(), trigger.trigger_reference))
+            .map(|trigger| (trigger.output_reference.out_ix(), trigger.trigger_reference))
             .collect();
 
         OutputHandler {
@@ -125,7 +126,7 @@ impl<OutputTime: OutputTimeRepresentation> OutputHandler<OutputTime> {
                 let TotalIncremental {
                     inputs,
                     outputs,
-                    trigger,
+                    trigger: _,
                 } = verdict;
                 match queue_verdict.kind {
                     VerdictKind::Timed => {
@@ -141,61 +142,41 @@ impl<OutputTime: OutputTimeRepresentation> OutputHandler<OutputTime> {
                 }
 
                 for (out, changes) in outputs {
-                    let name = &self.ir.outputs[out].name;
+                    let kind = &self.ir.outputs[out].kind;
+                    let name = match kind {
+                        OutputKind::NamedOutput(name) => format!("[Output][{name}"),
+                        OutputKind::Trigger(idx) => format!("[#{idx}"),
+                    };
+                    let name = &name;
                     for change in changes {
                         match change {
                             Change::Spawn(parameter) => {
                                 self.debug(
                                     &mut output,
-                                    move || {
-                                        format!(
-                                            "[Output][{}][Spawn] = {}",
-                                            name,
-                                            Self::display_parameter(Some(parameter))
-                                        )
-                                    },
+                                    || format!("{}][Spawn] = {}", name, Self::display_parameter(Some(parameter))),
                                     &ts,
                                 );
                             },
                             Change::Value(parameter, val) => {
-                                self.stream(
-                                    &mut output,
-                                    move || {
-                                        format!(
-                                            "[Output][{}{}][Value] = {}",
-                                            name,
-                                            Self::display_parameter(parameter),
-                                            val
-                                        )
-                                    },
-                                    &ts,
-                                );
+                                let msg =
+                                    move || format!("{}{}][Value] = {}", name, Self::display_parameter(parameter), val);
+                                let is_trigger = matches!(kind, OutputKind::Trigger(_));
+                                self.stream(&mut output, msg, &ts, is_trigger);
+                                if is_trigger {
+                                    if let Some(statistics) = self.statistics.as_mut() {
+                                        statistics.trigger(self.or_to_tr[&out]);
+                                    }
+                                }
                             },
                             Change::Close(parameter) => {
                                 self.debug(
                                     &mut output,
-                                    move || {
-                                        format!(
-                                            "[Output][{}][Close] = {}",
-                                            name,
-                                            Self::display_parameter(Some(parameter))
-                                        )
-                                    },
+                                    move || format!("{}][Close] = {}", name, Self::display_parameter(Some(parameter))),
                                     &ts,
                                 );
                             },
                         }
                     }
-                }
-
-                for (trg, msg) in trigger {
-                    let trigger_ref = self.or_to_tr[&trg];
-                    self.trigger(
-                        &mut output,
-                        move || format!("[#{}] {}", trigger_ref, msg),
-                        trigger_ref,
-                        &ts,
-                    );
                 }
             }
             if let Some(stats) = self.statistics.as_mut() {
@@ -212,24 +193,6 @@ impl<OutputTime: OutputTimeRepresentation> OutputHandler<OutputTime> {
         self.terminate(&mut output);
     }
 
-    pub(crate) fn trigger<F, T: Into<String>>(&mut self, out: &mut impl Write, msg: F, trigger_idx: usize, ts: &str)
-    where
-        F: FnOnce() -> T,
-    {
-        let msg = move || {
-            format!(
-                "{}{}{}",
-                SetForegroundColor(Verbosity::Trigger.into()),
-                msg().into(),
-                ResetColor
-            )
-        };
-        self.emit(out, Verbosity::Trigger, msg, ts);
-        if let Some(statistics) = self.statistics.as_mut() {
-            statistics.trigger(trigger_idx);
-        }
-    }
-
     pub(crate) fn debug<F, T: Into<String>>(&self, out: &mut impl Write, msg: F, ts: &str)
     where
         F: FnOnce() -> T,
@@ -237,11 +200,15 @@ impl<OutputTime: OutputTimeRepresentation> OutputHandler<OutputTime> {
         self.emit(out, Verbosity::Debug, msg, ts);
     }
 
-    pub(crate) fn stream<F, T: Into<String>>(&self, out: &mut impl Write, msg: F, ts: &str)
+    pub(crate) fn stream<F, T: Into<String>>(&self, out: &mut impl Write, msg: F, ts: &str, is_trigger: bool)
     where
         F: FnOnce() -> T,
     {
-        self.emit(out, Verbosity::Streams, msg, ts);
+        if is_trigger {
+            self.emit(out, Verbosity::Trigger, msg, ts);
+        } else {
+            self.emit(out, Verbosity::Streams, msg, ts);
+        }
     }
 
     /// Accepts a message and forwards it to the appropriate output channel.

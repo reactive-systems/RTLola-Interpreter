@@ -3,4 +3,4 @@ input b: Int64
 
 output c := a + b
 
-trigger c > 2 "c is too large. a is {{}} and b is {{}}" (a, b)
+trigger eval when c > 2 with "c is too large. a is {{}} and b is {{}}".format(a, b)

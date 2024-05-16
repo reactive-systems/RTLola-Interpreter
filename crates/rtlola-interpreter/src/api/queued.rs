@@ -256,19 +256,10 @@ where
     }
 
     /**
-    Get the message of a trigger based on its index.
-
-    The reference is valid for the lifetime of the monitor.
-    */
-    pub fn trigger_message(&self, id: usize) -> &str {
-        self.ir.triggers[id].message.as_str()
-    }
-
-    /**
     Get the [OutputReference] of a trigger based on its index.
     */
     pub fn trigger_stream_index(&self, id: usize) -> usize {
-        self.ir.triggers[id].reference.out_ix()
+        self.ir.triggers[id].output_reference.out_ix()
     }
 
     /**

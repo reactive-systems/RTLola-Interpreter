@@ -206,7 +206,7 @@ pub struct TotalIncremental {
     /// The set of changed outputs.
     pub outputs: Vec<(OutputReference, Vec<Change>)>,
     /// The set of changed triggers. I.e. all triggers that were activated.
-    pub trigger: Vec<(OutputReference, String)>,
+    pub trigger: Vec<OutputReference>,
 }
 
 impl VerdictRepresentation for TotalIncremental {
@@ -215,12 +215,7 @@ impl VerdictRepresentation for TotalIncremental {
     fn create(data: RawVerdict) -> Self {
         let inputs = data.eval.peek_fresh_input();
         let outputs = data.eval.peek_fresh_outputs();
-        let trigger = data
-            .eval
-            .peek_violated_triggers()
-            .into_iter()
-            .map(|t| (t, data.eval.format_trigger_message(t)))
-            .collect();
+        let trigger = data.eval.peek_violated_triggers();
         Self {
             inputs,
             outputs,
@@ -265,7 +260,7 @@ impl VerdictRepresentation for Total {
 /**
     Represents the index and the formatted message of all violated triggers.
 */
-pub type TriggerMessages = Vec<(OutputReference, String)>;
+pub type TriggerMessages = Vec<(OutputReference, Parameters, String)>;
 
 impl VerdictRepresentation for TriggerMessages {
     type Tracing = NoTracer;
@@ -274,35 +269,7 @@ impl VerdictRepresentation for TriggerMessages {
     where
         Self: Sized,
     {
-        let violated_trigger = data.eval.peek_violated_triggers();
-        violated_trigger
-            .into_iter()
-            .map(|sr| (sr, data.eval.format_trigger_message(sr)))
-            .collect()
-    }
-
-    fn is_empty(&self) -> bool {
-        Vec::is_empty(self)
-    }
-}
-
-/**
-    Represents the index and the info values of all violated triggers.
-*/
-pub type TriggersWithInfoValues = Vec<(OutputReference, Vec<Option<Value>>)>;
-
-impl VerdictRepresentation for TriggersWithInfoValues {
-    type Tracing = NoTracer;
-
-    fn create(data: RawVerdict) -> Self
-    where
-        Self: Sized,
-    {
-        let violated_trigger = data.eval.peek_violated_triggers();
-        violated_trigger
-            .into_iter()
-            .map(|sr| (sr, data.eval.peek_info_stream_values(sr)))
-            .collect()
+        data.eval.peek_violated_triggers_messages()
     }
 
     fn is_empty(&self) -> bool {
@@ -533,19 +500,10 @@ where
     }
 
     /**
-    Get the message of a trigger based on its index.
-
-    The reference is valid for the lifetime of the monitor.
-    */
-    pub fn trigger_message(&self, id: usize) -> &str {
-        self.ir.triggers[id].message.as_str()
-    }
-
-    /**
     Get the [OutputReference] of a trigger based on its index.
     */
     pub fn trigger_stream_index(&self, id: usize) -> usize {
-        self.ir.triggers[id].reference.out_ix()
+        self.ir.triggers[id].output_reference.out_ix()
     }
 
     /**

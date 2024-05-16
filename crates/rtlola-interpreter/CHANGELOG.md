@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `ValueProjection` -> `ValueGetter`
   - `RecordInput` -> `MappedFactory`
 - Type Parameters of the Api to include the monitoring mode. 
+- Update to trigger representation in frontend.
+- Exclude trigger messages from `TotalIncrement` verdict.
 
 ### Removed
 - `EventInput` in favor of the new `ArrayFactory`
