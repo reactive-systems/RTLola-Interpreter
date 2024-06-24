@@ -144,12 +144,12 @@ impl<Source: EventSource<InputTime> + 'static, InputTime: TimeRepresentation, Ou
 
         // init monitor
         let mut monitor: QueuedMonitor<
-            MappedFactory<Source::Rec>,
+            MappedFactory<Source::MappedEvent>,
             OfflineMode<InputTime>,
             TracingVerdict<EvalTimeTracer, TotalIncremental>,
             OutputTime,
         > = <QueuedMonitor<
-            MappedFactory<Source::Rec>,
+            MappedFactory<Source::MappedEvent>,
             OfflineMode<InputTime>,
             TracingVerdict<EvalTimeTracer, TotalIncremental>,
             OutputTime,
@@ -206,12 +206,12 @@ impl<Source: EventSource<RealTime> + 'static, OutputTime: OutputTimeRepresentati
 
         // init monitor
         let mut monitor: QueuedMonitor<
-            MappedFactory<Source::Rec>,
+            MappedFactory<Source::MappedEvent>,
             OnlineMode,
             TracingVerdict<EvalTimeTracer, TotalIncremental>,
             OutputTime,
         > = <QueuedMonitor<
-            MappedFactory<Source::Rec>,
+            MappedFactory<Source::MappedEvent>,
             OnlineMode,
             TracingVerdict<EvalTimeTracer, TotalIncremental>,
             OutputTime,

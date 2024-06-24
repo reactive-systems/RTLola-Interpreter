@@ -751,7 +751,7 @@ impl<InputTime: TimeRepresentation> PcapEventSource<InputTime> {
 
 impl<InputTime: TimeRepresentation> EventSource<InputTime> for PcapEventSource<InputTime> {
     type Error = PcapError;
-    type Rec = PcapRecord;
+    type MappedEvent = PcapRecord;
 
     fn init_data(&self) -> Result<IpNetwork, PcapError> {
         Ok(self.local_net)
