@@ -332,6 +332,20 @@ impl Expr for Expression {
                             template.render_positional(&vals_ref).into()
                         })
                     },
+                    "round" => {
+                        assert!(args.len() > 1);
+                        let LoadConstant(Constant::UInt(points)) = &args[1].kind else {
+                            panic!("decimal points expected to be static");
+                        };
+                        let decimals = 10u64.pow(*points as u32) as f64;
+                        CompiledExpr::new(move |ctx| {
+                            let arg = f_arg.execute(ctx);
+                            match arg {
+                                Value::Float(f) => Value::try_from((f * decimals).round() / decimals).unwrap(),
+                                _ => unreachable!(),
+                            }
+                        })
+                    },
                     f => unreachable!("Unknown function: {}, args: {:?}", f, args),
                 }
             },

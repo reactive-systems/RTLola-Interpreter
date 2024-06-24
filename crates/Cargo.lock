@@ -1251,7 +1251,6 @@ dependencies = [
 [[package]]
 name = "rtlola-frontend"
 version = "0.6.2"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#508896854614018360fb8c84837c1614212ae614"
 dependencies = [
  "dot",
  "itertools 0.10.5",
@@ -1270,7 +1269,6 @@ dependencies = [
 [[package]]
 name = "rtlola-hir"
 version = "0.4.2"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#508896854614018360fb8c84837c1614212ae614"
 dependencies = [
  "itertools 0.10.5",
  "lazy_static",
@@ -1345,7 +1343,6 @@ dependencies = [
 [[package]]
 name = "rtlola-macros"
 version = "0.1.2"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#508896854614018360fb8c84837c1614212ae614"
 dependencies = [
  "quote",
  "syn 1.0.109",
@@ -1354,7 +1351,6 @@ dependencies = [
 [[package]]
 name = "rtlola-parser"
 version = "0.3.2"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#508896854614018360fb8c84837c1614212ae614"
 dependencies = [
  "lazy_static",
  "num",
@@ -1369,7 +1365,6 @@ dependencies = [
 [[package]]
 name = "rtlola-reporting"
 version = "0.2.2"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#508896854614018360fb8c84837c1614212ae614"
 dependencies = [
  "codespan-reporting",
  "pest",
