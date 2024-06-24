@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::ops::Add;
+use std::time::Duration;
 
 use dyn_clone::DynClone;
 use ordered_float::NotNan;
@@ -295,11 +296,11 @@ pub(crate) trait WindowIv:
 #[derive(Debug, Clone)]
 pub(crate) struct RealTimeWindowInstance<IV: WindowIv> {
     buckets: Vec<IV>,
-    start_time: usize,
-    total_duration: usize,
-    bucket_duration: usize,
+    start_time: u64,
+    total_duration: u64,
+    bucket_duration: u64,
     current_bucket: usize,
-    current_bucket_end: usize,
+    current_bucket_end: u64,
     wait: bool,
     active: bool,
 }
@@ -318,7 +319,7 @@ impl<IV: WindowIv> WindowInstanceTrait for RealTimeWindowInstance<IV> {
     /// Restarts the sliding window
     fn activate(&mut self, ts: Time) {
         self.clear_all_buckets(ts);
-        let ts = ts.as_nanos() as usize;
+        let ts = ts.as_nanos() as u64;
         self.current_bucket = self.buckets.len() - 1;
         self.start_time = ts;
         self.current_bucket_end = ts;
@@ -331,7 +332,7 @@ impl<IV: WindowIv> WindowInstanceTrait for RealTimeWindowInstance<IV> {
             return IV::default(ts).into();
         }
 
-        if self.wait && (ts.as_nanos() as usize) - self.start_time < self.total_duration {
+        if self.wait && (ts.as_nanos() as u64) - self.start_time < self.total_duration {
             return Value::None;
         }
 
@@ -361,7 +362,7 @@ impl<IV: WindowIv> WindowInstanceTrait for RealTimeWindowInstance<IV> {
         let last = self.current_bucket;
         let curr = self.get_current_bucket(ts);
 
-        let current_time = ts.as_nanos() as usize;
+        let current_time = ts.as_nanos() as u64;
         if current_time > self.current_bucket_end {
             // clear passed buckets
             if current_time > self.current_bucket_end + self.total_duration - self.bucket_duration {
@@ -396,12 +397,12 @@ impl<IV: WindowIv> RealTimeWindowInstance<IV> {
         };
 
         let buckets = vec![IV::default(ts); num_buckets];
-        let current_ts = ts.as_nanos() as usize;
-        let bucket_duration = window.bucket_size.as_nanos() as usize;
+        let current_ts = ts.as_nanos() as u64;
+        let bucket_duration = window.bucket_size.as_nanos() as u64;
         Self {
             buckets,
             bucket_duration,
-            total_duration: window.duration.as_nanos() as usize,
+            total_duration: window.duration.as_nanos() as u64,
             start_time: current_ts,
             current_bucket: num_buckets - 1,
             current_bucket_end: current_ts,
@@ -413,27 +414,29 @@ impl<IV: WindowIv> RealTimeWindowInstance<IV> {
     fn get_current_bucket(&self, ts: Time) -> usize {
         assert!(self.active);
         assert!(
-            ts.as_nanos() as usize >= self.start_time,
-            "Time does not behave monotonically!"
+            ts.as_nanos() as u64 >= self.start_time,
+            "Time does not behave monotonically! It is {} now and the window started at: {}",
+            ts.as_secs_f64(),
+            Duration::from_nanos(self.start_time).as_secs_f64()
         );
-        let ts = ts.as_nanos() as usize;
+        let ts = ts.as_nanos() as u64;
         let relative_to_window = (ts - self.start_time) % self.total_duration;
         let idx = relative_to_window / self.bucket_duration;
         if relative_to_window % self.bucket_duration == 0 {
             // A bucket includes time from x < ts <= x + bucket_duration
             // Consequently, if we hit the "edge" of bucket we have to chose the previous one
             if idx > 0 {
-                idx - 1
+                (idx - 1) as usize
             } else {
                 self.buckets.len() - 1
             }
         } else {
-            idx
+            idx as usize
         }
     }
 
-    fn get_current_bucket_end(&mut self, ts: Time) -> usize {
-        let current_time = ts.as_nanos() as usize;
+    fn get_current_bucket_end(&mut self, ts: Time) -> u64 {
+        let current_time = ts.as_nanos() as u64;
 
         let period = if (current_time - self.start_time) % self.total_duration == 0 {
             // A bucket includes time from x < ts <= x + bucket_duration
@@ -447,7 +450,7 @@ impl<IV: WindowIv> RealTimeWindowInstance<IV> {
         } else {
             (current_time - self.start_time) / self.total_duration
         };
-        self.start_time + period * self.total_duration + (self.current_bucket + 1) * self.bucket_duration
+        self.start_time + period * self.total_duration + (self.current_bucket + 1) as u64 * self.bucket_duration
     }
 
     // clear buckets starting from `start` to `last` including start, excluding end
@@ -472,7 +475,7 @@ impl<G: WindowGeneric> WindowInstanceTrait for PercentileWindow<RealTimeWindowIn
             return PercentileIv::<G>::default(ts).into();
         }
         // Reversal is essential for non-commutative operations.
-        if self.inner.wait && (ts.as_nanos() as usize) - self.inner.start_time < self.inner.total_duration {
+        if self.inner.wait && (ts.as_nanos() as u64) - self.inner.start_time < self.inner.total_duration {
             return Value::None;
         }
         self.inner
