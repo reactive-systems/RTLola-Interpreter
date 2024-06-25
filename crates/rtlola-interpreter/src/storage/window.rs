@@ -348,6 +348,7 @@ impl<IV: WindowIv> WindowInstanceTrait for RealTimeWindowInstance<IV> {
     }
 
     fn accept_value(&mut self, v: Value, ts: Time) {
+        // println!("Accept Value: {} at time {:?}", &v, ts);
         if !self.active {
             // ignore value if window has not started yet
             return;
@@ -355,6 +356,7 @@ impl<IV: WindowIv> WindowInstanceTrait for RealTimeWindowInstance<IV> {
         self.update_buckets(ts);
         let b = self.buckets.get_mut(self.current_bucket).expect("Bug!");
         *b = b.clone() + (v, ts).into(); // TODO: Require add_assign rather than add.
+        // println!("Accepted Value: {:?}\n", &self.buckets);
     }
 
     fn update_buckets(&mut self, ts: Time) {
@@ -363,6 +365,7 @@ impl<IV: WindowIv> WindowInstanceTrait for RealTimeWindowInstance<IV> {
         let curr = self.get_current_bucket(ts);
 
         let current_time = ts.as_nanos() as u64;
+        // println!("Update buckets: {:?} at time {:?}", &self.buckets, ts);
         if current_time > self.current_bucket_end {
             // clear passed buckets
             if current_time > self.current_bucket_end + self.total_duration - self.bucket_duration {
@@ -385,6 +388,7 @@ impl<IV: WindowIv> WindowInstanceTrait for RealTimeWindowInstance<IV> {
             self.current_bucket = curr;
             self.current_bucket_end = self.get_current_bucket_end(ts);
         }
+        // println!("Updated buckets: {:?} at time {:?}; current Buckets is: {} and ends at: {}", &self.buckets, ts, curr, self.current_bucket_end);
     }
 }
 
