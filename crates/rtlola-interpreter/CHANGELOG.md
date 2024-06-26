@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ArrayFactory` to pass arrays of values to the monitor API.
 - `EmptyFactory` a dummy factory that always produces the empty event.
 - Instance aggregations to aggregate the values of all instances of a stream.
+- Support for the floating rounding function.
 
 ## [0.9.0] - 19.12.2022
 
