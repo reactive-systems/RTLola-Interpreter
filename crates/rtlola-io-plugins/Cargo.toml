@@ -1,8 +1,8 @@
 [package]
-name = "rtlola-input-plugins"
-version = "0.2.0"
+name = "rtlola-io-plugins"
+version = "0.1.0"
 edition = "2021"
-description = "Input plugins to be used in the various frontends of the interpreter"
+description = "Input and ouput plugins to be used in the various frontends of the interpreter"
 readme = "README.md"
 homepage = "http://rtlola.org"
 repository = "https://github.com/reactive-systems/RTLola-Interpreter"
@@ -41,3 +41,5 @@ serde = "1.0.203"
 bincode = "1.3.3"
 portpicker = "0.1.1"
 ntest = "0.9.3"
+net2 = "0.2.39"
+rtlola-interpreter-macros = { path = "../rtlola-interpreter-macros" }

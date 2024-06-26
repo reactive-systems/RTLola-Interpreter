@@ -1,5 +1,4 @@
 use std::net::SocketAddr;
-use std::usize;
 
 use super::NetworkSource;
 

@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 
 use byteorder::ByteOrder;
-use rtlola_interpreter::input::InputMap;
+use rtlola_interpreter::input::{AssociatedFactory, EventFactory};
 use rtlola_interpreter::time::TimeRepresentation;
 use time_converter::TimeConverter;
 
@@ -20,7 +20,7 @@ pub struct NetworkEventSource<
     InputTime: TimeRepresentation,
     const BUFFERSIZE: usize,
 > where
-    <Factory::Input as InputMap>::Error: Error,
+    <<Factory::Input as AssociatedFactory>::Factory as EventFactory>::Error: Error,
 {
     factory: Factory,
     source: Source,
@@ -36,14 +36,14 @@ impl<
         const BUFFERSIZE: usize,
     > NetworkEventSource<Source, Order, Factory, InputTime, BUFFERSIZE>
 where
-    <Factory::Input as InputMap>::Error: Error,
+    <<Factory::Input as AssociatedFactory>::Factory as EventFactory>::Error: Error,
 {
     pub fn new(source: Source, factory: Factory) -> Self {
         Self {
             factory,
             source,
             buffer: Vec::new(),
-            timer: PhantomData::default(),
+            timer: PhantomData,
         }
     }
 }
@@ -92,13 +92,19 @@ impl<
         const BUFFERSIZE: usize,
     > EventSource<InputTime> for NetworkEventSource<Source, Order, Factory, InputTime, BUFFERSIZE>
 where
-    <Factory::Input as InputMap>::Error: Error,
+    <<Factory::Input as AssociatedFactory>::Factory as EventFactory>::Error: Error,
     Factory::Input: TimeConverter<InputTime>,
 {
-    type Error = NetworkEventSourceError<Factory::Error, Source::Error, <Factory::Input as InputMap>::Error>;
+    type Error = NetworkEventSourceError<
+        Factory::Error,
+        Source::Error,
+        <<Factory::Input as AssociatedFactory>::Factory as EventFactory>::Error,
+    >;
     type MappedEvent = Factory::Input;
 
-    fn init_data(&self) -> Result<<Self::MappedEvent as InputMap>::CreationData, Self::Error> {
+    fn init_data(
+        &self,
+    ) -> Result<<<Self::MappedEvent as AssociatedFactory>::Factory as EventFactory>::CreationData, Self::Error> {
         todo!()
     }
 
@@ -108,7 +114,7 @@ where
         loop {
             let event = self.factory.from_bytes(&self.buffer).map(|(event, package_size)| {
                 let ts = <<Factory as ByteFactory<Order>>::Input as TimeConverter<InputTime>>::convert_time(&event)
-                    .map_err(|e| NetworkEventSourceError::InputMap(e))?;
+                    .map_err(NetworkEventSourceError::InputMap)?;
                 let slice = self.buffer.drain(0..package_size);
                 debug_assert_eq!(slice.len(), package_size);
                 Ok((event, ts))
@@ -151,7 +157,8 @@ impl<T: std::io::Read> NetworkSource for T {
 
 pub trait ByteFactory<B: ByteOrder> {
     type Error: Error + 'static;
-    type Input: InputMap;
+    type Input: AssociatedFactory;
+    #[allow(clippy::wrong_self_convention)]
     fn from_bytes(&mut self, data: &[u8]) -> Result<(Self::Input, usize), ByteParsingError<Self::Error>>
     where
         Self: Sized;
@@ -174,11 +181,11 @@ pub trait FromBytes<B: ByteOrder> {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct EmptyByteFactory<B: FromBytes<Order> + InputMap, Order: ByteOrder> {
+pub struct EmptyByteFactory<B: FromBytes<Order> + AssociatedFactory, Order: ByteOrder> {
     phantom: PhantomData<(B, Order)>,
 }
 
-impl<B: FromBytes<Order> + InputMap, Order: ByteOrder> std::default::Default for EmptyByteFactory<B, Order> {
+impl<B: FromBytes<Order> + AssociatedFactory, Order: ByteOrder> std::default::Default for EmptyByteFactory<B, Order> {
     fn default() -> Self {
         Self {
             phantom: Default::default(),
@@ -186,7 +193,7 @@ impl<B: FromBytes<Order> + InputMap, Order: ByteOrder> std::default::Default for
     }
 }
 
-impl<B: FromBytes<Order> + InputMap, Order: ByteOrder> ByteFactory<Order> for EmptyByteFactory<B, Order> {
+impl<B: FromBytes<Order> + AssociatedFactory, Order: ByteOrder> ByteFactory<Order> for EmptyByteFactory<B, Order> {
     type Error = <B as FromBytes<Order>>::Error;
     type Input = B;
 
@@ -202,18 +209,18 @@ impl<
         Source: NetworkSource,
         Order: ByteOrder,
         InputTime: TimeRepresentation,
-        B: FromBytes<Order> + InputMap,
+        B: FromBytes<Order> + AssociatedFactory,
         const BUFFERSIZE: usize,
     > NetworkEventSource<Source, Order, EmptyByteFactory<B, Order>, InputTime, BUFFERSIZE>
 where
-    <B as InputMap>::Error: std::error::Error,
+    <<B as AssociatedFactory>::Factory as EventFactory>::Error: std::error::Error,
 {
     pub fn from_source(source: Source) -> Self {
         Self {
             factory: EmptyByteFactory::default(),
             source,
             buffer: Vec::new(),
-            timer: PhantomData::default(),
+            timer: PhantomData,
         }
     }
 }
@@ -222,11 +229,11 @@ impl<
         Source: NetworkSource,
         Order: ByteOrder,
         InputTime: TimeRepresentation,
-        B: FromBytes<Order> + InputMap,
+        B: FromBytes<Order> + AssociatedFactory,
         const BUFFERSIZE: usize,
     > From<Source> for NetworkEventSource<Source, Order, EmptyByteFactory<B, Order>, InputTime, BUFFERSIZE>
 where
-    <B as InputMap>::Error: std::error::Error,
+    <<B as AssociatedFactory>::Factory as EventFactory>::Error: std::error::Error,
 {
     fn from(value: Source) -> Self {
         Self::from_source(value)

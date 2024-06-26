@@ -1,8 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
-  "rtlola-interpreter",
-  "rtlola-cli",
-  "rtlola-input-plugins",
-  "rtlola-interpreter-macros"
+    "rtlola-interpreter",
+    "rtlola-cli",
+    "rtlola-io-plugins",
+    "rtlola-interpreter-macros",
 ]

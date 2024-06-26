@@ -2,6 +2,7 @@ use rtlola_interpreter::monitor::{Change, Incremental, Verdicts};
 use rtlola_interpreter::time::AbsoluteFloat;
 use rtlola_interpreter::Value;
 
+pub(crate) mod input_macros;
 pub(crate) mod input_map;
 
 pub(crate) fn create_verdicts() -> Vec<Incremental> {

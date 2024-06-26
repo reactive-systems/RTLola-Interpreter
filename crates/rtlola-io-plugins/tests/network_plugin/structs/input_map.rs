@@ -2,13 +2,13 @@ use std::io::ErrorKind;
 use std::time::Duration;
 
 use byteorder::ByteOrder;
-use rtlola_input_plugins::network_plugin::time_converter::TimeConverter;
-use rtlola_input_plugins::network_plugin::{ByteParsingError, FromBytes};
 use rtlola_interpreter::config::OfflineMode;
 use rtlola_interpreter::input::{EventFactoryError, InputMap, MappedFactory};
-use rtlola_interpreter::monitor::{Change, Incremental, Verdicts};
+use rtlola_interpreter::monitor::Incremental;
 use rtlola_interpreter::time::{AbsoluteFloat, TimeRepresentation};
 use rtlola_interpreter::{ConfigBuilder, Monitor, Value};
+use rtlola_io_plugins::network_plugin::time_converter::TimeConverter;
+use rtlola_io_plugins::network_plugin::{ByteParsingError, FromBytes};
 use serde::{Deserialize, Serialize};
 
 use super::SPEC;
@@ -70,7 +70,7 @@ impl<B: ByteOrder> FromBytes<B> for TestInput {
         Self: Sized,
     {
         let res: TestInput = bincode::deserialize(&data).map_err(|e| {
-            if matches!(ErrorKind::UnexpectedEof, e) {
+            if matches!(ErrorKind::UnexpectedEof, _e) {
                 ByteParsingError::Incomplete
             } else {
                 ByteParsingError::Inner(EventFactoryError::Other(e))

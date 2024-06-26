@@ -8,15 +8,15 @@ use clap_complete::generate;
 use clap_complete::shells::*;
 #[cfg(feature = "public")]
 use human_panic::setup_panic;
-use rtlola_input_plugins::csv_plugin::{CsvEventSource, CsvInputSourceKind};
-#[cfg(feature = "pcap_interface")]
-use rtlola_input_plugins::pcap_plugin::{PcapEventSource, PcapInputSource};
 use rtlola_interpreter::config::{ExecutionMode, OfflineMode, OnlineMode};
 use rtlola_interpreter::rtlola_frontend;
 use rtlola_interpreter::time::{
     parse_float_time, AbsoluteFloat, AbsoluteRfc, DelayTime, OffsetFloat, OffsetNanos, RealTime, RelativeFloat,
     RelativeNanos,
 };
+use rtlola_io_plugins::csv_plugin::{CsvEventSource, CsvInputSourceKind};
+#[cfg(feature = "pcap_interface")]
+use rtlola_io_plugins::pcap_plugin::{PcapEventSource, PcapInputSource};
 
 use crate::config::{Config, EventSourceConfig, Statistics, Verbosity};
 use crate::output::OutputChannel;
