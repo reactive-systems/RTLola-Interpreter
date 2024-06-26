@@ -303,6 +303,100 @@ impl<
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+/// An error type for the [VectorFactory]
+pub enum VectorFactoryError<I: Error + Send + 'static> {
+    /// Error while creating the Vector in the [VectorFactory]
+    Inner(I),
+    /// Size of the generated ``Vec<Value>`` is different from the specified size while creating the [VectorFactory]
+    InvalidSize {
+        #[allow(missing_docs)]
+        expected: usize,
+        #[allow(missing_docs)]
+        got: usize,
+    },
+}
+impl<I: Error + Send + 'static> Display for VectorFactoryError<I> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VectorFactoryError::Inner(inner) => <I as Display>::fmt(inner, f),
+            VectorFactoryError::InvalidSize { expected, got } => {
+                write!(f, "Invalid size(expected: {expected}, got: {got})")
+            },
+        }
+    }
+}
+impl<I: Error + Send + 'static> Error for VectorFactoryError<I> {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            VectorFactoryError::Inner(i) => Some(i),
+            VectorFactoryError::InvalidSize { .. } => None,
+        }
+    }
+}
+impl<I: Error + Send + 'static> From<VectorFactoryError<I>> for EventFactoryError {
+    fn from(value: VectorFactoryError<I>) -> Self {
+        Self::Other(Box::new(value))
+    }
+}
+
+/// One of the simplest input method to the monitor. It accepts any type that can be turned into `Vec<Value>`.
+/// If the length of the vector is smaller than the number of windows the vector is extended with `Value::None`.
+/// The conversion to values and the order of inputs must be handled externally. When creating the [VectorFactory]
+/// the user must provide the length of the vector that is returned in the conversion. The implementation then checks
+/// dynamically if this size is satisfied.
+#[derive(Debug, Clone)]
+pub struct VectorFactory<I: Error + Send + 'static, E: TryInto<Vec<Value>, Error = I> + CondSerialize + CondDeserialize>
+{
+    num_inputs: usize,
+    len_vector: usize,
+    phantom: PhantomData<E>,
+}
+
+impl<I: Error + Send + 'static, E: TryInto<Vec<Value>, Error = I> + Send + CondSerialize + CondDeserialize> EventFactory
+    for VectorFactory<I, E>
+{
+    type CreationData = usize;
+    type Error = VectorFactoryError<I>;
+    type Record = E;
+
+    fn try_new(
+        map: HashMap<String, InputReference>,
+        setup_data: Self::CreationData,
+    ) -> Result<(Self, Vec<String>), EventFactoryError> {
+        let num_inputs = map.len();
+        let len_vector = setup_data;
+        let found: Vec<_> = map
+            .into_iter()
+            .sorted_by(|a, b| Ord::cmp(&a.1, &b.1))
+            .map(|(name, _)| name)
+            .collect();
+        Ok((
+            Self {
+                num_inputs,
+                len_vector,
+                phantom: PhantomData,
+            },
+            found,
+        ))
+    }
+
+    fn get_event(&self, rec: Self::Record) -> Result<Event, EventFactoryError> {
+        let mut vec: Vec<_> = rec.try_into().map_err(VectorFactoryError::Inner)?;
+        if vec.len() != self.len_vector {
+            Err(VectorFactoryError::<I>::InvalidSize {
+                expected: self.len_vector,
+                got: vec.len(),
+            }
+            .into())
+        } else {
+            // Fill rest of the event with nones;
+            vec.resize(self.num_inputs, Value::None);
+            Ok(vec)
+        }
+    }
+}
+
 /// A dummy event factory, that never produces a value for an input stream.
 #[derive(Debug, Copy, Clone)]
 pub struct EmptyFactory<T: Send>(usize, PhantomData<T>);
