@@ -370,6 +370,7 @@ impl<I: Error + Send + 'static, E: TryInto<Vec<Value>, Error = I> + Send + CondS
             .into_iter()
             .sorted_by(|a, b| Ord::cmp(&a.1, &b.1))
             .map(|(name, _)| name)
+            .take(len_vector)
             .collect();
         Ok((
             Self {
@@ -395,6 +396,10 @@ impl<I: Error + Send + 'static, E: TryInto<Vec<Value>, Error = I> + Send + CondS
             Ok(vec)
         }
     }
+}
+
+impl AssociatedFactory for Vec<Value> {
+    type Factory = VectorFactory<Infallible, Vec<Value>>;
 }
 
 /// A dummy event factory, that never produces a value for an input stream.

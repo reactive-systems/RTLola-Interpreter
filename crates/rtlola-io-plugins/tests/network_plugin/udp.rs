@@ -123,7 +123,7 @@ fn checked_udp() {
                 Ok(Some((ev, ts))) => {
                     let expected = expected_verdicts.next();
                     let v = monitor.accept_event(ev, ts).unwrap();
-                    check_verdict(dbg!(v), dbg!(expected.unwrap()));
+                    check_verdict(v, expected.unwrap());
                 },
                 Ok(None) => break,
                 Err(NetworkEventSourceError::Source(CheckUdpError::InvalidSender(sender))) => {
