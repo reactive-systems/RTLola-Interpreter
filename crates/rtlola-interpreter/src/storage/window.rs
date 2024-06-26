@@ -18,7 +18,7 @@ pub(crate) trait WindowInstanceTrait: Debug + DynClone {
     /// Computes the current value of a sliding window instance with the given timestamp:
     /// # Arguments:
     /// * 'ts' - the current timestamp of the monitor
-    /// Note: You should always call `SlidingWindow::update` before calling `SlidingWindow::get_value()`!
+    ///   Note: You should always call `SlidingWindow::update` before calling `SlidingWindow::get_value()`!
     fn get_value(&self, ts: Time) -> Value;
     /// Updates the value of the current bucket of a sliding window instance with the current value of the accessed stream:
     /// # Arguments:
@@ -255,7 +255,7 @@ impl SlidingWindow {
     /// Computes the current value of a sliding window instance with the given timestamp:
     /// # Arguments:
     /// * 'ts' - the current timestamp of the monitor
-    /// Note: You should always call `SlidingWindow::update` before calling `SlidingWindow::get_value()`!
+    ///   Note: You should always call `SlidingWindow::update` before calling `SlidingWindow::get_value()`!
     pub(crate) fn get_value(&self, ts: Time) -> Value {
         self.inner.get_value(ts)
     }
@@ -356,7 +356,7 @@ impl<IV: WindowIv> WindowInstanceTrait for RealTimeWindowInstance<IV> {
         self.update_buckets(ts);
         let b = self.buckets.get_mut(self.current_bucket).expect("Bug!");
         *b = b.clone() + (v, ts).into(); // TODO: Require add_assign rather than add.
-        // println!("Accepted Value: {:?}\n", &self.buckets);
+                                         // println!("Accepted Value: {:?}\n", &self.buckets);
     }
 
     fn update_buckets(&mut self, ts: Time) {

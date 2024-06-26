@@ -3495,7 +3495,7 @@ mod tests {
 
     // Corresponds to issue #18
     #[test]
-    fn test_parameterized_window_bug(){
+    fn test_parameterized_window_bug() {
         let (_, eval, mut time) = setup(
             "input a : Int64
                 output b(p1)
@@ -3519,23 +3519,30 @@ mod tests {
         assert_eq!(eval.peek_value(b_ref, &[Signed(1)], 0).unwrap(), Bool(true));
 
         time += Duration::from_millis(1000);
-        eval.eval_time_driven_tasks(vec![EvaluationTask::Evaluate(c_ref.out_ix(), vec![Signed(1)])], time, &mut tracer);
+        eval.eval_time_driven_tasks(
+            vec![EvaluationTask::Evaluate(c_ref.out_ix(), vec![Signed(1)])],
+            time,
+            &mut tracer,
+        );
         eval.eval_event(&[Signed(1)], time, &mut tracer);
         assert_eq!(eval.peek_value(b_ref, &[Signed(1)], 0).unwrap(), Bool(true));
         assert_eq!(eval.peek_value(c_ref, &[Signed(1)], 0).unwrap(), Unsigned(1));
 
         time += Duration::from_millis(1000);
-        eval.eval_time_driven_tasks(vec![EvaluationTask::Evaluate(c_ref.out_ix(), vec![Signed(1)])], time, &mut tracer);
+        eval.eval_time_driven_tasks(
+            vec![EvaluationTask::Evaluate(c_ref.out_ix(), vec![Signed(1)])],
+            time,
+            &mut tracer,
+        );
         assert_eq!(eval.peek_value(c_ref, &[Signed(1)], 0).unwrap(), Unsigned(2));
 
         // This test is correct and shows the inteded behavior. Yet it is confusing as inputs coincide with periods.
         /*
-        The following is the order of events that take place:
-        1s: a = 1 -> b spawns -> c spawns -> the windows is created -> b = true -> window = 1
-        2s: c = 1 -> a = 1 -> b = true -> window = 2
-        3s: c = 2
-       !!! Remember that in case that an input coincides with a deadline, the deadline is evaluated first, hence the confusing order of events at time 2s
-        */
-
+         The following is the order of events that take place:
+         1s: a = 1 -> b spawns -> c spawns -> the windows is created -> b = true -> window = 1
+         2s: c = 1 -> a = 1 -> b = true -> window = 2
+         3s: c = 2
+        !!! Remember that in case that an input coincides with a deadline, the deadline is evaluated first, hence the confusing order of events at time 2s
+         */
     }
 }
