@@ -57,7 +57,7 @@ pub trait EventFactory: Sized {
 }
 
 /// This trait provides functionality to parse a type into an event.
-/// For that, getter functions for the different input streams are provided through the [func_for_input] method.
+/// For that, getter functions for the different input streams are provided through the `func_for_input` method.
 /// Note: The [AssociatedFactory] trait is automatically implemented for all types that implement this trait.
 pub trait InputMap: Send {
     /// Arbitrary type of the data provided at creation time to help initializing the input method.

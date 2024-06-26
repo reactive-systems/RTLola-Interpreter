@@ -1,3 +1,4 @@
+//! Module that contains the implementation of the [EventSource] for Networks represented by the [NetworkEventSource] struct
 use std::error::Error;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -9,10 +10,11 @@ use time_converter::TimeConverter;
 
 use crate::EventSource;
 
-pub mod reader;
 pub mod time_converter;
 pub mod upd;
 
+/// Parses events from a [network connection](NetworkSource) and a [parser](ByteFactory).
+#[derive(Debug)]
 pub struct NetworkEventSource<
     Source: NetworkSource,
     Order: ByteOrder,
@@ -20,11 +22,15 @@ pub struct NetworkEventSource<
     InputTime: TimeRepresentation,
     const BUFFERSIZE: usize,
 > where
-    <<Factory::Input as AssociatedFactory>::Factory as EventFactory>::Error: Error,
+    <<Factory::Factory as AssociatedFactory>::Factory as EventFactory>::Error: Error,
 {
+    /// The factory to parse the monitor input given as bytearray
     factory: Factory,
+    /// The connection that is used to receive data
     source: Source,
+    /// The buffer that is used to store incoming data
     buffer: Vec<u8>,
+    /// PhantomData that is used to propagate types
     timer: PhantomData<(InputTime, Order)>,
 }
 
@@ -36,8 +42,9 @@ impl<
         const BUFFERSIZE: usize,
     > NetworkEventSource<Source, Order, Factory, InputTime, BUFFERSIZE>
 where
-    <<Factory::Input as AssociatedFactory>::Factory as EventFactory>::Error: Error,
+    <<Factory::Factory as AssociatedFactory>::Factory as EventFactory>::Error: Error,
 {
+    /// Creates a new [NetworkEventSource] out of a (conncetion)[NetworkSource] and a (parser)[ByteFactory].
     pub fn new(source: Source, factory: Factory) -> Self {
         Self {
             factory,
@@ -54,31 +61,31 @@ pub enum NetworkEventSourceError<Factory: Error + Debug, Source: Error + Debug, 
     /// Error while receiving a bytestream.
     Source(Source),
     /// Error while parsing a bytestream.
-    Factory(Factory),
-    // Error while generating the time out of the bytestream
-    InputMap(InputMap),
+    EventFactory(Factory),
+    /// Error while generating the time out of the bytestream
+    ByteFactory(InputMap),
 }
 
-impl<Factory: Error + Debug, Source: Error + Debug, InputMap: Error + Debug> std::fmt::Display
-    for NetworkEventSourceError<Factory, Source, InputMap>
+impl<EventFactory: Error + Debug, Source: Error + Debug, ByteFactory: Error + Debug> std::fmt::Display
+    for NetworkEventSourceError<EventFactory, Source, ByteFactory>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             NetworkEventSourceError::Source(e) => write!(f, "{e}"),
-            NetworkEventSourceError::Factory(e) => write!(f, "{e}"),
-            NetworkEventSourceError::InputMap(e) => write!(f, "{e}"),
+            NetworkEventSourceError::EventFactory(e) => write!(f, "{e}"),
+            NetworkEventSourceError::ByteFactory(e) => write!(f, "{e}"),
         }
     }
 }
 
-impl<Factory: Error + Debug + 'static, Source: Error + Debug + 'static, InputMap: Error + Debug + 'static>
-    std::error::Error for NetworkEventSourceError<Factory, Source, InputMap>
+impl<EventFactory: Error + Debug + 'static, Source: Error + Debug + 'static, ByteFactory: Error + Debug + 'static> Error
+    for NetworkEventSourceError<EventFactory, Source, ByteFactory>
 {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             NetworkEventSourceError::Source(e) => Some(e),
-            NetworkEventSourceError::Factory(e) => Some(e),
-            NetworkEventSourceError::InputMap(e) => Some(e),
+            NetworkEventSourceError::EventFactory(e) => Some(e),
+            NetworkEventSourceError::ByteFactory(e) => Some(e),
         }
     }
 }
@@ -91,15 +98,15 @@ impl<
         const BUFFERSIZE: usize,
     > EventSource<InputTime> for NetworkEventSource<Source, Order, Factory, InputTime, BUFFERSIZE>
 where
-    <<Factory::Input as AssociatedFactory>::Factory as EventFactory>::Error: Error,
-    Factory::Input: TimeConverter<InputTime>,
+    <<Factory::Factory as AssociatedFactory>::Factory as EventFactory>::Error: Error,
+    Factory::Factory: TimeConverter<InputTime>,
 {
     type Error = NetworkEventSourceError<
         Factory::Error,
         Source::Error,
-        <<Factory::Input as AssociatedFactory>::Factory as EventFactory>::Error,
+        <<Factory::Factory as AssociatedFactory>::Factory as EventFactory>::Error,
     >;
-    type Factory = Factory::Input;
+    type Factory = Factory::Factory;
 
     fn init_data(
         &self,
@@ -112,8 +119,8 @@ where
     ) -> crate::EventResult<Self::Factory, <InputTime as TimeRepresentation>::InnerTime, Self::Error> {
         loop {
             let event = self.factory.from_bytes(&self.buffer).map(|(event, package_size)| {
-                let ts = <<Factory as ByteFactory<Order>>::Input as TimeConverter<InputTime>>::convert_time(&event)
-                    .map_err(NetworkEventSourceError::InputMap)?;
+                let ts = <<Factory as ByteFactory<Order>>::Factory as TimeConverter<InputTime>>::convert_time(&event)
+                    .map_err(NetworkEventSourceError::ByteFactory)?;
                 let slice = self.buffer.drain(0..package_size);
                 debug_assert_eq!(slice.len(), package_size);
                 Ok((event, ts))
@@ -131,14 +138,17 @@ where
                         Some(package_size) => self.buffer.extend_from_slice(&temp_buffer[0..package_size]),
                     }
                 },
-                Err(ByteParsingError::Inner(e)) => break Err(NetworkEventSourceError::Factory(e)),
+                Err(ByteParsingError::Inner(e)) => break Err(NetworkEventSourceError::EventFactory(e)),
             }
         }
     }
 }
 
+/// Trait to collect all connections for the [NetworkEventSource]
 pub trait NetworkSource {
+    /// Error when receiving the bytestream
     type Error: Error + 'static;
+    /// Function to receive the bytestream and returns the number of parsed bytes
     fn read(&mut self, buffer: &mut [u8]) -> Result<Option<usize>, Self::Error>;
 }
 
@@ -154,37 +164,46 @@ impl<T: std::io::Read> NetworkSource for T {
     }
 }
 
+/// This trait defines a factory to parse a bytestream to an event given to the monitor.
+/// It contains one function to creates a [AssociatedFactory] and the number of parsed bytes form a bytestream.
 pub trait ByteFactory<B: ByteOrder> {
+    /// Error when parsing the bytestream
     type Error: Error + 'static;
-    type Input: AssociatedFactory;
+    /// Event given to the monitor
+    type Factory: AssociatedFactory;
     #[allow(clippy::wrong_self_convention)]
-    fn from_bytes(&mut self, data: &[u8]) -> Result<(Self::Input, usize), ByteParsingError<Self::Error>>
+    /// Function to parse the bytestream
+    fn from_bytes(&mut self, data: &[u8]) -> Result<(Self::Factory, usize), ByteParsingError<Self::Error>>
     where
         Self: Sized;
 }
 
 /// The error returned if anything goes wrong when parsing the bytestream
 #[derive(Debug)]
-pub enum ByteParsingError<R: Error> {
+pub enum ByteParsingError<Inner: Error> {
     /// Parsing Error
-    Inner(R),
+    Inner(Inner),
     /// Error to inducate that the number of bytes is insuffienct to parse the event
     Incomplete,
 }
 
-pub trait FromBytes<B: ByteOrder> {
+/// This trait defines a factory to parse a bytestream to an event given to the monitor that is stateless.
+pub trait FromBytes<Inner: ByteOrder> {
+    /// Error when parsing the bytestream
     type Error: Error + 'static;
+    /// Function to parse the bytestream
     fn from_bytes(data: &[u8]) -> Result<(Self, usize), ByteParsingError<Self::Error>>
     where
         Self: Sized;
 }
 
+/// A struct to create a stateless parser that is build out of the [FromBytes] trait.
 #[derive(Debug, Clone, Copy)]
-pub struct EmptyByteFactory<B: FromBytes<Order> + AssociatedFactory, Order: ByteOrder> {
+pub struct StatelessByteFactory<B: FromBytes<Order> + AssociatedFactory, Order: ByteOrder> {
     phantom: PhantomData<(B, Order)>,
 }
 
-impl<B: FromBytes<Order> + AssociatedFactory, Order: ByteOrder> std::default::Default for EmptyByteFactory<B, Order> {
+impl<B: FromBytes<Order> + AssociatedFactory, Order: ByteOrder> Default for StatelessByteFactory<B, Order> {
     fn default() -> Self {
         Self {
             phantom: Default::default(),
@@ -192,11 +211,11 @@ impl<B: FromBytes<Order> + AssociatedFactory, Order: ByteOrder> std::default::De
     }
 }
 
-impl<B: FromBytes<Order> + AssociatedFactory, Order: ByteOrder> ByteFactory<Order> for EmptyByteFactory<B, Order> {
+impl<B: FromBytes<Order> + AssociatedFactory, Order: ByteOrder> ByteFactory<Order> for StatelessByteFactory<B, Order> {
     type Error = <B as FromBytes<Order>>::Error;
-    type Input = B;
+    type Factory = B;
 
-    fn from_bytes(&mut self, data: &[u8]) -> Result<(Self::Input, usize), ByteParsingError<Self::Error>>
+    fn from_bytes(&mut self, data: &[u8]) -> Result<(Self::Factory, usize), ByteParsingError<Self::Error>>
     where
         Self: Sized,
     {
@@ -210,13 +229,14 @@ impl<
         InputTime: TimeRepresentation,
         B: FromBytes<Order> + AssociatedFactory,
         const BUFFERSIZE: usize,
-    > NetworkEventSource<Source, Order, EmptyByteFactory<B, Order>, InputTime, BUFFERSIZE>
+    > NetworkEventSource<Source, Order, StatelessByteFactory<B, Order>, InputTime, BUFFERSIZE>
 where
-    <<B as AssociatedFactory>::Factory as EventFactory>::Error: std::error::Error,
+    <<B as AssociatedFactory>::Factory as EventFactory>::Error: Error,
 {
+    /// Creates a new [NetworkEventSource] given a [NetworkSource].
     pub fn from_source(source: Source) -> Self {
         Self {
-            factory: EmptyByteFactory::default(),
+            factory: StatelessByteFactory::default(),
             source,
             buffer: Vec::new(),
             timer: PhantomData,
@@ -230,9 +250,9 @@ impl<
         InputTime: TimeRepresentation,
         B: FromBytes<Order> + AssociatedFactory,
         const BUFFERSIZE: usize,
-    > From<Source> for NetworkEventSource<Source, Order, EmptyByteFactory<B, Order>, InputTime, BUFFERSIZE>
+    > From<Source> for NetworkEventSource<Source, Order, StatelessByteFactory<B, Order>, InputTime, BUFFERSIZE>
 where
-    <<B as AssociatedFactory>::Factory as EventFactory>::Error: std::error::Error,
+    <<B as AssociatedFactory>::Factory as EventFactory>::Error: Error,
 {
     fn from(value: Source) -> Self {
         Self::from_source(value)

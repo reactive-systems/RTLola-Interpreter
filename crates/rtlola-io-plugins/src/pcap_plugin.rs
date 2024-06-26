@@ -467,11 +467,17 @@ fn get_packet_protocol(packet: &SlicedPacket) -> Value {
 /// Represents different kind of errors that might occur.
 #[derive(Debug)]
 pub enum PcapError {
+    #[allow(missing_docs)]
     UnknownInput(String),
+    #[allow(missing_docs)]
     UnknownDevice(String, Vec<String>),
+    #[allow(missing_docs)]
     InvalidLocalNetwork(String, ip_network::IpNetworkParseError),
+    #[allow(missing_docs)]
     TimeParseError(TryFromIntError),
+    #[allow(missing_docs)]
     TimeFormatError(String),
+    #[allow(missing_docs)]
     Pcap(pcap::Error),
 }
 
@@ -520,6 +526,7 @@ impl From<PcapError> for EventFactoryError {
 }
 
 /// Represents a raw network packet
+#[derive(Debug)]
 pub struct PcapRecord(Vec<u8>);
 
 impl InputMap for PcapRecord {
@@ -710,6 +717,7 @@ pub struct PcapEventSource<InputTime: TimeRepresentation> {
 }
 
 impl<InputTime: TimeRepresentation> PcapEventSource<InputTime> {
+    /// Creates a new [PcapEventSource]
     pub fn setup(src: &PcapInputSource) -> Result<PcapEventSource<InputTime>, PcapError> {
         let capture_handle = match src {
             PcapInputSource::Device { name, .. } => {

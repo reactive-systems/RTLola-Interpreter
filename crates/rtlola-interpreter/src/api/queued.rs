@@ -17,7 +17,6 @@
 //! * [Total](crate::monitor::Total): For each event a complete snapshot of the current monitor state is returned
 //! * [TotalIncremental](crate::monitor::TotalIncremental): For each processed event a complete list of monitor state changes is provided
 //! * [TriggerMessages](crate::monitor::TriggerMessages): For each event a list of violated triggers with their description is produced.
-//! * [TriggersWithInfoValues](crate::monitor::TriggersWithInfoValues): For each event a list of violated triggers with their specified corresponding values is returned.
 
 use std::any::Any;
 use std::cell::RefCell;

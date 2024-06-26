@@ -1,3 +1,4 @@
+//! Module that contains the [TimeConverter] and implementations for some [rtlola_interpreter::time::TimeRepresentation]
 use rtlola_interpreter::input::{AssociatedFactory, EventFactory};
 use rtlola_interpreter::time::{DelayTime, RealTime, TimeRepresentation};
 

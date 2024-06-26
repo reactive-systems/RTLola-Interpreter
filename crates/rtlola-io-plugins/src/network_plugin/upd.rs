@@ -1,8 +1,10 @@
+//! Module that contains different UDP implementations used as (NetworkSources)[NetworkSource]
 use std::net::SocketAddr;
 
 use super::NetworkSource;
 
 #[derive(Debug)]
+/// Wrapper build around the a [UdpSocket](std::net::UdpSocket) used as UDP socket for the [NetworkSource]
 pub struct UdpWrapper(std::net::UdpSocket);
 
 impl From<std::net::UdpSocket> for UdpWrapper {
@@ -18,12 +20,16 @@ impl std::io::Read for UdpWrapper {
 }
 
 #[derive(Debug)]
+/// Struct used as UDP socket for the [NetworkSource] that allows incoming connection only from predefined senders
 pub struct CheckedUdpSocket {
+    /// The [UdpSocket](std::net::UdpSocket) that received the bytestream
     socket: std::net::UdpSocket,
+    /// The allowed senders
     allowed_sender: Vec<SocketAddr>,
 }
 
 impl CheckedUdpSocket {
+    /// Creates a new [CheckedUdpSocket] form a socket and the allowed sender addresses
     pub fn new(socket: std::net::UdpSocket, allowed_sender: Vec<SocketAddr>) -> Self {
         Self { socket, allowed_sender }
     }
@@ -43,8 +49,11 @@ impl NetworkSource for CheckedUdpSocket {
 }
 
 #[derive(Debug)]
+/// Error used in the implementation of the [NetworkSource] for [CheckedUdpSocket]
 pub enum CheckUdpError {
+    /// Error to indicate that the receiving of the bytestream resulted in an error
     IOError(std::io::Error),
+    /// Error to indicate that bytestream was received from an invalid sender
     InvalidSender(SocketAddr),
 }
 
