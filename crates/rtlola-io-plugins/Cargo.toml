@@ -41,5 +41,4 @@ serde = "1.0.203"
 bincode = "1.3.3"
 portpicker = "0.1.1"
 ntest = "0.9.3"
-net2 = "0.2.39"
 rtlola-interpreter-macros = { path = "../rtlola-interpreter-macros" }

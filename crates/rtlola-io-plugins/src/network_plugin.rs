@@ -134,7 +134,7 @@ where
                         .read(&mut temp_buffer)
                         .map_err(NetworkEventSourceError::Source)?;
                     match package_size {
-                        None => break Ok(None),
+                        None | Some(0) => break Ok(None),
                         Some(package_size) => self.buffer.extend_from_slice(&temp_buffer[0..package_size]),
                     }
                 },
