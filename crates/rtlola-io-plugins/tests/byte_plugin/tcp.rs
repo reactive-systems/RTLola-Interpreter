@@ -6,12 +6,12 @@ use std::time::Duration;
 use byteorder::LittleEndian;
 use ntest::timeout;
 use rtlola_interpreter::time::AbsoluteFloat;
-use rtlola_io_plugins::network_plugin::NetworkEventSource;
+use rtlola_io_plugins::byte_plugin::ByteEventSource;
 use rtlola_io_plugins::EventSource;
 
-use crate::network_plugin::socket_addr;
-use crate::network_plugin::structs::input_map::{create_events, create_monitor};
-use crate::network_plugin::structs::{check_verdict, create_verdicts};
+use crate::byte_plugin::socket_addr;
+use crate::byte_plugin::structs::input_map::{create_events, create_monitor};
+use crate::byte_plugin::structs::{check_verdict, create_verdicts};
 
 #[test]
 #[timeout(10000)]
@@ -32,7 +32,7 @@ fn tcp_listener() {
         receiver.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
         receiver.set_nonblocking(false).unwrap();
         let mut input_source =
-            NetworkEventSource::<TcpStream, LittleEndian, _, AbsoluteFloat, 100>::from_source(receiver.into());
+            ByteEventSource::<TcpStream, LittleEndian, _, AbsoluteFloat, 100>::from_source(receiver.into());
         let mut monitor = create_monitor();
         let mut expected_verdicts = create_verdicts().into_iter();
         while let (Some((ev, ts)), expected) = (input_source.next_event().unwrap(), expected_verdicts.next()) {

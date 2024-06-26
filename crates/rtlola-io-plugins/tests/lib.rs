@@ -1,2 +1,2 @@
-#[cfg(feature = "network_plugin")]
-mod network_plugin;
+#[cfg(feature = "byte_plugin")]
+mod byte_plugin;

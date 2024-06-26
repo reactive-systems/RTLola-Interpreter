@@ -8,8 +8,8 @@ use rtlola_interpreter::monitor::Incremental;
 use rtlola_interpreter::time::{AbsoluteFloat, TimeRepresentation};
 use rtlola_interpreter::{ConfigBuilder, Monitor};
 use rtlola_interpreter_macros::{CompositFactory, ValueFactory};
-use rtlola_io_plugins::network_plugin::time_converter::TimeConverter;
-use rtlola_io_plugins::network_plugin::{ByteParsingError, FromBytes};
+use rtlola_io_plugins::byte_plugin::time_converter::TimeConverter;
+use rtlola_io_plugins::byte_plugin::{ByteParsingError, FromBytes};
 use serde::{Deserialize, Serialize};
 
 use super::SPEC;
@@ -54,9 +54,7 @@ pub(crate) struct Message1 {
 impl<B: ByteOrder> FromBytes<B> for TestInputWithMacros {
     type Error = <<Self as AssociatedFactory>::Factory as EventFactory>::Error;
 
-    fn from_bytes(
-        data: &[u8],
-    ) -> Result<(Self, usize), rtlola_io_plugins::network_plugin::ByteParsingError<Self::Error>>
+    fn from_bytes(data: &[u8]) -> Result<(Self, usize), rtlola_io_plugins::byte_plugin::ByteParsingError<Self::Error>>
     where
         Self: Sized,
     {

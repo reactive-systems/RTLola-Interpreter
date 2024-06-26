@@ -1,10 +1,10 @@
-//! Module that contains different UDP implementations used as (NetworkSources)[NetworkSource]
+//! Module that contains different UDP implementations used as [ByteSource]s
 use std::net::SocketAddr;
 
-use super::NetworkSource;
+use super::ByteSource;
 
 #[derive(Debug)]
-/// Wrapper build around the a [UdpSocket](std::net::UdpSocket) used as UDP socket for the [NetworkSource]
+/// Wrapper build around the a [UdpSocket](std::net::UdpSocket) used as UDP socket for the [ByteSource]
 pub struct UdpWrapper(std::net::UdpSocket);
 
 impl From<std::net::UdpSocket> for UdpWrapper {
@@ -20,7 +20,7 @@ impl std::io::Read for UdpWrapper {
 }
 
 #[derive(Debug)]
-/// Struct used as UDP socket for the [NetworkSource] that allows incoming connection only from predefined senders
+/// Struct used as UDP socket for the [ByteSource] that allows incoming connection only from predefined senders
 pub struct CheckedUdpSocket {
     /// The [UdpSocket](std::net::UdpSocket) that received the bytestream
     socket: std::net::UdpSocket,
@@ -35,7 +35,7 @@ impl CheckedUdpSocket {
     }
 }
 
-impl NetworkSource for CheckedUdpSocket {
+impl ByteSource for CheckedUdpSocket {
     type Error = CheckUdpError;
 
     fn read(&mut self, buffer: &mut [u8]) -> Result<Option<usize>, Self::Error> {
@@ -49,7 +49,7 @@ impl NetworkSource for CheckedUdpSocket {
 }
 
 #[derive(Debug)]
-/// Error used in the implementation of the [NetworkSource] for [CheckedUdpSocket]
+/// Error used in the implementation of the [ByteSource] for [CheckedUdpSocket]
 pub enum CheckUdpError {
     /// Error to indicate that the receiving of the bytestream resulted in an error
     IOError(std::io::Error),

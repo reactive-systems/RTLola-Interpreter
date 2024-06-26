@@ -7,8 +7,8 @@ use rtlola_interpreter::input::{EventFactoryError, InputMap, MappedFactory};
 use rtlola_interpreter::monitor::Incremental;
 use rtlola_interpreter::time::{AbsoluteFloat, TimeRepresentation};
 use rtlola_interpreter::{ConfigBuilder, Monitor, Value};
-use rtlola_io_plugins::network_plugin::time_converter::TimeConverter;
-use rtlola_io_plugins::network_plugin::{ByteParsingError, FromBytes};
+use rtlola_io_plugins::byte_plugin::time_converter::TimeConverter;
+use rtlola_io_plugins::byte_plugin::{ByteParsingError, FromBytes};
 use serde::{Deserialize, Serialize};
 
 use super::SPEC;
