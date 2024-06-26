@@ -87,6 +87,7 @@ impl From<CsvError> for EventFactoryError {
     }
 }
 
+#[derive(Clone)]
 /// The record as read from the csv data
 pub struct CsvRecord(ByteRecord);
 
