@@ -237,7 +237,7 @@ impl<InputTime: TimeRepresentation> CsvEventSource<InputTime> {
 
 impl<InputTime: TimeRepresentation> EventSource<InputTime> for CsvEventSource<InputTime> {
     type Error = CsvError;
-    type MappedEvent = CsvRecord;
+    type Factory = CsvRecord;
 
     fn init_data(&self) -> Result<<CsvRecord as InputMap>::CreationData, CsvError> {
         Ok(self.csv_column_mapping.clone())

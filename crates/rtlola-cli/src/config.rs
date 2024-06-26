@@ -119,8 +119,8 @@ pub enum EventSourceConfig {
 impl<Source: EventSource<InputTime> + 'static, InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation>
     Config<Source, OfflineMode<InputTime>, InputTime, OutputTime>
 where
-    Source::MappedEvent:
-        InputMap<CreationData = <<Source::MappedEvent as AssociatedFactory>::Factory as EventFactory>::CreationData>,
+    Source::Factory:
+        InputMap<CreationData = <<Source::Factory as AssociatedFactory>::Factory as EventFactory>::CreationData>,
 {
     pub(crate) fn run(self) -> Result<(), Box<dyn Error>> {
         // Convert config
@@ -147,12 +147,12 @@ where
 
         // init monitor
         let mut monitor: QueuedMonitor<
-            MappedFactory<Source::MappedEvent>,
+            MappedFactory<Source::Factory>,
             OfflineMode<InputTime>,
             TracingVerdict<EvalTimeTracer, TotalIncremental>,
             OutputTime,
         > = <QueuedMonitor<
-            MappedFactory<Source::MappedEvent>,
+            MappedFactory<Source::Factory>,
             OfflineMode<InputTime>,
             TracingVerdict<EvalTimeTracer, TotalIncremental>,
             OutputTime,
@@ -184,8 +184,8 @@ where
 impl<Source: EventSource<RealTime> + 'static, OutputTime: OutputTimeRepresentation>
     Config<Source, OnlineMode, RealTime, OutputTime>
 where
-    Source::MappedEvent:
-        InputMap<CreationData = <<Source::MappedEvent as AssociatedFactory>::Factory as EventFactory>::CreationData>,
+    Source::Factory:
+        InputMap<CreationData = <<Source::Factory as AssociatedFactory>::Factory as EventFactory>::CreationData>,
 {
     pub(crate) fn run(self) -> Result<(), Box<dyn Error>> {
         // Convert config
@@ -212,12 +212,12 @@ where
 
         // init monitor
         let mut monitor: QueuedMonitor<
-            MappedFactory<Source::MappedEvent>,
+            MappedFactory<Source::Factory>,
             OnlineMode,
             TracingVerdict<EvalTimeTracer, TotalIncremental>,
             OutputTime,
         > = <QueuedMonitor<
-            MappedFactory<Source::MappedEvent>,
+            MappedFactory<Source::Factory>,
             OnlineMode,
             TracingVerdict<EvalTimeTracer, TotalIncremental>,
             OutputTime,

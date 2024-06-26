@@ -85,7 +85,6 @@ impl<Factory: Error + Debug + 'static, Source: Error + Debug + 'static, InputMap
 
 impl<
         InputTime: TimeRepresentation,
-        // Factory: FromBytes<Order> + Debug + InputMap,
         Factory: ByteFactory<Order>,
         Source: NetworkSource + Debug,
         Order: ByteOrder,
@@ -100,17 +99,17 @@ where
         Source::Error,
         <<Factory::Input as AssociatedFactory>::Factory as EventFactory>::Error,
     >;
-    type MappedEvent = Factory::Input;
+    type Factory = Factory::Input;
 
     fn init_data(
         &self,
-    ) -> Result<<<Self::MappedEvent as AssociatedFactory>::Factory as EventFactory>::CreationData, Self::Error> {
+    ) -> Result<<<Self::Factory as AssociatedFactory>::Factory as EventFactory>::CreationData, Self::Error> {
         todo!()
     }
 
     fn next_event(
         &mut self,
-    ) -> crate::EventResult<Self::MappedEvent, <InputTime as TimeRepresentation>::InnerTime, Self::Error> {
+    ) -> crate::EventResult<Self::Factory, <InputTime as TimeRepresentation>::InnerTime, Self::Error> {
         loop {
             let event = self.factory.from_bytes(&self.buffer).map(|(event, package_size)| {
                 let ts = <<Factory as ByteFactory<Order>>::Input as TimeConverter<InputTime>>::convert_time(&event)
