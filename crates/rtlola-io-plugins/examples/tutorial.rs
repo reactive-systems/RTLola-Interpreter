@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::net::{TcpStream, UdpSocket};
 
+use rtlola_interpreter::input::AssociatedFactory;
 use rtlola_interpreter::monitor::TriggerMessages;
 use rtlola_interpreter::time::{AbsoluteFloat, RealTime, TimeRepresentation};
 use rtlola_interpreter::ConfigBuilder;
@@ -43,7 +44,7 @@ fn main() -> Result<(), Box<dyn Error + 'static>> {
     let mut monitor = ConfigBuilder::new()
         .spec_str(SPEC)
         .online()
-        .with_event_factory::<ExampleInputsFactory>()
+        .with_event_factory::<<ExampleInputs as AssociatedFactory>::Factory>()
         .with_verdict::<TriggerMessages>()
         .output_time::<AbsoluteFloat>()
         .monitor()?;

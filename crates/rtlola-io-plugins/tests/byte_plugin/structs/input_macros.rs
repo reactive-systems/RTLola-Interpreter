@@ -64,7 +64,7 @@ pub(crate) fn create_monitor(
     let cfg = ConfigBuilder::new()
         .spec_str(SPEC)
         .offline::<AbsoluteFloat>()
-        .with_event_factory::<TestInputWithMacrosFactory>()
+        .with_event_factory::<<TestInputWithMacros as AssociatedFactory>::Factory>()
         .with_verdict::<Incremental>()
         .output_time::<AbsoluteFloat>()
         .build();
