@@ -1,0 +1,47 @@
+[package]
+name = "rtlola-io-plugins"
+version = "0.1.0"
+edition = "2021"
+description = "Input and ouput plugins to be used in the various frontends of the interpreter"
+readme = "README.md"
+homepage = "http://rtlola.org"
+repository = "https://github.com/reactive-systems/RTLola-Interpreter"
+license = "Apache-2.0"
+keywords = ["verification", "interpreter", "monitoring"]
+
+authors = [
+    "Jan Baumeister <jan.baumeister@cispa.de>",
+    "Florian Kohn <kohn@react.uni-saarland.de>",
+]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rtlola-interpreter = { path = "../rtlola-interpreter" }
+
+# Csv plugin dependencies
+csv = { version = "1.1.6", optional = true } # For CSV Parsing
+
+# Pcap plugin dependencies
+pcap = { version = "0.11.0", optional = true }       # pcap file parsing
+etherparse = { version = "0.12.0", optional = true } # Network Packet parser
+ip_network = { version = "0.4.1", optional = true }  # IP Address handling
+
+# Byte plugin dependencies
+serde = { version = "1.0.203", optional = true }
+bincode = { version = "1.3.3", optional = true }
+
+[features]
+default = []
+pcap_plugin = ["pcap", "etherparse", "ip_network"]
+csv_plugin = ["csv"]
+byte_plugin = ["serde", "bincode", "rtlola-interpreter/serde"]
+
+[dev-dependencies]
+portpicker = "0.1.1"
+ntest = "0.9.3"
+rtlola-interpreter-macros = { path = "../rtlola-interpreter-macros" }
+
+[[example]]
+name = "tutorial"
+required-features = ["byte_plugin"]

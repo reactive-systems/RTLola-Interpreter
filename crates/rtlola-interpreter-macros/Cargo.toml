@@ -8,24 +8,23 @@ homepage = "http://rtlola.org"
 repository = "https://github.com/reactive-systems/RTLola-Interpreter"
 license = "Apache-2.0"
 keywords = ["verification", "interpreter", "monitoring"]
-authors = [
-    "Florian Kohn <kohn@react.uni-saarland.de>",
-]
+authors = ["Florian Kohn <kohn@react.uni-saarland.de>"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-syn = {version="2.0", features=["derive"]}
+syn = { version = "2.0", features = ["derive"] }
 quote = "1.0"
 convert_case = "0.6.0"
 proc-macro-error = "1.0.4"
 proc-macro2 = "1.0.60"
 deluxe = "0.5.0"
 paste = "1.0.14"
+rtlola-interpreter = { path = "../rtlola-interpreter" }
 
 [dev-dependencies]
 trybuild = "1.0.80"
-rtlola-interpreter = {path="../rtlola-interpreter"}
+
 
 [lib]
 proc-macro = true

@@ -56,8 +56,11 @@ pub struct CsvColumnMapping {
 #[derive(Debug)]
 /// Describes different kinds of CsvParsing Errors
 pub enum CsvError {
+    #[allow(missing_docs)]
     Io(std::io::Error),
+    #[allow(missing_docs)]
     Validation(String),
+    #[allow(missing_docs)]
     Value(String),
 }
 
@@ -89,6 +92,7 @@ impl From<CsvError> for EventFactoryError {
 
 #[derive(Clone)]
 /// The record as read from the csv data
+#[derive(Debug)]
 pub struct CsvRecord(ByteRecord);
 
 impl From<ByteRecord> for CsvRecord {
@@ -180,6 +184,7 @@ impl ReaderWrapper {
 type TimeProjection<Time, E> = Box<dyn Fn(&CsvRecord) -> Result<Time, E>>;
 
 ///Parses events in CSV format.
+#[allow(missing_debug_implementations)]
 pub struct CsvEventSource<InputTime: TimeRepresentation> {
     reader: ReaderWrapper,
     csv_column_mapping: CsvColumnMapping,
@@ -188,6 +193,7 @@ pub struct CsvEventSource<InputTime: TimeRepresentation> {
 }
 
 impl<InputTime: TimeRepresentation> CsvEventSource<InputTime> {
+    /// Creates a new [CsvEventSource]
     pub fn setup(
         time_col: Option<usize>,
         kind: CsvInputSourceKind,
@@ -237,7 +243,7 @@ impl<InputTime: TimeRepresentation> CsvEventSource<InputTime> {
 
 impl<InputTime: TimeRepresentation> EventSource<InputTime> for CsvEventSource<InputTime> {
     type Error = CsvError;
-    type Rec = CsvRecord;
+    type Factory = CsvRecord;
 
     fn init_data(&self) -> Result<<CsvRecord as InputMap>::CreationData, CsvError> {
         Ok(self.csv_column_mapping.clone())

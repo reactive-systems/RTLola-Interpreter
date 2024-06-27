@@ -71,7 +71,7 @@ pub fn parse_float_time(s: &str) -> Result<Duration, String> {
 /// The functionality a time format has to provide.
 pub trait TimeRepresentation: TimeMode + Clone + Send + Default + CondSerialize + CondDeserialize + 'static {
     /// The internal representation of the time format.
-    type InnerTime: Debug + Clone + Clone + Send + CondSerialize + CondDeserialize;
+    type InnerTime: Debug + Clone + Send + CondSerialize + CondDeserialize;
 
     /// Convert from the internal time representation to the monitor time.
     fn convert_from(&mut self, inner: Self::InnerTime) -> Time;

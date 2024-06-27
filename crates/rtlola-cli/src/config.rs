@@ -10,16 +10,16 @@ use std::time::SystemTime;
 
 use clap::ValueEnum;
 use crossterm::style::Color;
-use rtlola_input_plugins::csv_plugin::CsvInputSourceKind;
-#[cfg(feature = "pcap_interface")]
-use rtlola_input_plugins::pcap_plugin::PcapInputSource;
-use rtlola_input_plugins::EventSource;
 use rtlola_interpreter::config::{ExecutionMode, OfflineMode, OnlineMode};
-use rtlola_interpreter::input::MappedFactory;
+use rtlola_interpreter::input::{AssociatedFactory, EventFactory, InputMap, MappedFactory};
 use rtlola_interpreter::monitor::{TotalIncremental, TracingVerdict};
 use rtlola_interpreter::rtlola_mir::RtLolaMir;
 use rtlola_interpreter::time::{OutputTimeRepresentation, RealTime, TimeRepresentation};
 use rtlola_interpreter::QueuedMonitor;
+use rtlola_io_plugins::csv_plugin::CsvInputSourceKind;
+#[cfg(feature = "pcap_interface")]
+use rtlola_io_plugins::pcap_plugin::PcapInputSource;
+use rtlola_io_plugins::EventSource;
 
 use crate::output::{EvalTimeTracer, OutputChannel, OutputHandler};
 
@@ -118,6 +118,9 @@ pub enum EventSourceConfig {
 
 impl<Source: EventSource<InputTime> + 'static, InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation>
     Config<Source, OfflineMode<InputTime>, InputTime, OutputTime>
+where
+    Source::Factory:
+        InputMap<CreationData = <<Source::Factory as AssociatedFactory>::Factory as EventFactory>::CreationData>,
 {
     pub(crate) fn run(self) -> Result<(), Box<dyn Error>> {
         // Convert config
@@ -144,12 +147,12 @@ impl<Source: EventSource<InputTime> + 'static, InputTime: TimeRepresentation, Ou
 
         // init monitor
         let mut monitor: QueuedMonitor<
-            MappedFactory<Source::Rec>,
+            MappedFactory<Source::Factory>,
             OfflineMode<InputTime>,
             TracingVerdict<EvalTimeTracer, TotalIncremental>,
             OutputTime,
         > = <QueuedMonitor<
-            MappedFactory<Source::Rec>,
+            MappedFactory<Source::Factory>,
             OfflineMode<InputTime>,
             TracingVerdict<EvalTimeTracer, TotalIncremental>,
             OutputTime,
@@ -180,6 +183,9 @@ impl<Source: EventSource<InputTime> + 'static, InputTime: TimeRepresentation, Ou
 
 impl<Source: EventSource<RealTime> + 'static, OutputTime: OutputTimeRepresentation>
     Config<Source, OnlineMode, RealTime, OutputTime>
+where
+    Source::Factory:
+        InputMap<CreationData = <<Source::Factory as AssociatedFactory>::Factory as EventFactory>::CreationData>,
 {
     pub(crate) fn run(self) -> Result<(), Box<dyn Error>> {
         // Convert config
@@ -206,12 +212,12 @@ impl<Source: EventSource<RealTime> + 'static, OutputTime: OutputTimeRepresentati
 
         // init monitor
         let mut monitor: QueuedMonitor<
-            MappedFactory<Source::Rec>,
+            MappedFactory<Source::Factory>,
             OnlineMode,
             TracingVerdict<EvalTimeTracer, TotalIncremental>,
             OutputTime,
         > = <QueuedMonitor<
-            MappedFactory<Source::Rec>,
+            MappedFactory<Source::Factory>,
             OnlineMode,
             TracingVerdict<EvalTimeTracer, TotalIncremental>,
             OutputTime,

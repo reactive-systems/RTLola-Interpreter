@@ -20,7 +20,7 @@ default:
   before_script:
     - cd crates
     - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ rtlola-interpreter/Cargo.toml
-    - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ rtlola-input-plugins/Cargo.toml
+    - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ rtlola-io-plugins/Cargo.toml
     - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ rtlola-cli/Cargo.toml
     - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ rtlola-interpreter-macros/Cargo.toml
 
@@ -43,7 +43,7 @@ format:plugins:
   script:
     - rustup component add rustfmt
     - rustc --version && cargo --version # Print version info for debugging
-    - cargo fmt -p rtlola-input-plugins --verbose -- --check
+    - cargo fmt -p rtlola-io-plugins --verbose -- --check
 
 # Use cargo to check the source code formatting
 format:interpreter:
@@ -99,7 +99,7 @@ clippy:plugins:
   script:
     - rustup component add clippy
     - rustc --version && cargo --version # Print version info for debugging
-    - cargo clippy -p rtlola-input-plugins
+    - cargo clippy -p rtlola-io-plugins --all-features
 
 # Use cargo to run clippy (Rust linter)
 clippy:interpreter:
@@ -201,7 +201,7 @@ test:plugins:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev
     - rustc --version && cargo --version # Print version info for debugging
-    - cargo test -p rtlola-input-plugins --all --verbose
+    - cargo test -p rtlola-io-plugins --verbose --all-features
 
 # Run the tool by checking the number of triggers fired
 test:cli:
@@ -238,7 +238,7 @@ test:windows:
   before_script:
     - cd crates
     - (get-content rtlola-cli\Cargo.toml) | %{$_ -replace "git=.*git@projects","git=`"https://gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content rtlola-cli\Cargo.toml
-    - (get-content rtlola-input-plugins\Cargo.toml) | %{$_ -replace "git=.*git@projects","git=`"https://gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content rtlola-input-plugins\Cargo.toml
+    - (get-content rtlola-io-plugins\Cargo.toml) | %{$_ -replace "git=.*git@projects","git=`"https://gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content rtlola-io-plugins\Cargo.toml
     - (get-content rtlola-interpreter\Cargo.toml) | %{$_ -replace "git=.*git@projects","git=`"https://gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content rtlola-interpreter\Cargo.toml
     - (get-content rtlola-interpreter-macros\Cargo.toml) | %{$_ -replace "git=.*git@projects","git=`"https://gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content rtlola-interpreter-macros\Cargo.toml
     - rustup update
@@ -246,7 +246,7 @@ test:windows:
     - cargo --version
   script:
     - cargo test -p rtlola-cli
-    - cargo test -p rtlola-input-plugins --no-default-features --features csv_plugin
+    - cargo test -p rtlola-io-plugins --no-default-features --features csv_plugin
     - cargo test -p rtlola-interpreter
     - cargo test -p rtlola-interpreter-macros
 
