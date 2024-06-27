@@ -59,26 +59,6 @@ impl InputMap for TestInput {
     }
 }
 
-// impl<B: ByteOrder> FromBytes<B> for TestInput {
-//     type Error = <Self as InputMap>::Error;
-
-//     fn from_bytes(data: &[u8]) -> Result<(Self, usize), ByteParsingError<<Self as InputMap>::Error>>
-//     where
-//         Self: Sized,
-//     {
-//         let res: TestInput = bincode::deserialize(&data).map_err(|e| {
-//             if matches!(ErrorKind::UnexpectedEof, _e) {
-//                 ByteParsingError::Incomplete
-//             } else {
-//                 ByteParsingError::Inner(EventFactoryError::Other(e))
-//             }
-//         })?;
-//         let size =
-//             bincode::serialized_size(&res).map_err(|e| ByteParsingError::Inner(EventFactoryError::Other(e)))? as usize;
-//         Ok((res, size))
-//     }
-// }
-
 impl TimeConverter<AbsoluteFloat> for TestInput {
     fn convert_time(&self) -> Result<<AbsoluteFloat as TimeRepresentation>::InnerTime, <Self as InputMap>::Error> {
         Ok(self.timestamp)
