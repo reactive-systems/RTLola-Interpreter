@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed unused import.
 
 ### Added
-- Network Input Plugin
+- Byte Input Plugin
+- VerdictSink
 
 ## [0.1.0] - 19.12.2022
 

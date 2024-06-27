@@ -3,7 +3,6 @@ use std::net::{TcpListener, TcpStream};
 use std::thread;
 use std::time::Duration;
 
-use byteorder::LittleEndian;
 use ntest::timeout;
 use rtlola_interpreter::time::AbsoluteFloat;
 use rtlola_io_plugins::byte_plugin::ByteEventSource;
@@ -31,8 +30,7 @@ fn tcp_listener() {
         let (receiver, _connected) = TcpListener::bind(receiver_addr).unwrap().accept().unwrap();
         receiver.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
         receiver.set_nonblocking(false).unwrap();
-        let mut input_source =
-            ByteEventSource::<TcpStream, LittleEndian, _, AbsoluteFloat, 100>::from_source(receiver.into());
+        let mut input_source = ByteEventSource::<TcpStream, _, AbsoluteFloat, 100>::from_source(receiver.into());
         let mut monitor = create_monitor();
         let mut expected_verdicts = create_verdicts().into_iter();
         while let (Some((ev, ts)), expected) = (input_source.next_event().unwrap(), expected_verdicts.next()) {

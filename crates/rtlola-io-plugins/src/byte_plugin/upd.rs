@@ -5,15 +5,15 @@ use super::ByteSource;
 
 #[derive(Debug)]
 /// Wrapper build around the a [UdpSocket](std::net::UdpSocket) used as UDP socket for the [ByteSource]
-pub struct UdpWrapper(std::net::UdpSocket);
+pub struct UdpReader(std::net::UdpSocket);
 
-impl From<std::net::UdpSocket> for UdpWrapper {
+impl From<std::net::UdpSocket> for UdpReader {
     fn from(value: std::net::UdpSocket) -> Self {
-        UdpWrapper(value)
+        UdpReader(value)
     }
 }
 
-impl std::io::Read for UdpWrapper {
+impl std::io::Read for UdpReader {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.0.recv(buf)
     }

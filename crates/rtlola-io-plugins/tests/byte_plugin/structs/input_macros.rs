@@ -1,15 +1,12 @@
-use std::io::ErrorKind;
 use std::time::Duration;
 
-use byteorder::ByteOrder;
 use rtlola_interpreter::config::OfflineMode;
-use rtlola_interpreter::input::{AssociatedFactory, EventFactory, EventFactoryError};
+use rtlola_interpreter::input::{AssociatedFactory, EventFactory};
 use rtlola_interpreter::monitor::Incremental;
 use rtlola_interpreter::time::{AbsoluteFloat, TimeRepresentation};
 use rtlola_interpreter::{ConfigBuilder, Monitor};
 use rtlola_interpreter_macros::{CompositFactory, ValueFactory};
 use rtlola_io_plugins::byte_plugin::time_converter::TimeConverter;
-use rtlola_io_plugins::byte_plugin::{ByteParsingError, FromBytes};
 use serde::{Deserialize, Serialize};
 
 use super::SPEC;
@@ -49,26 +46,6 @@ pub(crate) struct Message0 {
 #[derive(Debug, Clone, Deserialize, Serialize, ValueFactory)]
 pub(crate) struct Message1 {
     c: u64,
-}
-
-impl<B: ByteOrder> FromBytes<B> for TestInputWithMacros {
-    type Error = <<Self as AssociatedFactory>::Factory as EventFactory>::Error;
-
-    fn from_bytes(data: &[u8]) -> Result<(Self, usize), rtlola_io_plugins::byte_plugin::ByteParsingError<Self::Error>>
-    where
-        Self: Sized,
-    {
-        let res: TestInputWithMacros = bincode::deserialize(&data).map_err(|e| {
-            if matches!(ErrorKind::UnexpectedEof, _e) {
-                ByteParsingError::Incomplete
-            } else {
-                ByteParsingError::Inner(EventFactoryError::Other(e))
-            }
-        })?;
-        let size =
-            bincode::serialized_size(&res).map_err(|e| ByteParsingError::Inner(EventFactoryError::Other(e)))? as usize;
-        Ok((res, size))
-    }
 }
 
 impl TimeConverter<AbsoluteFloat> for TestInputWithMacros {

@@ -104,8 +104,7 @@ pub trait VerdictsSink<V: VerdictRepresentation, T: OutputTimeRepresentation> {
         let Verdicts { timed, event, ts } = verdicts;
         timed
             .into_iter()
-            .map(|(ts, verdict)| (ts, verdict))
-            .chain(vec![(ts, event)].into_iter())
+            .chain(vec![(ts, event)])
             .map(|(ts, verdict)| self.sink_verdict(ts, verdict))
             .collect::<Result<Vec<_>, _>>()
     }

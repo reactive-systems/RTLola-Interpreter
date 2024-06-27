@@ -1409,7 +1409,6 @@ name = "rtlola-io-plugins"
 version = "0.1.0"
 dependencies = [
  "bincode",
- "byteorder",
  "csv",
  "etherparse",
  "ip_network",

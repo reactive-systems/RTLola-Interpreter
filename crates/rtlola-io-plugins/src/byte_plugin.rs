@@ -1,14 +1,13 @@
 //! Module that contains the implementation of the [EventSource] and [VerdictsSink] for bytes
-use std::convert::Infallible;
 use std::error::Error;
 use std::fmt::Debug;
+use std::io::ErrorKind;
 use std::marker::PhantomData;
-use std::time::Duration;
 
-use byteorder::ByteOrder;
 use rtlola_interpreter::input::{AssociatedFactory, EventFactory};
-use rtlola_interpreter::monitor::{TriggerMessages, VerdictRepresentation};
+use rtlola_interpreter::monitor::VerdictRepresentation;
 use rtlola_interpreter::time::{OutputTimeRepresentation, TimeRepresentation};
+use serde::{Deserialize, Serialize};
 use time_converter::TimeConverter;
 
 use crate::{EventSource, VerdictFactory, VerdictsSink};
@@ -16,41 +15,39 @@ use crate::{EventSource, VerdictFactory, VerdictsSink};
 pub mod time_converter;
 pub mod upd;
 
-/// Receives and parses events from a [EventByteFactory] and a [ByteSource].
+/// Receives and parses events from a [ByteParser] and a [ByteSource].
 #[derive(Debug)]
 pub struct ByteEventSource<
     Source: ByteSource,
-    Order: ByteOrder,
-    Factory: EventByteFactory<Order>,
+    Parser: ByteParser<Output: AssociatedFactory>,
     InputTime: TimeRepresentation,
     const BUFFERSIZE: usize,
 > where
-    <<Factory::Factory as AssociatedFactory>::Factory as EventFactory>::Error: Error,
+    <<Parser::Output as AssociatedFactory>::Factory as EventFactory>::Error: Error,
 {
     /// The factory to parse the monitor input given as bytearray
-    factory: Factory,
+    parser: Parser,
     /// The connection that is used to receive data
     source: Source,
     /// The buffer that is used to store incoming data
     buffer: Vec<u8>,
     /// PhantomData that is used to propagate types
-    timer: PhantomData<(InputTime, Order)>,
+    timer: PhantomData<InputTime>,
 }
 
 impl<
         Source: ByteSource,
-        Order: ByteOrder,
-        Factory: EventByteFactory<Order>,
+        Parser: ByteParser<Output: AssociatedFactory>,
         InputTime: TimeRepresentation,
         const BUFFERSIZE: usize,
-    > ByteEventSource<Source, Order, Factory, InputTime, BUFFERSIZE>
+    > ByteEventSource<Source, Parser, InputTime, BUFFERSIZE>
 where
-    <<Factory::Factory as AssociatedFactory>::Factory as EventFactory>::Error: Error,
+    <<Parser::Output as AssociatedFactory>::Factory as EventFactory>::Error: Error,
 {
-    /// Creates a new [ByteEventSource] out of a (conncetion)[ByteSource] and a (parser)[EventByteFactory].
-    pub fn new(source: Source, factory: Factory) -> Self {
+    /// Creates a new [ByteEventSource] out of a (conncetion)[ByteSource] and a (parser)[ByteParser].
+    pub fn new(source: Source, factory: Parser) -> Self {
         Self {
-            factory,
+            parser: factory,
             source,
             buffer: Vec::new(),
             timer: PhantomData,
@@ -60,56 +57,55 @@ where
 
 /// Enum to collect the errors with for a [ByteEventSource].
 #[derive(Debug)]
-pub enum ByteEventSourceError<EventFactory: Error + Debug, Source: Error + Debug, ByteFactory: Error + Debug> {
+pub enum ByteEventSourceError<Parse: Error + Debug, Source: Error + Debug, Time: Error + Debug> {
     /// Error while receiving a bytestream.
     Source(Source),
     /// Error while parsing a bytestream.
-    EventFactory(EventFactory),
+    Parse(Parse),
     /// Error while generating the time out of the bytestream
-    ByteFactory(ByteFactory),
+    TimeConversion(Time),
 }
 
-impl<EventFactory: Error + Debug, Source: Error + Debug, ByteFactory: Error + Debug> std::fmt::Display
-    for ByteEventSourceError<EventFactory, Source, ByteFactory>
+impl<Parse: Error + Debug, Source: Error + Debug, Time: Error + Debug> std::fmt::Display
+    for ByteEventSourceError<Parse, Source, Time>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ByteEventSourceError::Source(e) => write!(f, "{e}"),
-            ByteEventSourceError::EventFactory(e) => write!(f, "{e}"),
-            ByteEventSourceError::ByteFactory(e) => write!(f, "{e}"),
+            ByteEventSourceError::Parse(e) => write!(f, "{e}"),
+            ByteEventSourceError::TimeConversion(e) => write!(f, "{e}"),
         }
     }
 }
 
-impl<EventFactory: Error + Debug + 'static, Source: Error + Debug + 'static, ByteFactory: Error + Debug + 'static> Error
-    for ByteEventSourceError<EventFactory, Source, ByteFactory>
+impl<Parse: Error + Debug + 'static, Source: Error + Debug + 'static, Time: Error + Debug + 'static> Error
+    for ByteEventSourceError<Parse, Source, Time>
 {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             ByteEventSourceError::Source(e) => Some(e),
-            ByteEventSourceError::EventFactory(e) => Some(e),
-            ByteEventSourceError::ByteFactory(e) => Some(e),
+            ByteEventSourceError::Parse(e) => Some(e),
+            ByteEventSourceError::TimeConversion(e) => Some(e),
         }
     }
 }
 
 impl<
         InputTime: TimeRepresentation,
-        Factory: EventByteFactory<Order, Factory: AssociatedFactory<Factory: EventFactory<CreationData = ()>>>,
+        Parser: ByteParser<Output: AssociatedFactory<Factory: EventFactory<CreationData = ()>>>,
         Source: ByteSource + Debug,
-        Order: ByteOrder,
         const BUFFERSIZE: usize,
-    > EventSource<InputTime> for ByteEventSource<Source, Order, Factory, InputTime, BUFFERSIZE>
+    > EventSource<InputTime> for ByteEventSource<Source, Parser, InputTime, BUFFERSIZE>
 where
-    <<Factory::Factory as AssociatedFactory>::Factory as EventFactory>::Error: Error,
-    Factory::Factory: TimeConverter<InputTime>,
+    <<Parser::Output as AssociatedFactory>::Factory as EventFactory>::Error: Error,
+    Parser::Output: TimeConverter<InputTime>,
 {
     type Error = ByteEventSourceError<
-        Factory::Error,
+        Parser::Error,
         Source::Error,
-        <<Factory::Factory as AssociatedFactory>::Factory as EventFactory>::Error,
+        <<Parser::Output as AssociatedFactory>::Factory as EventFactory>::Error,
     >;
-    type Factory = Factory::Factory;
+    type Factory = Parser::Output;
 
     fn init_data(
         &self,
@@ -121,10 +117,9 @@ where
         &mut self,
     ) -> crate::EventResult<Self::Factory, <InputTime as TimeRepresentation>::InnerTime, Self::Error> {
         loop {
-            let event = self.factory.from_bytes(&self.buffer).map(|(event, package_size)| {
-                let ts =
-                    <<Factory as EventByteFactory<Order>>::Factory as TimeConverter<InputTime>>::convert_time(&event)
-                        .map_err(ByteEventSourceError::ByteFactory)?;
+            let event = self.parser.from_bytes(&self.buffer).map(|(event, package_size)| {
+                let ts = <<Parser as ByteParser>::Output as TimeConverter<InputTime>>::convert_time(&event)
+                    .map_err(ByteEventSourceError::TimeConversion)?;
                 let slice = self.buffer.drain(0..package_size);
                 debug_assert_eq!(slice.len(), package_size);
                 Ok((event, ts))
@@ -142,7 +137,7 @@ where
                         Some(package_size) => self.buffer.extend_from_slice(&temp_buffer[0..package_size]),
                     }
                 },
-                Err(ByteParsingError::Inner(e)) => break Err(ByteEventSourceError::EventFactory(e)),
+                Err(ByteParsingError::Inner(e)) => break Err(ByteEventSourceError::Parse(e)),
             }
         }
     }
@@ -162,22 +157,22 @@ impl<T: std::io::Read> ByteSource for T {
     fn read(&mut self, buffer: &mut [u8]) -> Result<Option<usize>, Self::Error> {
         match std::io::Read::read(self, buffer) {
             Ok(size) => Ok(Some(size)),
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Ok(None),
+            Err(e) if e.kind() == ErrorKind::WouldBlock => Ok(None),
             Err(e) => Err(e),
         }
     }
 }
 
 /// This trait defines a factory to parse a bytestream to an event given to the monitor.
-/// It contains one function to creates a [AssociatedFactory] and the number of parsed bytes form a bytestream.
-pub trait EventByteFactory<B: ByteOrder> {
+/// It contains one function to creates an Output and the number of parsed bytes form a bytestream.
+pub trait ByteParser {
     /// Error when parsing the bytestream
     type Error: Error + 'static;
     /// Event given to the monitor
-    type Factory: AssociatedFactory;
+    type Output;
     #[allow(clippy::wrong_self_convention)]
     /// Function to parse the bytestream
-    fn from_bytes(&mut self, data: &[u8]) -> Result<(Self::Factory, usize), ByteParsingError<Self::Error>>
+    fn from_bytes(&mut self, data: &[u8]) -> Result<(Self::Output, usize), ByteParsingError<Self::Error>>
     where
         Self: Sized;
 }
@@ -191,23 +186,13 @@ pub enum ByteParsingError<Inner: Error> {
     Incomplete,
 }
 
-/// This trait defines a factory to parse a bytestream to an event given to the monitor that is stateless.
-pub trait FromBytes<Inner: ByteOrder> {
-    /// Error when parsing the bytestream
-    type Error: Error + 'static;
-    /// Function to parse the bytestream
-    fn from_bytes(data: &[u8]) -> Result<(Self, usize), ByteParsingError<Self::Error>>
-    where
-        Self: Sized;
-}
-
-/// A struct to create a stateless parser that is build out of the [FromBytes] trait.
+/// A struct to create a stateless parser that is build out of the [Serialize] and [Deserialize] trait.
 #[derive(Debug, Clone, Copy)]
-pub struct StatelessEventByteFactory<B: FromBytes<Order> + AssociatedFactory, Order: ByteOrder> {
-    phantom: PhantomData<(B, Order)>,
+pub struct SerdeParser<B: Serialize + for<'a> Deserialize<'a> + AssociatedFactory> {
+    phantom: PhantomData<B>,
 }
 
-impl<B: FromBytes<Order> + AssociatedFactory, Order: ByteOrder> Default for StatelessEventByteFactory<B, Order> {
+impl<B: Serialize + for<'a> Deserialize<'a> + AssociatedFactory> Default for SerdeParser<B> {
     fn default() -> Self {
         Self {
             phantom: Default::default(),
@@ -215,34 +200,39 @@ impl<B: FromBytes<Order> + AssociatedFactory, Order: ByteOrder> Default for Stat
     }
 }
 
-impl<B: FromBytes<Order> + AssociatedFactory, Order: ByteOrder> EventByteFactory<Order>
-    for StatelessEventByteFactory<B, Order>
-{
-    type Error = <B as FromBytes<Order>>::Error;
-    type Factory = B;
+impl<B: Serialize + for<'a> Deserialize<'a> + AssociatedFactory> ByteParser for SerdeParser<B> {
+    type Error = bincode::Error;
+    type Output = B;
 
-    fn from_bytes(&mut self, data: &[u8]) -> Result<(Self::Factory, usize), ByteParsingError<Self::Error>>
+    fn from_bytes(&mut self, data: &[u8]) -> Result<(Self::Output, usize), ByteParsingError<Self::Error>>
     where
         Self: Sized,
     {
-        B::from_bytes(data)
+        let res: B = bincode::deserialize(data).map_err(|e| {
+            if matches!(ErrorKind::UnexpectedEof, _e) {
+                ByteParsingError::Incomplete
+            } else {
+                ByteParsingError::Inner(e)
+            }
+        })?;
+        let size = bincode::serialized_size(&res).map_err(ByteParsingError::Inner)? as usize;
+        Ok((res, size))
     }
 }
 
 impl<
         Source: ByteSource,
-        Order: ByteOrder,
         InputTime: TimeRepresentation,
-        B: FromBytes<Order> + AssociatedFactory,
+        B: Serialize + for<'a> Deserialize<'a> + AssociatedFactory,
         const BUFFERSIZE: usize,
-    > ByteEventSource<Source, Order, StatelessEventByteFactory<B, Order>, InputTime, BUFFERSIZE>
+    > ByteEventSource<Source, SerdeParser<B>, InputTime, BUFFERSIZE>
 where
     <<B as AssociatedFactory>::Factory as EventFactory>::Error: Error,
 {
     /// Creates a new [ByteEventSource] given a [ByteSource].
     pub fn from_source(source: Source) -> Self {
         Self {
-            factory: StatelessEventByteFactory::default(),
+            parser: SerdeParser::default(),
             source,
             buffer: Vec::new(),
             timer: PhantomData,
@@ -252,11 +242,10 @@ where
 
 impl<
         Source: ByteSource,
-        Order: ByteOrder,
         InputTime: TimeRepresentation,
-        B: FromBytes<Order> + AssociatedFactory,
+        B: Serialize + for<'a> Deserialize<'a> + AssociatedFactory,
         const BUFFERSIZE: usize,
-    > From<Source> for ByteEventSource<Source, Order, StatelessEventByteFactory<B, Order>, InputTime, BUFFERSIZE>
+    > From<Source> for ByteEventSource<Source, SerdeParser<B>, InputTime, BUFFERSIZE>
 where
     <<B as AssociatedFactory>::Factory as EventFactory>::Error: Error,
 {
@@ -265,31 +254,33 @@ where
     }
 }
 
-/// Parses and send bytes with a [VerdictByteFactory] and a [ByteTarget].
+/// Parses and send bytes with a [VerdictFactory], [ByteSerializer] and a [ByteTarget].
 #[derive(Debug)]
 pub struct ByteVerdictSink<
     V: VerdictRepresentation,
     T: OutputTimeRepresentation,
-    B: ByteOrder,
-    Factory: VerdictByteFactory<B, V, T>,
+    Factory: VerdictFactory<V, T>,
+    Serializer: ByteSerializer,
     Target: ByteTarget,
 > {
     factory: Factory,
+    serializer: Serializer,
     target: Target,
-    phantom: PhantomData<(V, T, B)>,
+    phantom: PhantomData<(V, T)>,
 }
 
 impl<
         V: VerdictRepresentation,
         T: OutputTimeRepresentation,
-        B: ByteOrder,
-        Factory: VerdictByteFactory<B, V, T>,
+        Factory: VerdictFactory<V, T>,
+        Serializer: ByteSerializer<Input = Factory::Verdict>,
         Target: ByteTarget,
-    > ByteVerdictSink<V, T, B, Factory, Target>
+    > ByteVerdictSink<V, T, Factory, Serializer, Target>
 {
-    /// Creates a new [ByteVerdictSink] out of a (target)[ByteTarget] and a (parser)[VerdictByteFactory].
-    pub fn new(target: Target, factory: Factory) -> Self {
+    /// Creates a new [ByteVerdictSink] out of a (target)[ByteTarget], a (factory)[VerdictFactory] and a (serializer)[ByteSerializer].
+    pub fn new(target: Target, factory: Factory, serializer: Serializer) -> Self {
         Self {
+            serializer,
             factory,
             target,
             phantom: PhantomData,
@@ -300,20 +291,20 @@ impl<
 impl<
         V: VerdictRepresentation,
         T: OutputTimeRepresentation,
-        B: ByteOrder,
-        Factory: VerdictByteFactory<B, V, T>,
+        Factory: VerdictFactory<V, T>,
+        Serializer: ByteSerializer<Input = Factory::Verdict>,
         Target: ByteTarget,
-    > VerdictsSink<V, T> for ByteVerdictSink<V, T, B, Factory, Target>
+    > VerdictsSink<V, T> for ByteVerdictSink<V, T, Factory, Serializer, Target>
 {
-    type Error = ByteVerdictSinkError<<Factory as VerdictByteFactory<B, V, T>>::Error, Target::Error>;
+    type Error = ByteVerdictSinkError<Factory::Error, Serializer::Error, Target::Error>;
     type Factory = Factory;
     type Return = ();
 
     fn sink(&mut self, verdict: <Self::Factory as VerdictFactory<V, T>>::Verdict) -> Result<Self::Return, Self::Error> {
         let buffer = self
-            .factory
+            .serializer
             .into_bytes(verdict)
-            .map_err(ByteVerdictSinkError::Factory)?;
+            .map_err(ByteVerdictSinkError::Serializer)?;
         self.target.write(&buffer).map_err(ByteVerdictSinkError::Target)
     }
 
@@ -324,27 +315,35 @@ impl<
 
 /// Enum to collect the errors with for a [ByteVerdictSink].
 #[derive(Debug)]
-pub enum ByteVerdictSinkError<Factory: Error + 'static, Target: Error + 'static> {
+pub enum ByteVerdictSinkError<Factory: Error + 'static, Serializer: Error + 'static, Target: Error + 'static> {
     #[allow(missing_docs)]
     Factory(Factory),
     #[allow(missing_docs)]
     Target(Target),
+    #[allow(missing_docs)]
+    Serializer(Serializer),
 }
 
-impl<Factory: Error + 'static, Target: Error + 'static> std::fmt::Display for ByteVerdictSinkError<Factory, Target> {
+impl<Factory: Error + 'static, Serializer: Error + 'static, Target: Error + 'static> std::fmt::Display
+    for ByteVerdictSinkError<Factory, Serializer, Target>
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ByteVerdictSinkError::Factory(e) => writeln!(f, "{e}"),
             ByteVerdictSinkError::Target(e) => writeln!(f, "{e}"),
+            ByteVerdictSinkError::Serializer(e) => writeln!(f, "{e}"),
         }
     }
 }
 
-impl<Factory: Error + 'static, Target: Error + 'static> Error for ByteVerdictSinkError<Factory, Target> {
+impl<Factory: Error + 'static, Serializer: Error + 'static, Target: Error + 'static> Error
+    for ByteVerdictSinkError<Factory, Serializer, Target>
+{
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             ByteVerdictSinkError::Factory(e) => Some(e),
             ByteVerdictSinkError::Target(e) => Some(e),
+            ByteVerdictSinkError::Serializer(e) => Some(e),
         }
     }
 }
@@ -366,115 +365,54 @@ impl<T: std::io::Write> ByteTarget for T {
 }
 
 /// This trait defines a factory to create a bytestream from a verdict
-pub trait VerdictByteFactory<B: ByteOrder, V: VerdictRepresentation, T: OutputTimeRepresentation>:
-    VerdictFactory<V, T>
-{
+pub trait ByteSerializer {
     /// Error when creating the bytestream
     type Error: Error + 'static;
+    /// Type given to the serializer
+    type Input;
     /// Function to create the bytestream
-    fn into_bytes(
-        &mut self,
-        verdict: <Self as VerdictFactory<V, T>>::Verdict,
-    ) -> Result<Vec<u8>, <Self as VerdictByteFactory<B, V, T>>::Error>;
+    #[allow(clippy::wrong_self_convention)]
+    fn into_bytes(&mut self, verdict: Self::Input) -> Result<Vec<u8>, Self::Error>;
 }
 
-/// This trait defines a factory to create a bytestream to an verdict that is stateless.
-pub trait ToBytes<Inner: ByteOrder> {
-    /// Error when parsing the bytestream
-    type Error: Error + 'static;
-    /// Function to create the bytestream
-    fn to_bytes(self) -> Result<Vec<u8>, Self::Error>
-    where
-        Self: Sized;
+/// A struct to create a byte serializer that is build out of the [Serialize] trait.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SerdeByteSerializer<I: Serialize> {
+    phantom: PhantomData<I>,
 }
 
-/// A struct to create a stateless byte parser that is build out of the [ToBytes] and [VerdictFactory] trait.
-#[derive(Debug, Clone, Copy)]
-pub struct StatelessVerdictByteFactory<
-    B: ByteOrder,
-    V: VerdictRepresentation,
-    T: OutputTimeRepresentation,
-    Factory: VerdictFactory<V, T, Verdict: ToBytes<B>>,
-> {
-    factory: Factory,
-    phantom: PhantomData<(B, V, T)>,
-}
+impl<I: Serialize> ByteSerializer for SerdeByteSerializer<I> {
+    type Error = bincode::Error;
+    type Input = I;
 
-impl<
-        B: ByteOrder,
-        V: VerdictRepresentation,
-        T: OutputTimeRepresentation,
-        Factory: VerdictFactory<V, T, Verdict: ToBytes<B>>,
-    > StatelessVerdictByteFactory<B, V, T, Factory>
-{
-    /// Create a new [StatelessVerdictByteFactory] from a [VerdictFactory]
-    pub fn new(factory: Factory) -> Self {
-        Self {
-            factory,
-            phantom: PhantomData,
-        }
+    fn into_bytes(&mut self, verdict: Self::Input) -> Result<Vec<u8>, Self::Error> {
+        bincode::serialize(&verdict)
     }
 }
 
 impl<
-        B: ByteOrder,
         V: VerdictRepresentation,
         T: OutputTimeRepresentation,
-        Factory: VerdictFactory<V, T, Verdict: ToBytes<B>>,
-    > VerdictFactory<V, T> for StatelessVerdictByteFactory<B, V, T, Factory>
+        Factory: VerdictFactory<V, T> + Default,
+        Serializer: ByteSerializer<Input = Factory::Verdict> + Default,
+        Target: ByteTarget,
+    > ByteVerdictSink<V, T, Factory, Serializer, Target>
 {
-    type Error = Factory::Error;
-    type Verdict = Factory::Verdict;
-
-    fn get_verdict(&mut self, rec: V, ts: <T>::InnerTime) -> Result<Self::Verdict, Self::Error> {
-        self.factory.get_verdict(rec, ts)
+    /// Creates a new [ByteVerdictSink] given a [ByteTarget].
+    pub fn from_target(target: Target) -> Self {
+        Self::new(target, Factory::default(), Serializer::default())
     }
 }
 
 impl<
-        B: ByteOrder,
         V: VerdictRepresentation,
         T: OutputTimeRepresentation,
-        Factory: VerdictFactory<V, T, Verdict: ToBytes<B>>,
-    > VerdictByteFactory<B, V, T> for StatelessVerdictByteFactory<B, V, T, Factory>
+        Factory: VerdictFactory<V, T> + Default,
+        Serializer: ByteSerializer<Input = Factory::Verdict> + Default,
+        Target: ByteTarget,
+    > From<Target> for ByteVerdictSink<V, T, Factory, Serializer, Target>
 {
-    type Error = <Factory::Verdict as ToBytes<B>>::Error;
-
-    fn into_bytes(
-        &mut self,
-        verdict: <Self as VerdictFactory<V, T>>::Verdict,
-    ) -> Result<Vec<u8>, <Self as VerdictByteFactory<B, V, T>>::Error> {
-        verdict.to_bytes()
-    }
-}
-
-impl<
-        B: ByteOrder,
-        V: VerdictRepresentation,
-        T: OutputTimeRepresentation,
-        Factory: VerdictFactory<V, T, Verdict: ToBytes<B>>,
-    > From<Factory> for StatelessVerdictByteFactory<B, V, T, Factory>
-{
-    fn from(value: Factory) -> Self {
-        StatelessVerdictByteFactory {
-            factory: value,
-            phantom: PhantomData,
-        }
-    }
-}
-
-impl<B: ByteOrder> ToBytes<B> for (TriggerMessages, Duration) {
-    type Error = Infallible;
-
-    fn to_bytes(self) -> Result<Vec<u8>, Self::Error>
-    where
-        Self: Sized,
-    {
-        Ok(self
-            .0
-            .into_iter()
-            .map(|(_sr, _parameter, msg)| format!("{}\n", msg).as_bytes().to_vec())
-            .flatten()
-            .collect())
+    fn from(value: Target) -> Self {
+        Self::from_target(value)
     }
 }

@@ -2,10 +2,9 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::time::Duration;
 use std::{thread, vec};
 
-use byteorder::LittleEndian;
 use ntest::timeout;
 use rtlola_interpreter::time::AbsoluteFloat;
-use rtlola_io_plugins::byte_plugin::upd::{CheckUdpError, CheckedUdpSocket, UdpWrapper};
+use rtlola_io_plugins::byte_plugin::upd::{CheckUdpError, CheckedUdpSocket, UdpReader};
 use rtlola_io_plugins::byte_plugin::{ByteEventSource, ByteEventSourceError};
 use rtlola_io_plugins::EventSource;
 
@@ -35,7 +34,7 @@ fn udp_unchecked() {
     });
     let thread_2 = thread::spawn(move || {
         thread::sleep(Duration::from_secs(1));
-        let mut input_source = ByteEventSource::<UdpWrapper, LittleEndian, _, AbsoluteFloat, 50>::from_source(
+        let mut input_source = ByteEventSource::<UdpReader, _, AbsoluteFloat, 50>::from_source(
             UdpSocket::bind(receiver_addr).unwrap().into(),
         );
         let mut counter = 0;
@@ -76,8 +75,7 @@ fn timed_udp() {
         thread::sleep(Duration::from_secs(1));
         let receiver = UdpSocket::bind(receiver_addr).unwrap();
         receiver.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
-        let mut input_source =
-            ByteEventSource::<UdpWrapper, LittleEndian, _, AbsoluteFloat, 50>::from_source(receiver.into());
+        let mut input_source = ByteEventSource::<UdpReader, _, AbsoluteFloat, 50>::from_source(receiver.into());
         let mut monitor = crate::byte_plugin::structs::input_map::create_monitor();
         let mut expected_verdicts = create_verdicts().into_iter();
         while let (Some((ev, ts)), expected) = (input_source.next_event().unwrap(), expected_verdicts.next()) {
@@ -114,8 +112,7 @@ fn checked_udp() {
         let receiver = UdpSocket::bind(receiver_addr).unwrap();
         receiver.set_read_timeout(Some(Duration::from_secs(4))).unwrap();
         let receiver = CheckedUdpSocket::new(receiver, vec![sender_addr]);
-        let mut input_source =
-            ByteEventSource::<CheckedUdpSocket, LittleEndian, _, AbsoluteFloat, 100>::from_source(receiver.into());
+        let mut input_source = ByteEventSource::<CheckedUdpSocket, _, AbsoluteFloat, 100>::from_source(receiver.into());
         let mut monitor = crate::byte_plugin::structs::input_map::create_monitor();
         let mut expected_verdicts = create_verdicts().into_iter();
         loop {
@@ -173,7 +170,7 @@ fn udp_unchecked_with_input_macros() {
     });
     let thread_2 = thread::spawn(move || {
         thread::sleep(Duration::from_secs(1));
-        let mut input_source = ByteEventSource::<UdpWrapper, LittleEndian, _, AbsoluteFloat, 50>::from_source(
+        let mut input_source = ByteEventSource::<UdpReader, _, AbsoluteFloat, 50>::from_source(
             UdpSocket::bind(receiver_addr).unwrap().into(),
         );
         let mut counter = 0;

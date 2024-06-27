@@ -99,7 +99,7 @@ clippy:plugins:
   script:
     - rustup component add clippy
     - rustc --version && cargo --version # Print version info for debugging
-    - cargo clippy -p rtlola-io-plugins
+    - cargo clippy -p rtlola-io-plugins --all-features
 
 # Use cargo to run clippy (Rust linter)
 clippy:interpreter:
@@ -201,7 +201,7 @@ test:plugins:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev
     - rustc --version && cargo --version # Print version info for debugging
-    - cargo test -p rtlola-io-plugins --all --verbose
+    - cargo test -p rtlola-io-plugins --verbose --all-features
 
 # Run the tool by checking the number of triggers fired
 test:cli:
