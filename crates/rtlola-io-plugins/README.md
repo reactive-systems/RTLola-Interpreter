@@ -7,7 +7,8 @@
 [![License](https://img.shields.io/crates/l/rtlola-io-plugins)](https://crates.io/crates/rtlola-io-plugins)
 
 RTLola is a runtime monitoring framework.  It consists of a parser, analyzer, and interpreter for the RTLola specification language.
-This crate contains a CLI interface to the interpreter capable of reading csv and pcap files.
+This crate contains an Api to the interpreter capable of reading csv and pcap files.
+It also provides an interface to parse and serialize bytes given to and coming from the `rtlola-interpreter`.
 
 For more information on the RTLola framework make sure to visit our Website:
 [rtlola.org](https://rtlola.org "RTLola")
@@ -15,9 +16,8 @@ For more information on the RTLola framework make sure to visit our Website:
 # IO Plugins
 
 This crate contains multiple input and output plugins to be used with the `rtlola-interpreter`.
-Right now, it supports CSV, PCAP files, and a Network Plugin to parse byte streams.
+Right now, it supports CSV, PCAP files, and a Byte Plugin to parse and serialize byte streams.
 Each plugin (or input/output method) is marked with a feature flag, so only the needed input/output variants can be included.
-By default, all input and output plugins are included.
 
 # Copyright
 
