@@ -4,12 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.10.0] - t.b.d
+## [0.10.0] - 28.06.2024
 
 ## Fixed
 - critical Bug in handling deadlines in online mode.
 - Bug when executing two monitor instances in parallel.
-- Add support for multiple eval clauses.
 
 ### Changed
 - Refactored input handling types into their own file.
@@ -28,9 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `ArrayFactory` to pass arrays of values to the monitor API.
+- `VectorFactory` to pass vectors of values to the monitor API.
 - `EmptyFactory` a dummy factory that always produces the empty event.
 - Instance aggregations to aggregate the values of all instances of a stream.
 - Support for the floating rounding function.
+- Add support for multiple eval clauses.
 
 ## [0.9.0] - 19.12.2022
 

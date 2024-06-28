@@ -11,9 +11,9 @@ For more information on the RTLola framework make sure to visit our Website:
 [rtlola.org](https://rtlola.org "RTLola")
 
 # Interpreter Macros
-This crate contains macros relevant for using your own type as an input to the interpreter. I.e. it contains a derive macro that implements `Record` for a given type such that the monitor can parse an event from it.
+This crate contains macros relevant for using your own type as an input to the interpreter. I.e. it contains a derive macros that implement the `InputMap` or `CompositFactory` traits for a given type such that the monitor can parse an event from it.
 
 # Copyright
 
-Copyright (C) CISPA - Helmholtz Center for Information Security 2021.  Authors: Jan Baumeister, Florian Kohn, Stefan Oswald, Maximilian Schwenger.
+Copyright (C) CISPA - Helmholtz Center for Information Security 2024.  Authors: Jan Baumeister, Florian Kohn, Stefan Oswald, Maximilian Schwenger.
 Based on original work at Universität des Saarlandes (C) 2020.  Authors: Jan Baumeister, Florian Kohn, Malte Schledjewski, Maximilian Schwenger, Marvin Stenger, and Leander Tentrup.
