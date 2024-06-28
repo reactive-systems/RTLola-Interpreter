@@ -237,10 +237,10 @@ test:windows:
     CARGO_HOME: "C:\\Users\\react\\.cargo"
   before_script:
     - cd crates
-    - (get-content rtlola-cli\Cargo.toml) | %{$_ -replace "git=.*git@projects","git=`"https://gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content rtlola-cli\Cargo.toml
-    - (get-content rtlola-io-plugins\Cargo.toml) | %{$_ -replace "git=.*git@projects","git=`"https://gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content rtlola-io-plugins\Cargo.toml
-    - (get-content rtlola-interpreter\Cargo.toml) | %{$_ -replace "git=.*git@projects","git=`"https://gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content rtlola-interpreter\Cargo.toml
-    - (get-content rtlola-interpreter-macros\Cargo.toml) | %{$_ -replace "git=.*git@projects","git=`"https://gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content rtlola-interpreter-macros\Cargo.toml
+    - (get-content rtlola-cli\Cargo.toml) | %{$_ -replace "git.*=.*git@projects","git=`"https://gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content rtlola-cli\Cargo.toml
+    - (get-content rtlola-io-plugins\Cargo.toml) | %{$_ -replace "git.*=.*git@projects","git=`"https://gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content rtlola-io-plugins\Cargo.toml
+    - (get-content rtlola-interpreter\Cargo.toml) | %{$_ -replace "git.*=.*git@projects","git=`"https://gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content rtlola-interpreter\Cargo.toml
+    - (get-content rtlola-interpreter-macros\Cargo.toml) | %{$_ -replace "git.*=.*git@projects","git=`"https://gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content rtlola-interpreter-macros\Cargo.toml
     - rustup update
     - rustc --version
     - cargo --version
