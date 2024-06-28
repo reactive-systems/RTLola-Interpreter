@@ -19,10 +19,10 @@ variables:
 default:
   before_script:
     - cd crates
-    - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ rtlola-interpreter/Cargo.toml
-    - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ rtlola-io-plugins/Cargo.toml
-    - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ rtlola-cli/Cargo.toml
-    - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ rtlola-interpreter-macros/Cargo.toml
+    - sed -i s/'git.*=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ rtlola-interpreter/Cargo.toml
+    - sed -i s/'git.*=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ rtlola-io-plugins/Cargo.toml
+    - sed -i s/'git.*=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ rtlola-cli/Cargo.toml
+    - sed -i s/'git.*=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ rtlola-interpreter-macros/Cargo.toml
 
 # Use cargo to check the source code formatting
 format:cli:
