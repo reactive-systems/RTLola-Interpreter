@@ -1,4 +1,7 @@
 ![RTLola logo](https://pages.cispa.de/rtlola/assets/img/logos/rtlola-logo-ultrawide-blue.png)
+# Deprecation Warning
+This crate is now deprecated. Use the `rtlola-io-plugins` crate instead.
+
 # RTLola Interpreter Input Plugins
 [![Crate](https://img.shields.io/crates/v/rtlola-input-plugins.svg)](https://crates.io/crates/rtlola-input-plugins)
 [![API](https://docs.rs/rtlola-input-plugins/badge.svg)](https://docs.rs/rtlola-input-plugins)
@@ -18,5 +21,5 @@ By default, all input plugins are included.
 
 # Copyright
 
-Copyright (C) CISPA - Helmholtz Center for Information Security 2021.  Authors: Jan Baumeister, Florian Kohn, Stefan Oswald, Maximilian Schwenger.
+Copyright (C) CISPA - Helmholtz Center for Information Security 2024.  Authors: Jan Baumeister, Florian Kohn, Stefan Oswald, Maximilian Schwenger.
 Based on original work at Universität des Saarlandes (C) 2020.  Authors: Jan Baumeister, Florian Kohn, Malte Schledjewski, Maximilian Schwenger, Marvin Stenger, and Leander Tentrup.
