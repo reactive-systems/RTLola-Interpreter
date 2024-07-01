@@ -9,8 +9,9 @@ use ordered_float::NotNan;
 use regex::bytes::Regex as BytesRegex;
 use regex::Regex;
 use rtlola_frontend::mir::{Constant, Expression, ExpressionKind, Offset, StreamAccessKind, Type};
+use string_template::Template;
 
-use crate::evaluator::EvaluationContext;
+use crate::evaluator::{ActivationConditionOp, EvaluationContext};
 use crate::storage::Value;
 
 pub(crate) trait Expr {
@@ -18,13 +19,13 @@ pub(crate) trait Expr {
 }
 
 #[derive(Clone)]
-pub(crate) struct CompiledExpr(Rc<dyn Fn(&mut EvaluationContext<'_>) -> Value>);
+pub(crate) struct CompiledExpr(Rc<dyn Fn(&EvaluationContext<'_>) -> Value>);
 // alternative: using Higher-Rank Trait Bounds (HRTBs)
 // pub(crate) struct CompiledExpr<'s>(Box<dyn 's + for<'a> Fn(&EvaluationContext<'a>) -> Value>);
 
 impl CompiledExpr {
     /// Creates a compiled expression IR from a generic closure.
-    pub(crate) fn new(closure: impl 'static + Fn(&mut EvaluationContext<'_>) -> Value) -> Self {
+    pub(crate) fn new(closure: impl 'static + Fn(&EvaluationContext<'_>) -> Value) -> Self {
         CompiledExpr(Rc::new(closure))
     }
 
@@ -40,8 +41,33 @@ impl CompiledExpr {
         })
     }
 
+    /// Creates a compiled expression returning the value of the first clause that returned a value
+    pub(crate) fn create_clauses(clauses: Vec<CompiledExpr>) -> Self {
+        CompiledExpr::new(move |ctx| {
+            clauses
+                .iter()
+                .map(|expr| expr.execute(ctx))
+                .find(|value| !matches!(value, Value::None))
+                .unwrap_or(Value::None)
+        })
+    }
+
+    /// Creates a compiled expression checking whether the given activation condition is satisfied
+    ///
+    /// Is only used if the event-driven pacing of a single eval clause is different than the pacing of the
+    /// whole output.
+    pub(crate) fn create_activation(expr: CompiledExpr, ac: ActivationConditionOp) -> Self {
+        CompiledExpr::new(move |ctx| {
+            if ctx.is_active(&ac) {
+                expr.execute(ctx)
+            } else {
+                Value::None
+            }
+        })
+    }
+
     /// Executes a filter against a provided context with values.
-    pub(crate) fn execute(&self, ctx: &mut EvaluationContext) -> Value {
+    pub(crate) fn execute(&self, ctx: &EvaluationContext) -> Value {
         self.0(ctx)
     }
 }
@@ -161,6 +187,9 @@ impl Expr for Expression {
                     },
                     StreamAccessKind::Get => create_access!(lookup_current, target),
                     StreamAccessKind::Fresh => create_access!(lookup_fresh, target),
+                    StreamAccessKind::InstanceAggregation(wref) => {
+                        CompiledExpr::new(move |ctx| ctx.lookup_instance_aggr(wref))
+                    },
                 }
             },
 
@@ -198,7 +227,7 @@ impl Expr for Expression {
                         CompiledExpr::new(move |ctx| {
                             let arg = f_arg.execute(ctx);
                             match arg {
-                                Value::Float(f) => Value::new_float(f.$fn()),
+                                Value::Float(f) => Value::try_from(f.$fn()).unwrap(),
                                 _ => unreachable!(),
                             }
                         })
@@ -235,7 +264,7 @@ impl Expr for Expression {
                         CompiledExpr::new(move |ctx| {
                             let arg = f_arg.execute(ctx);
                             match arg {
-                                Value::Float(f) => Value::new_float(f.abs()),
+                                Value::Float(f) => Value::try_from(f.abs()).unwrap(),
                                 Value::Signed(i) => Value::Signed(i.abs()),
                                 v => unreachable!("wrong Value type of {:?}, for function abs", v),
                             }
@@ -290,6 +319,33 @@ impl Expr for Expression {
                             }
                         })
                     },
+                    "format" => {
+                        assert!(args.len() > 1);
+                        let LoadConstant(Constant::Str(fstr)) = &args[0].kind else {
+                            panic!("format string expected to be static");
+                        };
+                        let template = Template::new(fstr);
+                        let args: Vec<_> = args.into_iter().skip(1).map(Expression::compile).collect();
+                        CompiledExpr::new(move |ctx| {
+                            let vals = args.iter().map(|exp| exp.execute(ctx).to_string()).collect::<Vec<_>>();
+                            let vals_ref = vals.iter().map(|s| s.as_str()).collect::<Vec<_>>();
+                            template.render_positional(&vals_ref).into()
+                        })
+                    },
+                    "round" => {
+                        assert!(args.len() > 1);
+                        let LoadConstant(Constant::UInt(points)) = &args[1].kind else {
+                            panic!("decimal points expected to be static");
+                        };
+                        let decimals = 10u64.pow(*points as u32) as f64;
+                        CompiledExpr::new(move |ctx| {
+                            let arg = f_arg.execute(ctx);
+                            match arg {
+                                Value::Float(f) => Value::try_from((f * decimals).round() / decimals).unwrap(),
+                                _ => unreachable!(),
+                            }
+                        })
+                    },
                     f => unreachable!("Unknown function: {}, args: {:?}", f, args),
                 }
             },
@@ -308,7 +364,7 @@ impl Expr for Expression {
                                     unreachable!(
                                         "Value type of {:?} does not match convert from type {:?}",
                                         v,
-                                        Value::new_float(0.0)
+                                        Value::try_from(0.0).unwrap()
                                     )
                                 },
                             }
@@ -318,7 +374,7 @@ impl Expr for Expression {
                         CompiledExpr::new(move |ctx| {
                             let v = f_expr.execute(ctx);
                             match v {
-                                Value::$from(v) => Value::new_float(v as $ty),
+                                Value::$from(v) => Value::try_from(v as $ty).unwrap(),
                                 v => {
                                     unreachable!(
                                         "Value type of {:?} does not match convert from type {:?}",
@@ -377,10 +433,11 @@ impl Expr for Expression {
             TupleAccess(expr, num) => {
                 let f_expr = expr.compile();
                 CompiledExpr::new(move |ctx| {
-                    if let Value::Tuple(args) = f_expr.execute(ctx) {
-                        args[num].clone()
-                    } else {
-                        unreachable!("verified by type checker");
+                    let inner = f_expr.execute(ctx);
+                    match inner {
+                        Value::Tuple(elements) => elements[num].clone(),
+                        Value::None => Value::None,
+                        _ => unreachable!("verified by type checker"),
                     }
                 })
             },

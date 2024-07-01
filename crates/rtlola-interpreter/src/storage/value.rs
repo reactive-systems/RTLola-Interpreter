@@ -1,9 +1,14 @@
 use std::cmp::Ordering;
-use std::fmt::Formatter;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
 use std::ops;
+use std::ops::{AddAssign, DivAssign, MulAssign, RemAssign, SubAssign};
 
+use num_traits::FromPrimitive;
 use ordered_float::NotNan;
 use rtlola_frontend::mir::Type;
+use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -51,7 +56,7 @@ pub enum Value {
     Bytes(Box<[u8]>),
 }
 
-impl std::fmt::Display for Value {
+impl Display for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             None => write!(f, "None"),
@@ -79,43 +84,57 @@ impl std::fmt::Display for Value {
 }
 
 impl Value {
-    // TODO: -> Result<Option, ConversionError>
     /// Returns the interpreted values of an byte representation, if possible:
     /// # Arguments
     /// * 'source' - A byte slice that holds the value
     /// * 'ty' - the type of the interpretation
-    pub fn try_from(source: &[u8], ty: &Type) -> Option<Value> {
+    pub fn try_from_bytes(source: &[u8], ty: &Type) -> Result<Value, ValueConvertError> {
         if let Ok(source) = std::str::from_utf8(source) {
             if source == "#" {
-                return Some(None);
+                return Ok(None);
             }
             match ty {
-                Type::Bool => source.parse::<bool>().map(Bool).ok(),
-                Type::Bytes => hex::decode(source).map(|bytes| Bytes(bytes.into_boxed_slice())).ok(),
-                Type::Int(_) => source.parse::<i64>().map(Signed).ok(),
+                Type::Bool => {
+                    source
+                        .parse::<bool>()
+                        .map(Bool)
+                        .map_err(|_| ValueConvertError::ParseError(ty.clone(), source.to_string()))
+                },
+                Type::Bytes => {
+                    hex::decode(source)
+                        .map(|bytes| Bytes(bytes.into_boxed_slice()))
+                        .map_err(|_| ValueConvertError::ParseError(ty.clone(), source.to_string()))
+                },
+                Type::Int(_) => {
+                    source
+                        .parse::<i64>()
+                        .map(Signed)
+                        .map_err(|_| ValueConvertError::ParseError(ty.clone(), source.to_string()))
+                },
                 Type::UInt(_) => {
                     // TODO: This is just a quickfix!! Think of something more general.
                     if source == "0.0" {
-                        Some(Unsigned(0))
+                        Ok(Unsigned(0))
                     } else {
-                        source.parse::<u64>().map(Unsigned).ok()
+                        source
+                            .parse::<u64>()
+                            .map(Unsigned)
+                            .map_err(|_| ValueConvertError::ParseError(ty.clone(), source.to_string()))
                     }
                 },
-                Type::Float(_) => source.parse::<f64>().ok().map(|f| Float(NotNan::new(f).unwrap())),
-                Type::String => Some(Str(source.into())),
+                Type::Float(_) => {
+                    source
+                        .parse::<f64>()
+                        .map_err(|_| ValueConvertError::ParseError(ty.clone(), source.to_string()))
+                        .and_then(Value::try_from)
+                },
+                Type::String => Ok(Str(source.into())),
                 Type::Tuple(_) => unimplemented!(),
                 Type::Option(_) | Type::Function { args: _, ret: _ } => unreachable!(),
             }
         } else {
-            Option::None // TODO: error message about non-utf8 encoded string?
+            Err(ValueConvertError::NotUtf8(source.to_vec()))
         }
-    }
-
-    /// Returns a float value as 'Value' type:
-    /// #Arguments:
-    /// * 'f' - the float value as Rust float (f64)
-    pub(crate) fn new_float(f: f64) -> Value {
-        Float(NotNan::new(f).unwrap())
     }
 
     /// Decides if a value is of type bool
@@ -131,6 +150,34 @@ impl Value {
             unreachable!()
         }
     }
+
+    /// Returns self if self is not `Value::None` and other otherwise
+    pub fn and_then(self, other: Value) -> Value {
+        match self {
+            None => other,
+            _ => self,
+        }
+    }
+
+    /// Returns the value for the given type.
+    pub fn from_int(ty: &Type, val: i64) -> Value {
+        match ty {
+            Type::Int(_) => Signed(val),
+            Type::UInt(_) => Unsigned(val as u64),
+            Type::Float(_) => Float(NotNan::new(val as f64).unwrap()),
+            _ => unreachable!("Incompatible Value Type."),
+        }
+    }
+
+    /// Returns the value in the same variant as self.
+    pub fn for_int(&self, val: i64) -> Value {
+        match self {
+            Signed(_) => Signed(val),
+            Unsigned(_) => Unsigned(val as u64),
+            Float(_) => Float(NotNan::new(val as f64).unwrap()),
+            _ => unreachable!("Incompatible Value Type."),
+        }
+    }
 }
 
 impl ops::Add for Value {
@@ -141,6 +188,17 @@ impl ops::Add for Value {
             (Unsigned(v1), Unsigned(v2)) => Unsigned(v1 + v2),
             (Signed(v1), Signed(v2)) => Signed(v1 + v2),
             (Float(v1), Float(v2)) => Float(v1 + v2),
+            (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
+        }
+    }
+}
+
+impl AddAssign for Value {
+    fn add_assign(&mut self, rhs: Self) {
+        match (self, rhs) {
+            (Unsigned(v1), Unsigned(v2)) => v1.add_assign(v2),
+            (Signed(v1), Signed(v2)) => v1.add_assign(v2),
+            (Float(v1), Float(v2)) => v1.add_assign(v2),
             (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
         }
     }
@@ -159,6 +217,17 @@ impl ops::Sub for Value {
     }
 }
 
+impl SubAssign for Value {
+    fn sub_assign(&mut self, rhs: Self) {
+        match (self, rhs) {
+            (Unsigned(v1), Unsigned(v2)) => v1.sub_assign(v2),
+            (Signed(v1), Signed(v2)) => v1.sub_assign(v2),
+            (Float(v1), Float(v2)) => v1.sub_assign(v2),
+            (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
+        }
+    }
+}
+
 impl ops::Mul for Value {
     type Output = Value;
 
@@ -167,6 +236,17 @@ impl ops::Mul for Value {
             (Unsigned(v1), Unsigned(v2)) => Unsigned(v1 * v2),
             (Signed(v1), Signed(v2)) => Signed(v1 * v2),
             (Float(v1), Float(v2)) => Float(v1 * v2),
+            (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
+        }
+    }
+}
+
+impl MulAssign for Value {
+    fn mul_assign(&mut self, rhs: Self) {
+        match (self, rhs) {
+            (Unsigned(v1), Unsigned(v2)) => v1.mul_assign(v2),
+            (Signed(v1), Signed(v2)) => v1.mul_assign(v2),
+            (Float(v1), Float(v2)) => v1.mul_assign(v2),
             (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
         }
     }
@@ -185,6 +265,17 @@ impl ops::Div for Value {
     }
 }
 
+impl DivAssign for Value {
+    fn div_assign(&mut self, rhs: Self) {
+        match (self, rhs) {
+            (Unsigned(v1), Unsigned(v2)) => v1.div_assign(v2),
+            (Signed(v1), Signed(v2)) => v1.div_assign(v2),
+            (Float(v1), Float(v2)) => v1.div_assign(v2),
+            (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
+        }
+    }
+}
+
 impl ops::Rem for Value {
     type Output = Value;
 
@@ -198,6 +289,17 @@ impl ops::Rem for Value {
     }
 }
 
+impl RemAssign for Value {
+    fn rem_assign(&mut self, rhs: Self) {
+        match (self, rhs) {
+            (Unsigned(v1), Unsigned(v2)) => v1.rem_assign(v2),
+            (Signed(v1), Signed(v2)) => v1.rem_assign(v2),
+            (Float(v1), Float(v2)) => v1.rem_assign(v2),
+            (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
+        }
+    }
+}
+
 impl Value {
     /// Returns the powered value of a value type, with:
     /// # Arguments:
@@ -206,8 +308,8 @@ impl Value {
         match (self, exp) {
             (Unsigned(v1), Unsigned(v2)) => Unsigned(v1.pow(v2 as u32)),
             (Signed(v1), Signed(v2)) => Signed(v1.pow(v2 as u32)),
-            (Float(v1), Float(v2)) => Value::new_float(v1.powf(v2.into())),
-            (Float(v1), Signed(v2)) => Value::new_float(v1.powi(v2 as i32)),
+            (Float(v1), Float(v2)) => Value::try_from(v1.powf(v2.into())).unwrap(),
+            (Float(v1), Signed(v2)) => Value::try_from(v1.powi(v2 as i32)).unwrap(),
             (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
         }
     }
@@ -326,9 +428,33 @@ impl From<bool> for Value {
     }
 }
 
+impl From<i16> for Value {
+    fn from(i: i16) -> Self {
+        Signed(i as i64)
+    }
+}
+
+impl From<i32> for Value {
+    fn from(i: i32) -> Self {
+        Signed(i as i64)
+    }
+}
+
 impl From<i64> for Value {
     fn from(i: i64) -> Self {
         Signed(i)
+    }
+}
+
+impl From<u16> for Value {
+    fn from(u: u16) -> Self {
+        Unsigned(u as u64)
+    }
+}
+
+impl From<u32> for Value {
+    fn from(u: u32) -> Self {
+        Unsigned(u as u64)
     }
 }
 
@@ -338,11 +464,233 @@ impl From<u64> for Value {
     }
 }
 
-impl From<f64> for Value {
-    fn from(f: f64) -> Self {
-        Self::new_float(f)
+impl From<String> for Value {
+    fn from(value: String) -> Self {
+        Str(value.into_boxed_str())
     }
 }
+
+impl From<&str> for Value {
+    fn from(value: &str) -> Self {
+        Value::from(value.to_string())
+    }
+}
+
+impl From<Vec<u8>> for Value {
+    fn from(value: Vec<u8>) -> Self {
+        Bytes(value.into_boxed_slice())
+    }
+}
+
+impl From<&[u8]> for Value {
+    fn from(value: &[u8]) -> Self {
+        Value::from(value.to_vec())
+    }
+}
+
+impl TryFrom<f64> for Value {
+    type Error = ValueConvertError;
+
+    fn try_from(value: f64) -> Result<Self, Self::Error> {
+        let val = NotNan::try_from(value).map_err(|_| ValueConvertError::FloatIsNan)?;
+        Ok(Float(val))
+    }
+}
+
+impl TryFrom<f32> for Value {
+    type Error = ValueConvertError;
+
+    fn try_from(value: f32) -> Result<Self, Self::Error> {
+        let val = NotNan::try_from(value as f64).map_err(|_| ValueConvertError::FloatIsNan)?;
+        Ok(Float(val))
+    }
+}
+
+impl TryFrom<Decimal> for Value {
+    type Error = ValueConvertError;
+
+    fn try_from(value: Decimal) -> Result<Self, Self::Error> {
+        value
+            .to_f64()
+            .ok_or(ValueConvertError::ValueNotSupported(Box::new(value)))
+            .and_then(Value::try_from)
+    }
+}
+
+impl From<usize> for Value {
+    fn from(value: usize) -> Self {
+        Unsigned(value as u64)
+    }
+}
+
+impl<T: Into<Value>> From<Option<T>> for Value {
+    fn from(value: Option<T>) -> Self {
+        value.map(T::into).unwrap_or(None)
+    }
+}
+
+impl TryInto<bool> for Value {
+    type Error = ValueConvertError;
+
+    fn try_into(self) -> Result<bool, Self::Error> {
+        if let Bool(b) = self {
+            Ok(b)
+        } else {
+            Err(ValueConvertError::TypeMismatch(self))
+        }
+    }
+}
+
+impl TryInto<u64> for Value {
+    type Error = ValueConvertError;
+
+    fn try_into(self) -> Result<u64, Self::Error> {
+        if let Unsigned(v) = self {
+            Ok(v)
+        } else {
+            Err(ValueConvertError::TypeMismatch(self))
+        }
+    }
+}
+
+impl TryInto<i64> for Value {
+    type Error = ValueConvertError;
+
+    fn try_into(self) -> Result<i64, Self::Error> {
+        if let Signed(v) = self {
+            Ok(v)
+        } else {
+            Err(ValueConvertError::TypeMismatch(self))
+        }
+    }
+}
+
+impl TryInto<f64> for Value {
+    type Error = ValueConvertError;
+
+    fn try_into(self) -> Result<f64, Self::Error> {
+        if let Float(v) = self {
+            Ok(v.into_inner())
+        } else {
+            Err(ValueConvertError::TypeMismatch(self))
+        }
+    }
+}
+
+impl TryInto<Box<[Value]>> for Value {
+    type Error = ValueConvertError;
+
+    fn try_into(self) -> Result<Box<[Value]>, Self::Error> {
+        if let Tuple(v) = self {
+            Ok(v)
+        } else {
+            Err(ValueConvertError::TypeMismatch(self))
+        }
+    }
+}
+
+impl TryInto<Vec<Value>> for Value {
+    type Error = ValueConvertError;
+
+    fn try_into(self) -> Result<Vec<Value>, Self::Error> {
+        if let Tuple(v) = self {
+            Ok(v.to_vec())
+        } else {
+            Err(ValueConvertError::TypeMismatch(self))
+        }
+    }
+}
+
+impl TryInto<Box<str>> for Value {
+    type Error = ValueConvertError;
+
+    fn try_into(self) -> Result<Box<str>, Self::Error> {
+        if let Str(v) = self {
+            Ok(v)
+        } else {
+            Err(ValueConvertError::TypeMismatch(self))
+        }
+    }
+}
+
+impl TryInto<String> for Value {
+    type Error = ValueConvertError;
+
+    fn try_into(self) -> Result<String, Self::Error> {
+        if let Str(v) = self {
+            Ok(v.to_string())
+        } else {
+            Err(ValueConvertError::TypeMismatch(self))
+        }
+    }
+}
+
+impl TryInto<Box<[u8]>> for Value {
+    type Error = ValueConvertError;
+
+    fn try_into(self) -> Result<Box<[u8]>, Self::Error> {
+        if let Bytes(v) = self {
+            Ok(v)
+        } else {
+            Err(ValueConvertError::TypeMismatch(self))
+        }
+    }
+}
+
+impl TryInto<Vec<u8>> for Value {
+    type Error = ValueConvertError;
+
+    fn try_into(self) -> Result<Vec<u8>, Self::Error> {
+        if let Bytes(v) = self {
+            Ok(v.to_vec())
+        } else {
+            Err(ValueConvertError::TypeMismatch(self))
+        }
+    }
+}
+
+impl TryInto<Decimal> for Value {
+    type Error = ValueConvertError;
+
+    fn try_into(self) -> Result<Decimal, Self::Error> {
+        if let Float(v) = self {
+            Decimal::from_f64(v.into()).ok_or(ValueConvertError::TypeMismatch(self))
+        } else {
+            Err(ValueConvertError::TypeMismatch(self))
+        }
+    }
+}
+
+#[derive(Debug)]
+/// Describes an error occurring when converting from or into a value.
+pub enum ValueConvertError {
+    /// The target type could not be created from the given value.
+    TypeMismatch(Value),
+    /// Given bytes are expected to be utf-8 coded.
+    NotUtf8(Vec<u8>),
+    /// Could not parse value given as string into type.
+    ParseError(Type, String),
+    /// The given value is not supported by the interpreter.
+    ValueNotSupported(Box<dyn std::fmt::Debug + Send>),
+    /// The given float is NaN.
+    FloatIsNan,
+}
+
+impl Display for ValueConvertError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ValueConvertError::TypeMismatch(val) => write!(f, "Failed to convert Value: {val}"),
+            ValueConvertError::NotUtf8(bytes) => write!(f, "UTF-8 decoding failed for bytes: {bytes:?}"),
+            ValueConvertError::ParseError(ty, val) => write!(f, "Failed to parse Value of type {ty} from: {val}"),
+            ValueConvertError::FloatIsNan => write!(f, "The given Float is not a number (NaN)"),
+            ValueConvertError::ValueNotSupported(v) => {
+                write!(f, "The value {v:?} is not supported by the interpreter.")
+            },
+        }
+    }
+}
+
+impl Error for ValueConvertError {}
 
 #[cfg(test)]
 mod tests {

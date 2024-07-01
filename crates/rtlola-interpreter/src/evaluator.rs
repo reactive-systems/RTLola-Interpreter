@@ -1,19 +1,24 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ops::Not;
 use std::rc::Rc;
+use std::time::Duration;
 
 use bit_set::BitSet;
+use itertools::Itertools;
+use num::traits::Inv;
 use rtlola_frontend::mir::{
-    ActivationCondition as Activation, InputReference, OutputReference, PacingType, RtLolaMir, Stream, StreamReference,
-    Task, TimeDrivenStream, Trigger, WindowReference,
+    ActivationCondition as Activation, InputReference, OutputKind, OutputReference, PacingLocality, PacingType,
+    RtLolaMir, Stream, StreamReference, Task, TimeDrivenStream, Trigger, WindowReference,
 };
-use string_template::Template;
+use uom::si::rational64::Time as UOM_Time;
+use uom::si::time::nanosecond;
 
 use crate::api::monitor::{Change, Instance};
 use crate::closuregen::{CompiledExpr, Expr};
-use crate::monitor::Tracer;
+use crate::monitor::{Parameters, Tracer};
 use crate::schedule::{DynamicSchedule, EvaluationTask};
-use crate::storage::{GlobalStore, InstanceStore, Value};
+use crate::storage::{GlobalStore, InstanceAggregationTrait, InstanceStore, Value, WindowParameterization};
 use crate::Time;
 
 /// Enum to describe the activation condition of a stream; If the activation condition is described by a conjunction, the evaluator uses a bitset representation.
@@ -32,6 +37,8 @@ pub(crate) struct EvaluatorData {
     stream_activation_conditions: Vec<ActivationConditionOp>,
     spawn_activation_conditions: Vec<ActivationConditionOp>,
     close_activation_conditions: Vec<ActivationConditionOp>,
+    stream_windows: HashMap<StreamReference, Vec<WindowReference>>,
+    stream_instance_aggregations: HashMap<StreamReference, Vec<WindowReference>>,
     global_store: GlobalStore,
     fresh_inputs: BitSet,
     fresh_outputs: BitSet,
@@ -40,7 +47,6 @@ pub(crate) struct EvaluatorData {
     fresh_triggers: BitSet,
     triggers: Vec<Option<Trigger>>,
     time_driven_streams: Vec<Option<TimeDrivenStream>>,
-    trigger_templates: Vec<Option<Template>>,
     closing_streams: Vec<OutputReference>,
     ir: RtLolaMir,
     dyn_schedule: Rc<RefCell<DynamicSchedule>>,
@@ -65,6 +71,8 @@ pub(crate) struct Evaluator {
     compiled_spawn_exprs: Vec<CompiledExpr>,
     // Accessed by stream index
     compiled_close_exprs: Vec<CompiledExpr>,
+    stream_windows: &'static HashMap<StreamReference, Vec<WindowReference>>,
+    stream_instance_aggregations: &'static HashMap<StreamReference, Vec<WindowReference>>,
     global_store: &'static mut GlobalStore,
     fresh_inputs: &'static mut BitSet,
     fresh_outputs: &'static mut BitSet,
@@ -76,7 +84,6 @@ pub(crate) struct Evaluator {
     // Indexed by output reference
     time_driven_streams: &'static [Option<TimeDrivenStream>],
 
-    trigger_templates: &'static [Option<Template>],
     closing_streams: &'static [OutputReference],
     ir: &'static RtLolaMir,
     dyn_schedule: &'static RefCell<DynamicSchedule>,
@@ -85,9 +92,9 @@ pub(crate) struct Evaluator {
 
 pub(crate) struct EvaluationContext<'e> {
     ts: Time,
-    pub(crate) global_store: &'e mut GlobalStore,
-    pub(crate) fresh_inputs: &'e BitSet,
-    pub(crate) fresh_outputs: &'e BitSet,
+    global_store: &'e GlobalStore,
+    fresh_inputs: &'e BitSet,
+    fresh_outputs: &'e BitSet,
     pub(crate) parameter: Vec<Value>,
 }
 
@@ -105,10 +112,10 @@ impl EvaluatorData {
             .outputs
             .iter()
             .map(|o| {
-                if let Some(ac) = ir.get_ac(o.reference) {
-                    ActivationConditionOp::new(ac, ir.inputs.len())
-                } else {
-                    ActivationConditionOp::TimeDriven
+                match &o.eval.eval_pacing {
+                    PacingType::GlobalPeriodic(_) | PacingType::LocalPeriodic(_) => ActivationConditionOp::TimeDriven,
+                    PacingType::Event(ac) => ActivationConditionOp::new(ac, ir.inputs.len()),
+                    PacingType::Constant => ActivationConditionOp::True,
                 }
             })
             .collect();
@@ -117,7 +124,7 @@ impl EvaluatorData {
             .iter()
             .map(|o| {
                 match &o.spawn.pacing {
-                    PacingType::Periodic(_) => ActivationConditionOp::TimeDriven,
+                    PacingType::GlobalPeriodic(_) | PacingType::LocalPeriodic(_) => ActivationConditionOp::TimeDriven,
                     PacingType::Event(ac) => ActivationConditionOp::new(ac, ir.inputs.len()),
                     PacingType::Constant => ActivationConditionOp::True,
                 }
@@ -128,7 +135,7 @@ impl EvaluatorData {
             .iter()
             .map(|o| {
                 match &o.close.pacing {
-                    PacingType::Periodic(_) => ActivationConditionOp::TimeDriven,
+                    PacingType::GlobalPeriodic(_) | PacingType::LocalPeriodic(_) => ActivationConditionOp::TimeDriven,
                     PacingType::Event(ac) => ActivationConditionOp::new(ac, ir.inputs.len()),
                     PacingType::Constant => ActivationConditionOp::True,
                 }
@@ -142,22 +149,34 @@ impl EvaluatorData {
         let closed_outputs = BitSet::with_capacity(ir.outputs.len());
         let fresh_triggers = BitSet::with_capacity(ir.outputs.len()); //trigger use their outputreferences
         let mut triggers = vec![None; ir.outputs.len()];
+
+        let stream_windows = ir
+            .sliding_windows
+            .iter()
+            .map(|w| (w.caller, w.reference))
+            .chain(ir.discrete_windows.iter().map(|w| (w.caller, w.reference)))
+            .into_group_map();
+
+        let stream_instance_aggregations = ir
+            .instance_aggregations
+            .iter()
+            .map(|ia| (ia.target, ia.reference))
+            .into_group_map();
+
         for t in &ir.triggers {
-            triggers[t.reference.out_ix()] = Some(t.clone());
+            triggers[t.output_reference.out_ix()] = Some(*t);
         }
         let mut time_driven_streams = vec![None; ir.outputs.len()];
         for t in &ir.time_driven {
             time_driven_streams[t.reference.out_ix()] = Some(*t);
         }
-        let trigger_templates = triggers
-            .iter()
-            .map(|t| t.as_ref().map(|t| Template::new(&t.message)))
-            .collect();
         EvaluatorData {
             layers,
             stream_activation_conditions: stream_acs,
             spawn_activation_conditions: spawn_acs,
             close_activation_conditions: close_acs,
+            stream_windows,
+            stream_instance_aggregations,
             global_store,
             fresh_inputs,
             fresh_outputs,
@@ -166,7 +185,6 @@ impl EvaluatorData {
             fresh_triggers,
             triggers,
             time_driven_streams,
-            trigger_templates,
             closing_streams,
             ir,
             dyn_schedule,
@@ -186,11 +204,33 @@ impl EvaluatorData {
             .outputs
             .iter()
             .map(|o| {
-                match o.eval.condition.as_ref() {
-                    None => o.eval.expression.clone().compile(),
-                    Some(filter_exp) => {
-                        CompiledExpr::create_filter(filter_exp.clone().compile(), o.eval.expression.clone().compile())
-                    },
+                let clauses = o
+                    .eval
+                    .clauses
+                    .iter()
+                    .map(|clause| {
+                        let exp = match &clause.condition {
+                        None => clause.expression.clone().compile(),
+                        Some(filter_exp) => CompiledExpr::create_filter(
+                            filter_exp.clone().compile(),
+                            clause.expression.clone().compile(),
+                        ),
+                    };
+                    if clause.pacing != o.eval.eval_pacing {
+                        if let PacingType::Event(ac) = &clause.pacing {
+                        CompiledExpr::create_activation(exp, ActivationConditionOp::new(ac, leaked_data.ir.inputs.len()))
+                        } else {
+                            unreachable!("different pacing types of multiple eval clauses are only supported for event-driven streams. This is ensured by the frontend.")
+                        }
+                    } else {
+                        exp
+                    }
+                })
+                    .collect::<Vec<_>>();
+                if clauses.len() == 1 {
+                    clauses.into_iter().next().expect("has exactly one element")
+                } else {
+                    CompiledExpr::create_clauses(clauses)
                 }
             })
             .collect();
@@ -236,6 +276,8 @@ impl EvaluatorData {
             compiled_stream_exprs,
             compiled_spawn_exprs,
             compiled_close_exprs,
+            stream_windows: &leaked_data.stream_windows,
+            stream_instance_aggregations: &leaked_data.stream_instance_aggregations,
             global_store: &mut leaked_data.global_store,
             fresh_inputs: &mut leaked_data.fresh_inputs,
             fresh_outputs: &mut leaked_data.fresh_outputs,
@@ -244,7 +286,6 @@ impl EvaluatorData {
             fresh_triggers: &mut leaked_data.fresh_triggers,
             triggers: &leaked_data.triggers,
             time_driven_streams: &leaked_data.time_driven_streams,
-            trigger_templates: &leaked_data.trigger_templates,
             closing_streams: &leaked_data.closing_streams,
             ir: &leaked_data.ir,
             dyn_schedule: &leaked_data.dyn_schedule,
@@ -264,7 +305,7 @@ impl Evaluator {
     /// Values of event are expected in the order of the input streams
     /// Time should be relative to the starting time of the monitor
     pub(crate) fn eval_event(&mut self, event: &[Value], ts: Time, tracer: &mut impl Tracer) {
-        self.new_cycle();
+        self.new_cycle(ts);
         self.accept_inputs(event, ts);
         self.eval_event_driven(ts, tracer);
     }
@@ -316,6 +357,23 @@ impl Evaluator {
     }
 
     /// NOT for external use because the values are volatile
+    pub(crate) fn peek_violated_triggers_messages(&self) -> Vec<(OutputReference, Parameters, String)> {
+        self.peek_fresh_outputs()
+            .into_iter()
+            .filter(|(o_ref, _)| matches!(self.ir.outputs[*o_ref].kind, OutputKind::Trigger(_)))
+            .flat_map(|(o_ref, changes)| {
+                changes.into_iter().filter_map(move |change| {
+                    match change {
+                        Change::Value(parameters, Value::Str(msg)) => Some((o_ref, parameters, msg.into())),
+                        Change::Value(_, _) => unreachable!("trigger values are strings; checked by the frontend"),
+                        _ => None,
+                    }
+                })
+            })
+            .collect()
+    }
+
+    /// NOT for external use because the values are volatile
     pub(crate) fn peek_violated_triggers(&self) -> Vec<OutputReference> {
         self.fresh_triggers.iter().collect()
     }
@@ -354,8 +412,7 @@ impl Evaluator {
                     let values: Vec<Instance> = self
                         .global_store
                         .get_out_instance_collection(ix)
-                        .all_instances()
-                        .iter()
+                        .all_parameter()
                         .map(|para| (Some(para.clone()), self.peek_value(elem.reference, para.as_ref(), 0)))
                         .collect();
                     values
@@ -382,7 +439,7 @@ impl Evaluator {
         self.fresh_inputs.insert(input);
         let extended = &self.ir.inputs[input];
         for (_sr, win) in &extended.aggregated_by {
-            self.global_store.get_window_mut(*win).accept_value(v.clone(), ts)
+            self.extend_window(&[], *win, v.clone(), ts);
         }
     }
 
@@ -395,8 +452,12 @@ impl Evaluator {
             let ac = &self.close_activation_conditions[*close];
             if ac.is_eventdriven() && ac.eval(self.fresh_inputs) {
                 if self.ir.output(StreamReference::Out(*close)).is_parameterized() {
-                    let stream_instances: Vec<Vec<Value>> =
-                        self.global_store.get_out_instance_collection(*close).all_instances();
+                    let stream_instances: Vec<Vec<Value>> = self
+                        .global_store
+                        .get_out_instance_collection(*close)
+                        .all_parameter()
+                        .cloned()
+                        .collect();
                     for instance in stream_instances {
                         tracer.close_start(*close, instance.as_slice());
                         self.eval_close(*close, instance.as_slice(), ts);
@@ -426,8 +487,8 @@ impl Evaluator {
         debug_assert!(stream.is_spawned(), "tried to spawn stream that should not be spawned");
 
         let expr = self.compiled_spawn_exprs[output].clone();
-        let mut ctx = self.as_EvaluationContext(vec![], ts);
-        let res = expr.execute(&mut ctx);
+        let ctx = self.as_EvaluationContext(vec![], ts);
+        let res = expr.execute(&ctx);
 
         let parameter_values = match res {
             Value::None => return, // spawn condition evaluated to false
@@ -436,6 +497,18 @@ impl Evaluator {
         };
 
         self.spawned_outputs.insert(output);
+        let own_windows: Vec<WindowReference> = self
+            .stream_windows
+            .get(&stream.reference)
+            .map(|windows| {
+                windows
+                    .iter()
+                    .filter(|w| self.window_parameterization(**w).is_spawned())
+                    .copied()
+                    .collect()
+            })
+            .unwrap_or_default();
+
         if stream.is_parameterized() {
             debug_assert!(!parameter_values.is_empty());
             let instances = self.global_store.get_out_instance_collection_mut(output);
@@ -445,11 +518,40 @@ impl Evaluator {
             }
             instances.create_instance(parameter_values.as_slice());
 
-            //activate windows over this stream
+            //activate windows of this stream
+            for win_ref in own_windows {
+                // Self is the caller of the window
+                match self.window_parameterization(win_ref) {
+                    WindowParameterization::None { .. } | WindowParameterization::Target { .. } => unreachable!(),
+                    WindowParameterization::Caller => {
+                        let windows = self.global_store.get_window_collection_mut(win_ref);
+                        let window = windows.get_or_create(parameter_values.as_slice(), ts);
+                        window.activate(ts);
+                    },
+                    WindowParameterization::Both => {
+                        let windows = self.global_store.get_two_layer_window_collection_mut(win_ref);
+                        windows.spawn_caller_instance(parameter_values.as_slice(), ts);
+                    },
+                }
+            }
+            //create window that aggregate over this stream
             for (_, win_ref) in &stream.aggregated_by {
-                let windows = self.global_store.get_window_collection_mut(*win_ref);
-                let window = windows.get_or_create(parameter_values.as_slice(), ts);
-                window.activate(ts);
+                // Self is target of the window
+                match self.window_parameterization(*win_ref) {
+                    WindowParameterization::None { .. } | WindowParameterization::Caller => unreachable!(),
+                    WindowParameterization::Target { is_spawned } => {
+                        let windows = self.global_store.get_window_collection_mut(*win_ref);
+                        let window = windows.get_or_create(parameter_values.as_slice(), ts);
+                        if !is_spawned {
+                            // Window is not activated by caller so we assume it to have existed since the beginning.
+                            window.activate(Time::ZERO);
+                        }
+                    },
+                    WindowParameterization::Both => {
+                        let windows = self.global_store.get_two_layer_window_collection_mut(*win_ref);
+                        windows.spawn_target_instance(parameter_values.as_slice());
+                    },
+                }
             }
         } else {
             debug_assert!(parameter_values.is_empty());
@@ -460,24 +562,42 @@ impl Evaluator {
             }
             inst.activate();
 
-            //activate windows over this stream
-            for (_, win_ref) in &stream.aggregated_by {
-                let window = self.global_store.get_window_mut(*win_ref);
-                debug_assert!(!window.is_active());
-                window.activate(ts);
+            //activate windows of this stream
+            for win_ref in own_windows {
+                // Self is caller of the window
+                match self.window_parameterization(win_ref) {
+                    WindowParameterization::None { .. } => {
+                        self.global_store.get_window_mut(win_ref).activate(ts);
+                    },
+                    WindowParameterization::Target { .. } => {
+                        self.global_store.get_window_collection_mut(win_ref).activate_all(ts);
+                    },
+                    WindowParameterization::Caller | WindowParameterization::Both => {
+                        unreachable!("parameters are empty!")
+                    },
+                }
             }
         }
 
         // Schedule instance evaluation if stream is periodic
         if let Some(tds) = self.time_driven_streams[output] {
             let mut schedule = (*self.dyn_schedule).borrow_mut();
-            schedule.schedule_evaluation(output, parameter_values.as_slice(), ts, tds.period_in_duration());
 
-            // Schedule close if it depends on current instance
-            if stream.close.has_self_reference {
-                // we have a synchronous access to self -> period of close should be the same as og self
-                debug_assert!(matches!(&stream.close.pacing, PacingType::Periodic(f) if *f == tds.frequency));
-                schedule.schedule_close(output, parameter_values.as_slice(), ts, tds.period_in_duration());
+            // Schedule eval if it has local pacing
+            if tds.locality == PacingLocality::Local {
+                schedule.schedule_evaluation(output, parameter_values.as_slice(), ts, tds.period_in_duration());
+            }
+
+            // Schedule close if it has local pacing
+            if let PacingType::LocalPeriodic(f) = stream.close.pacing {
+                let period = Duration::from_nanos(
+                    UOM_Time::new::<uom::si::time::second>(f.get::<uom::si::frequency::hertz>().inv())
+                        .get::<nanosecond>()
+                        .to_integer()
+                        .try_into()
+                        .expect("Period [ns] too large for u64!"),
+                );
+                schedule.schedule_close(output, parameter_values.as_slice(), ts, period);
             }
         }
     }
@@ -486,30 +606,77 @@ impl Evaluator {
         let stream = self.ir.output(StreamReference::Out(output));
 
         let expr = self.compiled_close_exprs[output].clone();
-        let mut ctx = self.as_EvaluationContext(parameter.to_vec(), ts);
-        let res = expr.execute(&mut ctx);
+        let ctx = self.as_EvaluationContext(parameter.to_vec(), ts);
+        let res = expr.execute(&ctx);
         if !res.as_bool() {
             return;
         }
 
+        let own_windows: Vec<WindowReference> = self
+            .stream_windows
+            .get(&stream.reference)
+            .map(|windows| {
+                windows
+                    .iter()
+                    .filter(|w| self.window_parameterization(**w).is_spawned())
+                    .copied()
+                    .collect()
+            })
+            .unwrap_or_default();
         if stream.is_parameterized() {
             // mark instance for closing
             self.global_store
                 .get_out_instance_collection_mut(output)
                 .mark_for_deletion(parameter);
 
+            for win_ref in own_windows {
+                // Self is caller of the window
+                match self.window_parameterization(win_ref) {
+                    WindowParameterization::None { .. } | WindowParameterization::Target { .. } => unreachable!(),
+                    WindowParameterization::Caller => {
+                        self.global_store
+                            .get_window_collection_mut(win_ref)
+                            .delete_window(parameter);
+                    },
+                    WindowParameterization::Both => {
+                        self.global_store
+                            .get_two_layer_window_collection_mut(win_ref)
+                            .close_caller_instance(parameter);
+                    },
+                }
+            }
+
             // close all windows referencing this instance
-            for (_, win) in &stream.aggregated_by {
-                // we know this window instance exists as it was created together with the stream instance.
-                self.global_store
-                    .get_window_collection_mut(*win)
-                    .delete_window(parameter);
+            for (_, win_ref) in &stream.aggregated_by {
+                // Self is target of the window
+                match self.window_parameterization(*win_ref) {
+                    WindowParameterization::None { .. } | WindowParameterization::Caller => unreachable!(),
+                    WindowParameterization::Target { .. } => {
+                        self.global_store
+                            .get_window_collection_mut(*win_ref)
+                            .schedule_deletion(parameter, ts);
+                    },
+                    WindowParameterization::Both => {
+                        self.global_store
+                            .get_two_layer_window_collection_mut(*win_ref)
+                            .close_target_instance(parameter, ts);
+                    },
+                }
             }
         } else {
-            // instance is marked for close below
-            // just close windows
-            for (_, win) in &stream.aggregated_by {
-                self.global_store.get_window_mut(*win).deactivate();
+            for win_ref in own_windows {
+                // Self is caller of the window
+                match self.window_parameterization(win_ref) {
+                    WindowParameterization::None { .. } => {
+                        self.global_store.get_window_mut(win_ref).deactivate();
+                    },
+                    WindowParameterization::Target { .. } => {
+                        self.global_store.get_window_collection_mut(win_ref).deactivate_all();
+                    },
+                    WindowParameterization::Caller | WindowParameterization::Both => {
+                        unreachable!("Parameters are empty")
+                    },
+                }
             }
         }
         self.closed_outputs.insert(output);
@@ -520,8 +687,15 @@ impl Evaluator {
             schedule.remove_evaluation(output, parameter, tds.period_in_duration());
 
             // Remove close from schedule if it depends on current instance
-            if stream.close.has_self_reference {
-                schedule.remove_close(output, parameter, tds.period_in_duration());
+            if let PacingType::LocalPeriodic(f) = stream.close.pacing {
+                let period = Duration::from_nanos(
+                    UOM_Time::new::<uom::si::time::second>(f.get::<uom::si::frequency::hertz>().inv())
+                        .get::<nanosecond>()
+                        .to_integer()
+                        .try_into()
+                        .expect("Period [ns] too large for u64!"),
+                );
+                schedule.remove_close(output, parameter, period);
             }
         }
     }
@@ -530,7 +704,15 @@ impl Evaluator {
     fn close_streams(&mut self) {
         for o in self.closed_outputs.iter() {
             if self.ir.output(StreamReference::Out(o)).is_parameterized() {
-                self.global_store.get_out_instance_collection_mut(o).delete_instances();
+                let vals = self.global_store.get_out_instance_collection_mut(o).delete_instances();
+                if let Some(wrefs) = self.stream_instance_aggregations.get(&StreamReference::Out(o)) {
+                    wrefs.iter().for_each(|aggr| {
+                        let inst = self.global_store.get_instance_aggregation_mut(*aggr);
+                        vals.iter().for_each(|v| {
+                            inst.remove_value(v.clone());
+                        })
+                    })
+                }
             } else {
                 self.global_store.get_out_instance_mut(o).deactivate();
             }
@@ -545,19 +727,29 @@ impl Evaluator {
         }
     }
 
+    fn eval_stream_instances(&mut self, output: OutputReference, ts: Time, tracer: &mut impl Tracer) {
+        if self.ir.output(StreamReference::Out(output)).is_parameterized() {
+            let parameter: Vec<Vec<Value>> = self
+                .global_store
+                .get_out_instance_collection(output)
+                .all_parameter()
+                .cloned()
+                .collect();
+            for instance in parameter {
+                tracer.instance_eval_start(output, instance.as_slice());
+                self.eval_stream_instance(output, instance.as_slice(), ts);
+                tracer.instance_eval_end(output, instance.as_slice());
+            }
+        } else if self.global_store.get_out_instance(output).is_active() {
+            tracer.instance_eval_start(output, &[]);
+            self.eval_stream_instance(output, &[], ts);
+            tracer.instance_eval_end(output, &[]);
+        }
+    }
+
     fn eval_event_driven_output(&mut self, output: OutputReference, ts: Time, tracer: &mut impl Tracer) {
         if self.stream_activation_conditions[output].eval(self.fresh_inputs) {
-            if self.ir.output(StreamReference::Out(output)).is_parameterized() {
-                for instance in self.global_store.get_out_instance_collection(output).all_instances() {
-                    tracer.instance_eval_start(output, instance.as_slice());
-                    self.eval_stream_instance(output, instance.as_slice(), ts);
-                    tracer.instance_eval_end(output, instance.as_slice());
-                }
-            } else if self.global_store.get_out_instance(output).is_active() {
-                tracer.instance_eval_start(output, &[]);
-                self.eval_stream_instance(output, &[], ts);
-                tracer.instance_eval_end(output, &[]);
-            }
+            self.eval_stream_instances(output, ts, tracer)
         }
     }
 
@@ -566,7 +758,7 @@ impl Evaluator {
         if tasks.is_empty() {
             return;
         }
-        self.new_cycle();
+        self.new_cycle(ts);
         self.prepare_evaluation(ts);
         for task in tasks {
             match task {
@@ -574,6 +766,9 @@ impl Evaluator {
                     tracer.instance_eval_start(idx, parameter.as_slice());
                     self.eval_stream_instance(idx, parameter.as_slice(), ts);
                     tracer.instance_eval_end(idx, parameter.as_slice());
+                },
+                EvaluationTask::EvaluateInstances(idx) => {
+                    self.eval_stream_instances(idx, ts, tracer);
                 },
                 EvaluationTask::Spawn(idx) => {
                     tracer.spawn_start(idx);
@@ -593,60 +788,34 @@ impl Evaluator {
         // We need to copy the references first because updating needs exclusive access to `self`.
         let windows = &self.ir.sliding_windows;
         for win in windows {
-            let target = self.ir.stream(win.target);
-            if target.is_parameterized() {
-                self.global_store
-                    .get_window_collection_mut(win.reference)
-                    .update_all(ts);
-            } else {
-                let window = self.global_store.get_window_mut(win.reference);
-                if window.is_active() {
-                    window.update(ts);
-                }
+            let parameterization = self.window_parameterization(win.reference);
+            match parameterization {
+                WindowParameterization::None { .. } => {
+                    let window = self.global_store.get_window_mut(win.reference);
+                    if window.is_active() {
+                        window.update(ts);
+                    }
+                },
+                WindowParameterization::Caller | WindowParameterization::Target { .. } => {
+                    self.global_store
+                        .get_window_collection_mut(win.reference)
+                        .update_all(ts);
+                },
+                WindowParameterization::Both => {
+                    self.global_store
+                        .get_two_layer_window_collection_mut(win.reference)
+                        .update_all(ts);
+                },
             }
         }
-    }
-
-    /// Creates the current trigger message by substituting the format placeholders with he current values of the info streams.
-    /// NOT for external use because the values are volatile
-    pub(crate) fn format_trigger_message(&self, trigger_ref: OutputReference) -> String {
-        let trigger = self
-            .is_trigger(trigger_ref)
-            .expect("Output reference must refer to a trigger");
-        let values: Vec<String> = trigger
-            .info_streams
-            .iter()
-            .map(|sr| {
-                self.peek_value(*sr, &[], 0)
-                    .map_or("None".to_string(), |v| v.to_string())
-            })
-            .collect();
-        let args: Vec<&str> = values.iter().map(|s| s.as_str()).collect();
-        self.trigger_templates[trigger_ref]
-            .as_ref()
-            .expect("Output reference must refer to a trigger")
-            .render_positional(args.as_slice())
-    }
-
-    /// Return the current values of the info streams
-    /// NOT for external use because the values are volatile
-    pub(crate) fn peek_info_stream_values(&self, trigger_ref: OutputReference) -> Vec<Option<Value>> {
-        let trigger = self
-            .is_trigger(trigger_ref)
-            .expect("Output reference must refer to a trigger");
-        trigger
-            .info_streams
-            .iter()
-            .map(|sr| self.peek_value(*sr, &[], 0))
-            .collect()
     }
 
     fn eval_stream_instance(&mut self, output: OutputReference, parameter: &[Value], ts: Time) {
         let ix = output;
 
         let expr = self.compiled_stream_exprs[ix].clone();
-        let mut ctx = self.as_EvaluationContext(parameter.to_vec(), ts);
-        let res = expr.execute(&mut ctx);
+        let ctx = self.as_EvaluationContext(parameter.to_vec(), ts);
+        let res = expr.execute(&ctx);
 
         // Filter evaluated to false
         if let Value::None = res {
@@ -663,33 +832,61 @@ impl Evaluator {
         } else {
             self.global_store.get_out_instance_mut(output)
         };
+        let old_value = instance.get_value(0);
         instance.push_value(res.clone());
         self.fresh_outputs.insert(ix);
 
         if self.is_trigger(output).is_some() {
-            // Check if we have to emit a trigger.
-            if let Value::Bool(true) = res {
-                self.fresh_triggers.insert(ix);
-            }
+            self.fresh_triggers.insert(ix);
+        }
+
+        // Update Instance aggregations
+        if let Some(aggrs) = self.stream_instance_aggregations.get(&StreamReference::Out(output)) {
+            aggrs.iter().for_each(|w| {
+                let aggr = self.global_store.get_instance_aggregation_mut(*w);
+                if let Some(old) = old_value.clone() {
+                    aggr.remove_value(old);
+                }
+                aggr.accept_value(res.clone());
+            });
         }
 
         // Check linked windows and inform them.
         let extended = &self.ir.outputs[ix];
         for (_sr, win) in &extended.aggregated_by {
-            let window = if is_parameterized {
+            self.extend_window(parameter, *win, res.clone(), ts);
+        }
+    }
+
+    fn window_parameterization(&self, win: WindowReference) -> WindowParameterization {
+        self.global_store.window_parameterization(win)
+    }
+
+    fn extend_window(&mut self, own_parameter: &[Value], win: WindowReference, value: Value, ts: Time) {
+        match self.window_parameterization(win) {
+            WindowParameterization::None { .. } => self.global_store.get_window_mut(win).accept_value(value, ts),
+            WindowParameterization::Caller => {
                 self.global_store
-                    .get_window_collection_mut(*win)
-                    .window_mut(parameter)
+                    .get_window_collection_mut(win)
+                    .accept_value_all(value, ts)
+            },
+            WindowParameterization::Target { .. } => {
+                self.global_store
+                    .get_window_collection_mut(win)
+                    .window_mut(own_parameter)
                     .expect("tried to extend non existing window")
-            } else {
-                self.global_store.get_window_mut(*win)
-            };
-            window.accept_value(res.clone(), ts);
+                    .accept_value(value, ts)
+            },
+            WindowParameterization::Both => {
+                self.global_store
+                    .get_two_layer_window_collection_mut(win)
+                    .accept_value(own_parameter, value, ts)
+            },
         }
     }
 
     /// Marks a new evaluation cycle
-    fn new_cycle(&mut self) {
+    fn new_cycle(&mut self, ts: Time) {
         self.close_streams();
         self.fresh_inputs.clear();
         self.fresh_outputs.clear();
@@ -697,7 +894,7 @@ impl Evaluator {
 
         self.spawned_outputs.clear();
         self.closed_outputs.clear();
-        self.global_store.new_cycle();
+        self.global_store.new_cycle(ts);
     }
 
     fn is_trigger(&self, ix: OutputReference) -> Option<&Trigger> {
@@ -835,21 +1032,44 @@ impl<'e> EvaluationContext<'e> {
         }
     }
 
-    pub(crate) fn lookup_window(&mut self, window_ref: WindowReference, parameter: &[Value]) -> Value {
-        let window = if parameter.is_empty() {
-            self.global_store.get_window(window_ref)
-        } else {
-            let window_collection = self.global_store.get_window_collection_mut(window_ref);
-            let window = window_collection.window(parameter);
-            if let Some(w) = window {
-                w
-            } else {
-                window_collection
-                    .create_window(parameter, self.ts)
-                    .expect("window did not exists before.")
-            }
-        };
-        window.get_value(self.ts)
+    pub(crate) fn lookup_instance_aggr(&self, window_reference: WindowReference) -> Value {
+        self.global_store.eval_instance_aggregation(window_reference)
+    }
+
+    pub(crate) fn lookup_window(&self, window_ref: WindowReference, target_parameter: &[Value]) -> Value {
+        let parameterization = self.global_store.window_parameterization(window_ref);
+        match parameterization {
+            WindowParameterization::None { .. } => self.global_store.get_window(window_ref).get_value(self.ts),
+            WindowParameterization::Caller => {
+                self.global_store
+                    .get_window_collection(window_ref)
+                    .window(self.parameter.as_slice())
+                    .expect("Own window to exist")
+                    .get_value(self.ts)
+            },
+            WindowParameterization::Target { .. } => {
+                let window_collection = self.global_store.get_window_collection(window_ref);
+                let window = window_collection.window(target_parameter);
+                if let Some(w) = window {
+                    w.get_value(self.ts)
+                } else {
+                    window_collection.default_value(self.ts)
+                }
+            },
+            WindowParameterization::Both => {
+                let collection = self.global_store.get_two_layer_window_collection(window_ref);
+                let window = collection.window(target_parameter, self.parameter.as_slice());
+                if let Some(w) = window {
+                    w.get_value(self.ts)
+                } else {
+                    collection.default_value(self.ts)
+                }
+            },
+        }
+    }
+
+    pub(crate) fn is_active(&self, ac: &ActivationConditionOp) -> bool {
+        ac.eval(self.fresh_inputs)
     }
 }
 
@@ -912,10 +1132,9 @@ impl ActivationConditionOp {
 #[cfg(test)]
 mod tests {
 
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
-    use ordered_float::NotNan;
-    use rtlola_frontend::mir::RtLolaMir;
+    use ordered_float::{Float, NotNan};
     use rtlola_frontend::ParserConfig;
 
     use super::*;
@@ -923,11 +1142,15 @@ mod tests {
     use crate::schedule::dynamic_schedule::*;
     use crate::storage::Value::*;
 
-    fn setup(spec: &str) -> (RtLolaMir, EvaluatorData, Instant) {
-        let ir = rtlola_frontend::parse(ParserConfig::for_string(spec.to_string()))
-            .unwrap_or_else(|e| panic!("spec is invalid: {:?}", e));
+    fn setup(spec: &str) -> (RtLolaMir, EvaluatorData, Duration) {
+        let cfg = ParserConfig::for_string(spec.to_string());
+        let handler = rtlola_frontend::Handler::from(&cfg);
+        let ir = rtlola_frontend::parse(&cfg).unwrap_or_else(|e| {
+            handler.emit_error(&e);
+            panic!();
+        });
         let dyn_schedule = Rc::new(RefCell::new(DynamicSchedule::new()));
-        let now = Instant::now();
+        let now = Duration::ZERO;
         let eval = EvaluatorData::new(ir.clone(), dyn_schedule);
         (ir, eval, now)
     }
@@ -937,27 +1160,48 @@ mod tests {
         (ir, eval, Time::default())
     }
 
+    macro_rules! assert_float_eq {
+        ($left:expr, $right:expr) => {
+            if let Float(left) = $left {
+                if let Float(right) = $right {
+                    assert!(
+                        (left - right).abs() < f64::epsilon(),
+                        "Assertion failed: Difference between {} and {} is greater than {}",
+                        left,
+                        right,
+                        f64::epsilon()
+                    );
+                } else {
+                    panic!("{:?} is not a float.", $right)
+                }
+            } else {
+                panic!("{:?} is not a float.", $left)
+            }
+        };
+    }
+
     macro_rules! eval_stream_instances {
         ($eval:expr, $start:expr, $ix:expr) => {
-            $eval.eval_event_driven_output($ix.out_ix(), $start.elapsed(), &mut NoTracer::default());
+            $eval.eval_event_driven_output($ix.out_ix(), $start, &mut NoTracer::default());
         };
     }
 
     macro_rules! eval_stream_instances_timed {
         ($eval:expr, $time:expr, $ix:expr) => {
+            $eval.prepare_evaluation($time);
             $eval.eval_event_driven_output($ix.out_ix(), $time, &mut NoTracer::default());
         };
     }
 
     macro_rules! eval_stream {
         ($eval:expr, $start:expr, $ix:expr, $parameter:expr) => {
-            $eval.eval_stream_instance($ix, $parameter.as_slice(), $start.elapsed());
+            $eval.eval_stream_instance($ix, $parameter.as_slice(), $start);
         };
     }
 
     macro_rules! spawn_stream {
         ($eval:expr, $start:expr, $ix:expr) => {
-            $eval.eval_event_driven_spawn($ix.out_ix(), $start.elapsed(), &mut NoTracer::default());
+            $eval.eval_event_driven_spawn($ix.out_ix(), $start, &mut NoTracer::default());
         };
     }
 
@@ -969,7 +1213,7 @@ mod tests {
 
     macro_rules! eval_close {
         ($eval:expr, $start:expr, $ix:expr, $parameter:expr) => {
-            $eval.eval_close($ix.out_ix(), $parameter.as_slice(), $start.elapsed());
+            $eval.eval_close($ix.out_ix(), $parameter.as_slice(), $start);
             $eval.close_streams();
         };
     }
@@ -996,13 +1240,14 @@ mod tests {
 
     macro_rules! eval_stream_timed {
         ($eval:expr, $ix:expr, $parameter:expr, $time:expr) => {
+            $eval.prepare_evaluation($time);
             $eval.eval_stream_instance($ix, $parameter.as_slice(), $time);
         };
     }
 
     macro_rules! accept_input {
         ($eval:expr, $start:expr, $str_ref:expr, $v:expr) => {
-            $eval.accept_input($str_ref.in_ix(), $v.clone(), $start.elapsed());
+            $eval.accept_input($str_ref.in_ix(), $v.clone(), $start);
         };
     }
 
@@ -1044,7 +1289,7 @@ mod tests {
         peek_assert_eq!(eval, start, 0, vec![], Bool(true));
         peek_assert_eq!(eval, start, 1, vec![], Unsigned(3));
         peek_assert_eq!(eval, start, 2, vec![], Signed(-5));
-        peek_assert_eq!(eval, start, 3, vec![], Value::new_float(-123.456));
+        peek_assert_eq!(eval, start, 3, vec![], Value::try_from(-123.456).unwrap());
         peek_assert_eq!(eval, start, 4, vec![], Str("foobar".into()));
     }
 
@@ -1453,12 +1698,12 @@ mod tests {
 
         // No time has passed. No values should be within the window. We should see the default value.
         eval_stream_timed!(eval, 0, vec![], time);
-        let expected = Value::new_float(-3.0);
+        let expected = Value::try_from(-3.0).unwrap();
         assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
 
         let n = 25;
         for v in 1..=n {
-            accept_input_timed!(eval, in_ref, Value::new_float(v as f64), time);
+            accept_input_timed!(eval, in_ref, Value::try_from(v as f64).unwrap(), time);
             time += Duration::from_secs(1);
         }
         time += Duration::from_secs(1);
@@ -1466,7 +1711,96 @@ mod tests {
         // 71 secs have passed. All values should be within the window.
         eval_stream_timed!(eval, 0, vec![], time);
         let n = n as f64;
-        let expected = Value::new_float(((n * n + n) / 2.0) / 25.0);
+        let expected = Value::try_from(((n * n + n) / 2.0) / 25.0).unwrap();
+        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_window_correct_bucketing() {
+        let (_, eval, mut time) = setup_time("input a: Float32\noutput b @2Hz := a.aggregate(over: 3s, using: sum)");
+        let mut eval = eval.into_evaluator();
+        let out_ref = StreamReference::Out(0);
+        let in_ref = StreamReference::In(0);
+
+        accept_input_timed!(eval, in_ref, Value::try_from(0 as f64).unwrap(), time);
+
+        time += Duration::from_millis(500);
+        eval_stream_timed!(eval, 0, vec![], time);
+        let expected = Value::try_from(0.0).unwrap();
+        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
+
+        time += Duration::from_millis(500);
+        eval_stream_timed!(eval, 0, vec![], time);
+        let expected = Value::try_from(0.0).unwrap();
+        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
+
+        //1s
+
+        time += Duration::from_millis(100);
+        accept_input_timed!(eval, in_ref, Value::try_from(1 as f64).unwrap(), time);
+
+        time += Duration::from_millis(400);
+        eval_stream_timed!(eval, 0, vec![], time);
+        let expected = Value::try_from(1.0).unwrap();
+        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
+
+        time += Duration::from_millis(500);
+        eval_stream_timed!(eval, 0, vec![], time);
+        let expected = Value::try_from(1.0).unwrap();
+        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
+
+        //2s
+
+        time += Duration::from_millis(500);
+        eval_stream_timed!(eval, 0, vec![], time);
+        let expected = Value::try_from(1.0).unwrap();
+        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
+
+        time += Duration::from_millis(500);
+        eval_stream_timed!(eval, 0, vec![], time);
+        let expected = Value::try_from(1.0).unwrap();
+        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
+
+        //3s
+
+        time += Duration::from_millis(40);
+        accept_input_timed!(eval, in_ref, Value::try_from(2 as f64).unwrap(), time);
+
+        time += Duration::from_millis(460);
+        eval_stream_timed!(eval, 0, vec![], time);
+        let expected = Value::try_from(3.0).unwrap();
+        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
+
+        time += Duration::from_millis(500);
+        eval_stream_timed!(eval, 0, vec![], time);
+        let expected = Value::try_from(3.0).unwrap();
+        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
+
+        //4s
+
+        time += Duration::from_millis(500);
+        eval_stream_timed!(eval, 0, vec![], time);
+        let expected = Value::try_from(2.0).unwrap();
+        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
+
+        time += Duration::from_millis(500);
+        eval_stream_timed!(eval, 0, vec![], time);
+        let expected = Value::try_from(2.0).unwrap();
+        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
+
+        //5s
+
+        time += Duration::from_millis(110);
+        accept_input_timed!(eval, in_ref, Value::try_from(3 as f64).unwrap(), time);
+
+        time += Duration::from_millis(390);
+        eval_stream_timed!(eval, 0, vec![], time);
+        let expected = Value::try_from(5.0).unwrap();
+        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
+
+        time += Duration::from_millis(500);
+        eval_stream_timed!(eval, 0, vec![], time);
+        let expected = Value::try_from(5.0).unwrap();
         assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
     }
 
@@ -1506,6 +1840,26 @@ mod tests {
     }
 
     #[test]
+    fn test_integral_window2() {
+        fn mv(f: f64) -> Value {
+            Float(NotNan::new(f).unwrap())
+        }
+
+        let (_, eval, mut time) = setup_time("input a : Int64\noutput b@1Hz := a.aggregate(over: 5s, using: integral)");
+        let mut eval = eval.into_evaluator();
+        let out_ref = StreamReference::Out(0);
+        let in_ref = StreamReference::In(0);
+
+        accept_input_timed!(eval, in_ref, mv(0f64), time);
+
+        time += Duration::from_secs(1);
+        accept_input_timed!(eval, in_ref, mv(8f64), time);
+        eval_stream_timed!(eval, 0, vec![], time);
+        let expected = Float(NotNan::new(4.0).unwrap());
+        assert_eq!(eval.peek_value(out_ref, vec![].as_slice(), 0).unwrap(), expected);
+    }
+
+    #[test]
     fn test_window_type_count() {
         let (_, eval, start) = setup("input a: Int32\noutput b @ 10Hz := a.aggregate(over: 0.1s, using: count)");
         let mut eval = eval.into_evaluator();
@@ -1519,7 +1873,7 @@ mod tests {
     #[test]
     fn test_sum_window_discrete() {
         let (_, eval, mut time) =
-            setup_time("input a: Int16\noutput b: Int16 @1Hz:= a.aggregate(over_discrete: 6, using: sum)");
+            setup_time("input a: Int16\noutput b: Int16 := a.aggregate(over_discrete: 6, using: sum)");
         let mut eval = eval.into_evaluator();
         time += Duration::from_secs(45);
         let out_ref = StreamReference::Out(0);
@@ -1609,12 +1963,12 @@ mod tests {
     #[test]
     fn test_percentile_float() {
         for (pctl, exp) in &[
-            ("pctl25", Value::new_float(13.0)),
-            ("pctl75", Value::new_float(18.0)),
-            ("pctl10", Value::new_float(11.5)),
-            ("pctl5", Value::new_float(11.0)),
-            ("pctl90", Value::new_float(19.5)),
-            ("med", Value::new_float(15.5)),
+            ("pctl25", Value::try_from(13.0)),
+            ("pctl75", Value::try_from(18.0)),
+            ("pctl10", Value::try_from(11.5)),
+            ("pctl5", Value::try_from(11.0)),
+            ("pctl90", Value::try_from(19.5)),
+            ("med", Value::try_from(15.5)),
         ] {
             let (_, eval, mut time) = setup_time(&format!(
                 "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over: 10s, using: {}).defaults(to:0.0)",
@@ -1626,29 +1980,31 @@ mod tests {
             let in_ref = StreamReference::In(0);
             let n = 20;
             for v in 1..=n {
-                accept_input_timed!(eval, in_ref, Float(NotNan::new(v as f64).unwrap()), time);
                 time += Duration::from_secs(1);
+                accept_input_timed!(eval, in_ref, Float(NotNan::new(v as f64).unwrap()), time);
             }
-            time += Duration::from_secs(1);
             // 66 secs have passed. All values should be within the window.
             eval_stream_timed!(eval, 0, vec![], time);
             assert_eq!(
                 eval.peek_value(in_ref, &Vec::new(), 0).unwrap(),
                 Float(NotNan::new(20.0).unwrap())
             );
-            assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
+            assert_eq!(
+                eval.peek_value(out_ref, &Vec::new(), 0).unwrap(),
+                exp.as_ref().unwrap().clone()
+            );
         }
     }
 
     #[test]
     fn test_percentile_float_unordered_input() {
         for (pctl, exp) in &[
-            ("pctl25", Value::new_float(13.0)),
-            ("pctl75", Value::new_float(18.0)),
-            ("pctl10", Value::new_float(11.5)),
-            ("pctl5", Value::new_float(11.0)),
-            ("pctl90", Value::new_float(19.5)),
-            ("med", Value::new_float(15.5)),
+            ("pctl25", Value::try_from(13.0)),
+            ("pctl75", Value::try_from(18.0)),
+            ("pctl10", Value::try_from(11.5)),
+            ("pctl5", Value::try_from(11.0)),
+            ("pctl90", Value::try_from(19.5)),
+            ("med", Value::try_from(15.5)),
         ] {
             let (_, eval, mut time) = setup_time(&format!(
                 "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over: 10s, using: {}).defaults(to:0.0)",
@@ -1661,17 +2017,19 @@ mod tests {
             let n = 20;
             let input_val = [1, 9, 8, 5, 4, 3, 7, 2, 10, 6, 20, 11, 19, 12, 18, 13, 17, 14, 16, 15];
             for v in 0..n {
-                accept_input_timed!(eval, in_ref, Float(NotNan::new(input_val[v] as f64).unwrap()), time);
                 time += Duration::from_secs(1);
+                accept_input_timed!(eval, in_ref, Float(NotNan::new(input_val[v] as f64).unwrap()), time);
             }
-            time += Duration::from_secs(1);
             // 66 secs have passed. All values should be within the window.
             eval_stream_timed!(eval, 0, vec![], time);
             assert_eq!(
                 eval.peek_value(in_ref, &Vec::new(), 0).unwrap(),
                 Float(NotNan::new(15.0).unwrap())
             );
-            assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
+            assert_eq!(
+                eval.peek_value(out_ref, &Vec::new(), 0).unwrap(),
+                exp.as_ref().unwrap().clone()
+            );
         }
     }
 
@@ -1695,10 +2053,9 @@ mod tests {
             let in_ref = StreamReference::In(0);
             let n = 20;
             for v in 1..=n {
-                accept_input_timed!(eval, in_ref, Signed(v), time);
                 time += Duration::from_secs(1);
+                accept_input_timed!(eval, in_ref, Signed(v), time);
             }
-            time += Duration::from_secs(1);
             // 66 secs have passed. All values should be within the window.
             eval_stream_timed!(eval, 0, vec![], time);
             assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
@@ -1725,10 +2082,9 @@ mod tests {
             let in_ref = StreamReference::In(0);
             let n = 20;
             for v in 1..=n {
-                accept_input_timed!(eval, in_ref, Unsigned(v), time);
                 time += Duration::from_secs(1);
+                accept_input_timed!(eval, in_ref, Unsigned(v), time);
             }
-            time += Duration::from_secs(1);
             // 66 secs have passed. All values should be within the window.
             eval_stream_timed!(eval, 0, vec![], time);
             assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
@@ -1738,15 +2094,15 @@ mod tests {
     #[test]
     fn test_percentile_discrete_float_unordered_input() {
         for (pctl, exp) in &[
-            ("pctl25", Value::new_float(13.0)),
-            ("pctl75", Value::new_float(18.0)),
-            ("pctl10", Value::new_float(11.5)),
-            ("pctl5", Value::new_float(11.0)),
-            ("pctl90", Value::new_float(19.5)),
-            ("med", Value::new_float(15.5)),
+            ("pctl25", Value::try_from(13.0)),
+            ("pctl75", Value::try_from(18.0)),
+            ("pctl10", Value::try_from(11.5)),
+            ("pctl5", Value::try_from(11.0)),
+            ("pctl90", Value::try_from(19.5)),
+            ("med", Value::try_from(15.5)),
         ] {
             let (_, eval, mut time) = setup_time(&format!(
-                "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over_discrete: 10, using: {}).defaults(to:0.0)",
+                "input a: Float32\noutput b: Float32 := a.aggregate(over_discrete: 10, using: {}).defaults(to:0.0)",
                 pctl
             ));
             let mut eval = eval.into_evaluator();
@@ -1756,17 +2112,19 @@ mod tests {
             let n = 20;
             let input_val = [1, 9, 8, 5, 4, 3, 7, 2, 10, 6, 20, 11, 19, 12, 18, 13, 17, 14, 16, 15];
             for v in 0..n {
-                accept_input_timed!(eval, in_ref, Float(NotNan::new(input_val[v] as f64).unwrap()), time);
                 time += Duration::from_secs(1);
+                accept_input_timed!(eval, in_ref, Float(NotNan::new(input_val[v] as f64).unwrap()), time);
             }
-            time += Duration::from_secs(1);
             // 66 secs have passed. All values should be within the window.
             eval_stream_timed!(eval, 0, vec![], time);
             assert_eq!(
                 eval.peek_value(in_ref, &Vec::new(), 0).unwrap(),
                 Float(NotNan::new(15.0).unwrap())
             );
-            assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
+            assert_eq!(
+                eval.peek_value(out_ref, &Vec::new(), 0).unwrap(),
+                exp.as_ref().unwrap().clone()
+            );
         }
     }
 
@@ -1797,16 +2155,16 @@ mod tests {
     #[test]
     fn test_var_window() {
         for (duration, exp) in &[
-            ("2", Value::new_float(0.25)),
-            ("3", Value::new_float(2.0 / 3.0)),
-            ("4", Value::new_float(1.25)),
-            ("5", Value::new_float(2.0)),
-            ("6", Value::new_float(17.5 / 6.0)),
-            ("7", Value::new_float(4.0)),
-            ("8", Value::new_float(5.25)),
-            ("9", Value::new_float(60.0 / 9.0)),
-            ("10", Value::new_float(8.25)),
-            ("11", Value::new_float(10.0)),
+            ("2", Value::try_from(0.25)),
+            ("3", Value::try_from(2.0 / 3.0)),
+            ("4", Value::try_from(1.25)),
+            ("5", Value::try_from(2.0)),
+            ("6", Value::try_from(17.5 / 6.0)),
+            ("7", Value::try_from(4.0)),
+            ("8", Value::try_from(5.25)),
+            ("9", Value::try_from(60.0 / 9.0)),
+            ("10", Value::try_from(8.25)),
+            ("11", Value::try_from(10.0)),
         ] {
             let (_, eval, mut time) = setup_time(&format!(
                 "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over: {}s, using: var).defaults(to:0.0)",
@@ -1818,33 +2176,35 @@ mod tests {
             let in_ref = StreamReference::In(0);
             let n = 20;
             for v in 1..=n {
-                accept_input_timed!(eval, in_ref, Float(NotNan::new(v as f64).unwrap()), time);
                 time += Duration::from_secs(1);
+                accept_input_timed!(eval, in_ref, Float(NotNan::new(v as f64).unwrap()), time);
             }
-            time += Duration::from_secs(1);
             // 66 secs have passed. All values should be within the window.
             eval_stream_timed!(eval, 0, vec![], time);
             assert_eq!(
                 eval.peek_value(in_ref, &Vec::new(), 0).unwrap(),
                 Float(NotNan::new(20.0).unwrap())
             );
-            assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
+            assert_float_eq!(
+                eval.peek_value(out_ref, &Vec::new(), 0).unwrap(),
+                exp.as_ref().unwrap().clone()
+            );
         }
     }
 
     #[test]
     fn test_sd_window() {
         for (duration, exp) in &[
-            ("2", Value::new_float(0.25f64.sqrt())),
-            ("3", Value::new_float((2.0 / 3.0f64).sqrt())),
-            ("4", Value::new_float(1.25f64.sqrt())),
-            ("5", Value::new_float(2.0f64.sqrt())),
-            ("6", Value::new_float((17.5 / 6.0f64).sqrt())),
-            ("7", Value::new_float(4.0f64.sqrt())),
-            ("8", Value::new_float(5.25f64.sqrt())),
-            ("9", Value::new_float((60.0 / 9.0f64).sqrt())),
-            ("10", Value::new_float(8.25f64.sqrt())),
-            ("11", Value::new_float(10.0f64.sqrt())),
+            ("2", Value::try_from(0.25f64.sqrt())),
+            ("3", Value::try_from((2.0 / 3.0f64).sqrt())),
+            ("4", Value::try_from(1.25f64.sqrt())),
+            ("5", Value::try_from(2.0f64.sqrt())),
+            ("6", Value::try_from((17.5 / 6.0f64).sqrt())),
+            ("7", Value::try_from(4.0f64.sqrt())),
+            ("8", Value::try_from(5.25f64.sqrt())),
+            ("9", Value::try_from((60.0 / 9.0f64).sqrt())),
+            ("10", Value::try_from(8.25f64.sqrt())),
+            ("11", Value::try_from(10.0f64.sqrt())),
         ] {
             let (_, eval, mut time) = setup_time(&format!(
                 "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over: {}s, using: sd).defaults(to:0.0)",
@@ -1856,17 +2216,19 @@ mod tests {
             let in_ref = StreamReference::In(0);
             let n = 20;
             for v in 1..=n {
-                accept_input_timed!(eval, in_ref, Float(NotNan::new(v as f64).unwrap()), time);
                 time += Duration::from_secs(1);
+                accept_input_timed!(eval, in_ref, Float(NotNan::new(v as f64).unwrap()), time);
             }
-            time += Duration::from_secs(1);
             // 66 secs have passed. All values should be within the window.
             eval_stream_timed!(eval, 0, vec![], time);
-            assert_eq!(
+            assert_float_eq!(
                 eval.peek_value(in_ref, &Vec::new(), 0).unwrap(),
                 Float(NotNan::new(20.0).unwrap())
             );
-            assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
+            assert_float_eq!(
+                eval.peek_value(out_ref, &Vec::new(), 0).unwrap(),
+                exp.as_ref().unwrap().clone()
+            );
         }
     }
 
@@ -1881,24 +2243,23 @@ mod tests {
         let in_ref_2 = StreamReference::In(1);
         let n = 20;
         for v in 1..=n {
-            accept_input_timed!(eval, in_ref, Value::new_float(v as f64), time);
-            accept_input_timed!(eval, in_ref_2, Value::new_float(v as f64), time);
-            eval_stream_timed!(eval, 0, vec![], time);
             time += Duration::from_secs(1);
+            accept_input_timed!(eval, in_ref, Value::try_from(v as f64).unwrap(), time);
+            accept_input_timed!(eval, in_ref_2, Value::try_from(v as f64).unwrap(), time);
+            eval_stream_timed!(eval, 0, vec![], time);
         }
-        time += Duration::from_secs(1);
         // 66 secs have passed. All values should be within the window.
         eval_stream_timed!(eval, 1, vec![], time);
         let expected = Float(NotNan::new(17.5 / 6.0).unwrap());
-        assert_eq!(
+        assert_float_eq!(
             eval.peek_value(in_ref, &Vec::new(), 0).unwrap(),
             Float(NotNan::new(20.0).unwrap())
         );
-        assert_eq!(
+        assert_float_eq!(
             eval.peek_value(in_ref_2, &Vec::new(), 0).unwrap(),
             Float(NotNan::new(20.0).unwrap())
         );
-        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
+        assert_float_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
     }
 
     #[test]
@@ -1912,8 +2273,8 @@ mod tests {
         let in_ref_2 = StreamReference::In(1);
         let n = 20;
         for v in 1..=n {
-            accept_input_timed!(eval, in_ref, Value::new_float(v as f64), time);
-            accept_input_timed!(eval, in_ref_2, Value::new_float(16.0), time);
+            accept_input_timed!(eval, in_ref, Value::try_from(v as f64).unwrap(), time);
+            accept_input_timed!(eval, in_ref_2, Value::try_from(16.0).unwrap(), time);
             eval_stream_timed!(eval, 0, vec![], time);
             time += Duration::from_secs(1);
         }
@@ -1935,19 +2296,19 @@ mod tests {
     #[test]
     fn test_var_discrete() {
         for (duration, exp) in &[
-            ("2", Value::new_float(0.25)),
-            ("3", Value::new_float(2.0 / 3.0)),
-            ("4", Value::new_float(1.25)),
-            ("5", Value::new_float(2.0)),
-            ("6", Value::new_float(17.5 / 6.0)),
-            ("7", Value::new_float(4.0)),
-            ("8", Value::new_float(5.25)),
-            ("9", Value::new_float(60.0 / 9.0)),
-            ("10", Value::new_float(8.25)),
-            ("11", Value::new_float(10.0)),
+            ("2", Value::try_from(0.25)),
+            ("3", Value::try_from(2.0 / 3.0)),
+            ("4", Value::try_from(1.25)),
+            ("5", Value::try_from(2.0)),
+            ("6", Value::try_from(17.5 / 6.0)),
+            ("7", Value::try_from(4.0)),
+            ("8", Value::try_from(5.25)),
+            ("9", Value::try_from(60.0 / 9.0)),
+            ("10", Value::try_from(8.25)),
+            ("11", Value::try_from(10.0)),
         ] {
             let (_, eval, mut time) = setup_time(&format!(
-                "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over_discrete: {}, using: var).defaults(to:0.0)",
+                "input a: Float32\noutput b: Float32 := a.aggregate(over_discrete: {}, using: var).defaults(to:0.0)",
                 duration
             ));
             let mut eval = eval.into_evaluator();
@@ -1966,26 +2327,29 @@ mod tests {
                 eval.peek_value(in_ref, &Vec::new(), 0).unwrap(),
                 Float(NotNan::new(20.0).unwrap())
             );
-            assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
+            assert_float_eq!(
+                eval.peek_value(out_ref, &Vec::new(), 0).unwrap(),
+                exp.as_ref().unwrap().clone()
+            );
         }
     }
 
     #[test]
     fn test_sd_discrete() {
         for (duration, exp) in &[
-            ("2", Value::new_float(0.25f64.sqrt())),
-            ("3", Value::new_float((2.0 / 3.0f64).sqrt())),
-            ("4", Value::new_float(1.25f64.sqrt())),
-            ("5", Value::new_float(2.0f64.sqrt())),
-            ("6", Value::new_float((17.5 / 6.0f64).sqrt())),
-            ("7", Value::new_float(4.0f64.sqrt())),
-            ("8", Value::new_float(5.25f64.sqrt())),
-            ("9", Value::new_float((60.0 / 9.0f64).sqrt())),
-            ("10", Value::new_float(8.25f64.sqrt())),
-            ("11", Value::new_float(10.0f64.sqrt())),
+            ("2", Value::try_from(0.25f64.sqrt())),
+            ("3", Value::try_from((2.0 / 3.0f64).sqrt())),
+            ("4", Value::try_from(1.25f64.sqrt())),
+            ("5", Value::try_from(2.0f64.sqrt())),
+            ("6", Value::try_from((17.5 / 6.0f64).sqrt())),
+            ("7", Value::try_from(4.0f64.sqrt())),
+            ("8", Value::try_from(5.25f64.sqrt())),
+            ("9", Value::try_from((60.0 / 9.0f64).sqrt())),
+            ("10", Value::try_from(8.25f64.sqrt())),
+            ("11", Value::try_from(10.0f64.sqrt())),
         ] {
             let (_, eval, mut time) = setup_time(&format!(
-                "input a: Float32\noutput b: Float32 @1Hz:= a.aggregate(over_discrete: {}, using: sd).defaults(to:0.0)",
+                "input a: Float32\noutput b: Float32 := a.aggregate(over_discrete: {}, using: sd).defaults(to:0.0)",
                 duration
             ));
             let mut eval = eval.into_evaluator();
@@ -2004,23 +2368,26 @@ mod tests {
                 eval.peek_value(in_ref, &Vec::new(), 0).unwrap(),
                 Float(NotNan::new(20.0).unwrap())
             );
-            assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
+            assert_eq!(
+                eval.peek_value(out_ref, &Vec::new(), 0).unwrap(),
+                exp.as_ref().unwrap().clone()
+            );
         }
     }
 
     #[test]
     fn test_cases_window_discrete_float() {
         for (aggr, exp, default) in &[
-            ("sum", Value::new_float(115.0), false),
-            ("min", Value::new_float(21.0), true),
-            ("max", Value::new_float(25.0), true),
-            ("avg", Value::new_float(23.0), true),
-            ("integral", Value::new_float(92.0), false),
-            ("last", Value::new_float(25.0), true),
-            ("med", Value::new_float(23.0), true),
-            ("pctl20", Value::new_float(21.5), true),
+            ("sum", Value::try_from(115.0), false),
+            ("min", Value::try_from(21.0), true),
+            ("max", Value::try_from(25.0), true),
+            ("avg", Value::try_from(23.0), true),
+            ("integral", Value::try_from(92.0), false),
+            ("last", Value::try_from(25.0), true),
+            ("med", Value::try_from(23.0), true),
+            ("pctl20", Value::try_from(21.5), true),
         ] {
-            let mut spec = String::from("input a: Float32\noutput b @0.5Hz:= a.aggregate(over_discrete: 5, using: ");
+            let mut spec = String::from("input a: Float32\noutput b := a.aggregate(over_discrete: 5, using: ");
             spec += aggr;
             spec += ")";
             if *default {
@@ -2033,13 +2400,13 @@ mod tests {
             let in_ref = StreamReference::In(0);
             let n = 25;
             for v in 1..=n {
-                accept_input_timed!(eval, in_ref, Value::new_float(v as f64), time);
+                accept_input_timed!(eval, in_ref, Value::try_from(v as f64).unwrap(), time);
                 time += Duration::from_secs(1);
             }
             time += Duration::from_secs(1);
             // 71 secs have passed. All values should be within the window.
             eval_stream_timed!(eval, 0, vec![], time);
-            let expected = exp.clone();
+            let expected = exp.as_ref().unwrap().clone();
             assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
         }
     }
@@ -2052,12 +2419,12 @@ mod tests {
             ("min", Signed(21), true),
             ("max", Signed(25), true),
             ("avg", Signed(23), true),
-            ("integral", Value::new_float(92.0), false),
+            ("integral", Value::try_from(92.0).unwrap(), false),
             ("last", Signed(25), true),
             ("med", Signed(23), true),
             ("pctl20", Signed(21), true),
         ] {
-            let mut spec = String::from("input a: Int16\noutput b @0.5Hz:= a.aggregate(over_discrete: 5, using: ");
+            let mut spec = String::from("input a: Int16\noutput b := a.aggregate(over_discrete: 5, using: ");
             spec += aggr;
             spec += ")";
             if *default {
@@ -2089,12 +2456,12 @@ mod tests {
             ("min", Unsigned(21), true),
             ("max", Unsigned(25), true),
             ("avg", Unsigned(23), true),
-            ("integral", Value::new_float(92.0), false),
+            ("integral", Value::try_from(92.0).unwrap(), false),
             ("last", Unsigned(25), true),
             ("med", Unsigned(23), true),
             ("pctl20", Unsigned(21), true),
         ] {
-            let mut spec = String::from("input a: UInt16\noutput b @0.5Hz:= a.aggregate(over_discrete: 5, using: ");
+            let mut spec = String::from("input a: UInt16\noutput b := a.aggregate(over_discrete: 5, using: ");
             spec += aggr;
             spec += ")";
             if *default {
@@ -2296,6 +2663,101 @@ mod tests {
         assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(80));
     }
 
+    #[test]
+    fn test_both_parameterized_window() {
+        let (_, eval, mut time) = setup_time(
+            "input a: Int32\n\
+                  output b(p) spawn with a eval with p+a\n\
+                  output c(p) spawn with a eval @1Hz with b(p).aggregate(over: 2s, using: sum)",
+        );
+        let mut eval = eval.into_evaluator();
+        let b_ref = StreamReference::Out(0);
+        let c_ref = StreamReference::Out(1);
+        let in_ref = StreamReference::In(0);
+
+        time += Duration::from_secs(1);
+        accept_input_timed!(eval, in_ref, Signed(15), time);
+        spawn_stream_timed!(eval, time, b_ref);
+        spawn_stream_timed!(eval, time, c_ref);
+        assert!(stream_has_instance!(eval, b_ref, vec![Signed(15)]));
+        assert!(stream_has_instance!(eval, c_ref, vec![Signed(15)]));
+        eval_stream_timed!(eval, b_ref.out_ix(), vec![Signed(15)], time);
+        eval_stream_timed!(eval, c_ref.out_ix(), vec![Signed(15)], time);
+        assert_eq!(eval.peek_value(b_ref, &[Signed(15)], 0).unwrap(), Signed(30));
+        assert_eq!(eval.peek_value(c_ref, &[Signed(15)], 0).unwrap(), Signed(30));
+
+        time += Duration::from_secs(1);
+        accept_input_timed!(eval, in_ref, Signed(5), time);
+        spawn_stream_timed!(eval, time, b_ref);
+        spawn_stream_timed!(eval, time, c_ref);
+        assert!(stream_has_instance!(eval, b_ref, vec![Signed(5)]));
+        assert!(stream_has_instance!(eval, c_ref, vec![Signed(5)]));
+        eval_stream_timed!(eval, b_ref.out_ix(), vec![Signed(5)], time);
+        eval_stream_timed!(eval, c_ref.out_ix(), vec![Signed(5)], time);
+        eval_stream_timed!(eval, b_ref.out_ix(), vec![Signed(15)], time);
+        eval_stream_timed!(eval, c_ref.out_ix(), vec![Signed(15)], time);
+        assert_eq!(eval.peek_value(b_ref, &[Signed(5)], 0).unwrap(), Signed(10));
+        assert_eq!(eval.peek_value(c_ref, &[Signed(5)], 0).unwrap(), Signed(10));
+        assert_eq!(eval.peek_value(b_ref, &[Signed(15)], 0).unwrap(), Signed(20));
+        assert_eq!(eval.peek_value(c_ref, &[Signed(15)], 0).unwrap(), Signed(50));
+
+        time += Duration::from_secs(1);
+        accept_input_timed!(eval, in_ref, Signed(5), time);
+        eval_stream_timed!(eval, b_ref.out_ix(), vec![Signed(5)], time);
+        eval_stream_timed!(eval, c_ref.out_ix(), vec![Signed(5)], time);
+        eval_stream_timed!(eval, b_ref.out_ix(), vec![Signed(15)], time);
+        eval_stream_timed!(eval, c_ref.out_ix(), vec![Signed(15)], time);
+        assert_eq!(eval.peek_value(b_ref, &[Signed(5)], 0).unwrap(), Signed(10));
+        assert_eq!(eval.peek_value(c_ref, &[Signed(5)], 0).unwrap(), Signed(20));
+        assert_eq!(eval.peek_value(b_ref, &[Signed(15)], 0).unwrap(), Signed(20));
+        assert_eq!(eval.peek_value(c_ref, &[Signed(15)], 0).unwrap(), Signed(40));
+    }
+
+    #[test]
+    fn test_spawn_window_unit3() {
+        let (_, eval, mut time) = setup_time(
+            "input a: Int32\n\
+                  output b(p) spawn with a eval with p+a\n\
+                  output c spawn when a == 5 eval @1Hz with b(15).aggregate(over: 2s, using: sum)",
+        );
+        let mut eval = eval.into_evaluator();
+        let b_ref = StreamReference::Out(0);
+        let c_ref = StreamReference::Out(1);
+        let in_ref = StreamReference::In(0);
+        let empty: Vec<Value> = vec![];
+
+        time += Duration::from_secs(1);
+        accept_input_timed!(eval, in_ref, Signed(15), time);
+        spawn_stream_timed!(eval, time, b_ref);
+        spawn_stream_timed!(eval, time, c_ref);
+        assert!(stream_has_instance!(eval, b_ref, vec![Signed(15)]));
+        assert!(!stream_has_instance!(eval, c_ref, empty));
+        eval_stream_timed!(eval, b_ref.out_ix(), vec![Signed(15)], time);
+        assert_eq!(eval.peek_value(b_ref, &[Signed(15)], 0).unwrap(), Signed(30));
+
+        time += Duration::from_secs(1);
+        accept_input_timed!(eval, in_ref, Signed(5), time);
+        spawn_stream_timed!(eval, time, b_ref);
+        spawn_stream_timed!(eval, time, c_ref);
+        assert!(stream_has_instance!(eval, b_ref, vec![Signed(5)]));
+        assert!(stream_has_instance!(eval, c_ref, empty));
+        eval_stream_timed!(eval, b_ref.out_ix(), vec![Signed(5)], time);
+        eval_stream_timed!(eval, b_ref.out_ix(), vec![Signed(15)], time);
+        eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
+        assert_eq!(eval.peek_value(b_ref, &[Signed(5)], 0).unwrap(), Signed(10));
+        assert_eq!(eval.peek_value(b_ref, &[Signed(15)], 0).unwrap(), Signed(20));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(20));
+
+        time += Duration::from_secs(1);
+        accept_input_timed!(eval, in_ref, Signed(5), time);
+        eval_stream_timed!(eval, b_ref.out_ix(), vec![Signed(5)], time);
+        eval_stream_timed!(eval, b_ref.out_ix(), vec![Signed(15)], time);
+        eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
+        assert_eq!(eval.peek_value(b_ref, &[Signed(5)], 0).unwrap(), Signed(10));
+        assert_eq!(eval.peek_value(b_ref, &[Signed(15)], 0).unwrap(), Signed(20));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(40));
+    }
+
     // Window access a unit parameterized stream after it is spawned
     #[test]
     fn test_spawn_window_unit2() {
@@ -2354,7 +2816,7 @@ mod tests {
         let d_ref = StreamReference::Out(2);
         let in_ref = StreamReference::In(0);
 
-        //Intance b(false) is spawned
+        //Instance b(false) is spawned
         time += Duration::from_millis(500);
         accept_input_timed!(eval, in_ref, Signed(15), time);
         spawn_stream_timed!(eval, time, b_ref);
@@ -2363,8 +2825,8 @@ mod tests {
         eval_stream_instances_timed!(eval, time, b_ref);
         assert_eq!(eval.peek_value(b_ref, &[Bool(false)], 0).unwrap(), Signed(15));
 
-        //Intance b(false) gets new value
-        //Intance b(true) is spawned
+        //Instance b(false) gets new value
+        //Instance b(true) is spawned
         //Timed streams are evaluated
         time += Duration::from_millis(500);
         accept_input_timed!(eval, in_ref, Signed(42), time);
@@ -2378,8 +2840,8 @@ mod tests {
         eval_stream_timed!(eval, d_ref.out_ix(), vec![], time);
         assert_eq!(eval.peek_value(d_ref, &[], 0).unwrap(), Signed(42));
 
-        //Intance b(false) gets new value
-        //Intance b(true) gets new value
+        //Instance b(false) gets new value
+        //Instance b(true) gets new value
         //Timed streams are evaluated
         time += Duration::from_secs(1);
         accept_input_timed!(eval, in_ref, Signed(42), time);
@@ -2533,7 +2995,7 @@ mod tests {
     }
 
     // p = true -> only gets 42 values
-    // p = false -> get als remaining values
+    // p = false -> get all remaining values
     #[test]
     fn test_close_window_parameterized() {
         let (_, eval, mut time) = setup_time(
@@ -2550,6 +3012,7 @@ mod tests {
 
         //Intance b(false) is spawned
         time += Duration::from_millis(500);
+        eval.new_cycle(time);
         accept_input_timed!(eval, in_ref, Signed(15), time);
         spawn_stream_timed!(eval, time, b_ref);
         assert!(stream_has_instance!(eval, b_ref, vec![Bool(false)]));
@@ -2561,6 +3024,7 @@ mod tests {
         //Intance b(true) is spawned
         //Timed streams are evaluated
         time += Duration::from_millis(500);
+        eval.new_cycle(time);
         accept_input_timed!(eval, in_ref, Signed(42), time);
         spawn_stream_timed!(eval, time, b_ref);
         assert!(stream_has_instance!(eval, b_ref, vec![Bool(true)]));
@@ -2573,30 +3037,38 @@ mod tests {
         assert_eq!(eval.peek_value(d_ref, &[], 0).unwrap(), Signed(42));
 
         //Intance b(false) gets new value
-        //Timed streams are evaluated
         // Instance b(false) is closed
-        time += Duration::from_secs(1);
+        time += Duration::from_millis(500);
+        eval.new_cycle(time);
         accept_input_timed!(eval, in_ref, Signed(1337), time);
         eval.prepare_evaluation(time);
         eval_stream_instances_timed!(eval, time, b_ref);
         assert_eq!(eval.peek_value(b_ref, &[Bool(false)], 0).unwrap(), Signed(1337));
         assert_eq!(eval.peek_value(b_ref, &[Bool(true)], 0).unwrap(), Signed(42));
-        eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
-        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(1337));
-        eval_stream_timed!(eval, d_ref.out_ix(), vec![], time);
-        assert_eq!(eval.peek_value(d_ref, &[], 0).unwrap(), Signed(0));
         eval_close_timed!(eval, time, b_ref, &vec![Bool(false)]);
         eval_close_timed!(eval, time, b_ref, &vec![Bool(true)]);
         assert!(!stream_has_instance!(eval, b_ref, vec![Bool(false)]));
         assert!(stream_has_instance!(eval, b_ref, vec![Bool(true)]));
 
         //Eval timed streams again
-        time += Duration::from_secs(1);
+        time += Duration::from_millis(500);
+        eval.new_cycle(time);
         eval.prepare_evaluation(time);
         eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
-        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(0));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(1337));
         eval_stream_timed!(eval, d_ref.out_ix(), vec![], time);
         assert_eq!(eval.peek_value(d_ref, &[], 0).unwrap(), Signed(0));
+
+        //Check window instance is closed
+        time += Duration::from_millis(550);
+        eval.new_cycle(time);
+        eval.prepare_evaluation(time);
+        let window = eval.ir.sliding_windows[0].reference;
+        assert!(eval
+            .global_store
+            .get_window_collection_mut(window)
+            .window(&[Bool(false)])
+            .is_none())
     }
 
     #[test]
@@ -2651,6 +3123,426 @@ mod tests {
         time += Duration::from_millis(500);
         eval.prepare_evaluation(time);
         eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
-        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(0));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(1337));
+    }
+
+    #[test]
+    fn test_optional_tuple_access() {
+        let (_, eval, start) = setup(
+            "input a: (UInt, (Bool, Float))\n\
+             output b := a.offset(by: -1).1.0.defaults(to: false)",
+        );
+        let mut eval = eval.into_evaluator();
+        let out_ref = StreamReference::Out(0);
+        let a_ref = StreamReference::In(0);
+        accept_input!(
+            eval,
+            start,
+            a_ref,
+            Tuple(Box::new([
+                Unsigned(42),
+                Tuple(Box::new([Bool(true), Float(NotNan::new(1.5).unwrap())]))
+            ]))
+        );
+
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Bool(false));
+
+        accept_input!(
+            eval,
+            start,
+            a_ref,
+            Tuple(Box::new([
+                Unsigned(13),
+                Tuple(Box::new([Bool(false), Float(NotNan::new(42.0).unwrap())]))
+            ]))
+        );
+
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Bool(true));
+    }
+
+    #[test]
+    fn test_instance_aggr_all_all() {
+        let (_, eval, start) = setup(
+            "input a: Int32\n\
+                  output b(x: Int32) \
+                    spawn with a \
+                    eval @a with x % 2 = 0 \
+                    close when a == 42 \
+                  output c @a := b.aggregate(over_instances: all, using: forall)",
+        );
+        let mut eval = eval.into_evaluator();
+        let b_ref = StreamReference::Out(0);
+        let c_ref = StreamReference::Out(1);
+        let in_ref = StreamReference::In(0);
+        accept_input!(eval, start, in_ref, Signed(16));
+        spawn_stream!(eval, start, b_ref);
+        eval_stream_instances!(eval, start, b_ref);
+        eval_stream_instances!(eval, start, c_ref);
+
+        assert!(stream_has_instance!(eval, b_ref, vec![Signed(16)]));
+
+        assert_eq!(eval.peek_value(b_ref, &[Signed(16)], 0).unwrap(), Bool(true));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(true));
+
+        let mut time = start + Duration::from_secs(1);
+
+        accept_input!(eval, time, in_ref, Signed(7));
+        spawn_stream!(eval, time, b_ref);
+        eval_stream_instances!(eval, time, b_ref);
+        eval_stream_instances!(eval, time, c_ref);
+
+        assert!(stream_has_instance!(eval, b_ref, vec![Signed(7)]));
+
+        assert_eq!(eval.peek_value(b_ref, &[Signed(16)], 0).unwrap(), Bool(true));
+        assert_eq!(eval.peek_value(b_ref, &[Signed(7)], 0).unwrap(), Bool(false));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(false));
+
+        time += Duration::from_secs(1);
+
+        accept_input!(eval, time, in_ref, Signed(42));
+        spawn_stream!(eval, time, b_ref);
+        eval_stream_instances!(eval, time, b_ref);
+        eval_stream_instances!(eval, time, c_ref);
+
+        assert!(stream_has_instance!(eval, b_ref, vec![Signed(42)]));
+
+        assert_eq!(eval.peek_value(b_ref, &[Signed(16)], 0).unwrap(), Bool(true));
+        assert_eq!(eval.peek_value(b_ref, &[Signed(7)], 0).unwrap(), Bool(false));
+        assert_eq!(eval.peek_value(b_ref, &[Signed(42)], 0).unwrap(), Bool(true));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(false));
+
+        eval_close!(eval, time, b_ref, vec![Signed(16)]);
+        eval_close!(eval, time, b_ref, vec![Signed(7)]);
+        eval_close!(eval, time, b_ref, vec![Signed(42)]);
+
+        time += Duration::from_secs(1);
+
+        accept_input!(eval, time, in_ref, Signed(16));
+        spawn_stream!(eval, time, b_ref);
+        eval_stream_instances!(eval, time, b_ref);
+        eval_stream_instances!(eval, time, c_ref);
+
+        assert!(stream_has_instance!(eval, b_ref, vec![Signed(16)]));
+
+        assert_eq!(eval.peek_value(b_ref, &[Signed(16)], 0).unwrap(), Bool(true));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(true));
+    }
+
+    #[test]
+    fn test_instance_aggr_all_any() {
+        let (_, eval, start) = setup(
+            "input a: Int32\n\
+                  output b(x: Int32) \
+                    spawn with a \
+                    eval @a with x % 2 = 0 \
+                    close when a == 42 \
+                  output c @a := b.aggregate(over_instances: all, using: exists)",
+        );
+        let mut eval = eval.into_evaluator();
+        let b_ref = StreamReference::Out(0);
+        let c_ref = StreamReference::Out(1);
+        let in_ref = StreamReference::In(0);
+        accept_input!(eval, start, in_ref, Signed(17));
+        spawn_stream!(eval, start, b_ref);
+        eval_stream_instances!(eval, start, b_ref);
+        eval_stream_instances!(eval, start, c_ref);
+
+        assert!(stream_has_instance!(eval, b_ref, vec![Signed(17)]));
+
+        assert_eq!(eval.peek_value(b_ref, &[Signed(17)], 0).unwrap(), Bool(false));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(false));
+
+        let mut time = start + Duration::from_secs(1);
+
+        accept_input!(eval, time, in_ref, Signed(6));
+        spawn_stream!(eval, time, b_ref);
+        eval_stream_instances!(eval, time, b_ref);
+        eval_stream_instances!(eval, time, c_ref);
+
+        assert!(stream_has_instance!(eval, b_ref, vec![Signed(6)]));
+
+        assert_eq!(eval.peek_value(b_ref, &[Signed(17)], 0).unwrap(), Bool(false));
+        assert_eq!(eval.peek_value(b_ref, &[Signed(6)], 0).unwrap(), Bool(true));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(true));
+
+        time += Duration::from_secs(1);
+
+        accept_input!(eval, time, in_ref, Signed(42));
+        spawn_stream!(eval, time, b_ref);
+        eval_stream_instances!(eval, time, b_ref);
+        eval_stream_instances!(eval, time, c_ref);
+
+        assert!(stream_has_instance!(eval, b_ref, vec![Signed(42)]));
+
+        assert_eq!(eval.peek_value(b_ref, &[Signed(17)], 0).unwrap(), Bool(false));
+        assert_eq!(eval.peek_value(b_ref, &[Signed(6)], 0).unwrap(), Bool(true));
+        assert_eq!(eval.peek_value(b_ref, &[Signed(42)], 0).unwrap(), Bool(true));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(true));
+
+        eval_close!(eval, time, b_ref, vec![Signed(17)]);
+        eval_close!(eval, time, b_ref, vec![Signed(6)]);
+        eval_close!(eval, time, b_ref, vec![Signed(42)]);
+
+        time += Duration::from_secs(1);
+
+        accept_input!(eval, time, in_ref, Signed(17));
+        spawn_stream!(eval, time, b_ref);
+        eval_stream_instances!(eval, time, b_ref);
+        eval_stream_instances!(eval, time, c_ref);
+
+        assert!(stream_has_instance!(eval, b_ref, vec![Signed(17)]));
+
+        assert_eq!(eval.peek_value(b_ref, &[Signed(17)], 0).unwrap(), Bool(false));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(false));
+    }
+
+    #[test]
+    fn test_instance_aggr_fresh_all() {
+        let (_, eval, start) = setup(
+            "input a: Int32\n\
+                   input i: Int32\n\
+                  output b(x: Int32)\n\
+                    spawn with a\n\
+                    eval when (x + i) % 2 = 0 with x > 10\n\
+                    close when a == 42\n\
+                  output c := b.aggregate(over_instances: fresh, using: forall)",
+        );
+        let mut eval = eval.into_evaluator();
+        let b_ref = StreamReference::Out(0);
+        let c_ref = StreamReference::Out(1);
+        let a_ref = StreamReference::In(0);
+        let i_ref = StreamReference::In(1);
+        accept_input!(eval, start, a_ref, Signed(16));
+        accept_input!(eval, start, i_ref, Signed(0));
+        spawn_stream!(eval, start, b_ref);
+        eval_stream_instances!(eval, start, b_ref);
+        eval_stream_instances!(eval, start, c_ref);
+
+        assert!(stream_has_instance!(eval, b_ref, vec![Signed(16)]));
+
+        assert_eq!(eval.peek_value(b_ref, &[Signed(16)], 0).unwrap(), Bool(true));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(true));
+
+        let mut time = start + Duration::from_secs(1);
+        eval.new_cycle(time);
+
+        accept_input!(eval, time, a_ref, Signed(6));
+        accept_input!(eval, time, i_ref, Signed(0));
+        spawn_stream!(eval, time, b_ref);
+        eval_stream_instances!(eval, time, b_ref);
+        eval_stream_instances!(eval, time, c_ref);
+
+        assert!(stream_has_instance!(eval, b_ref, vec![Signed(6)]));
+
+        assert_eq!(eval.peek_value(b_ref, &[Signed(16)], 0).unwrap(), Bool(true));
+        assert_eq!(eval.peek_value(b_ref, &[Signed(6)], 0).unwrap(), Bool(false));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(false));
+
+        time += Duration::from_secs(1);
+        eval.new_cycle(time);
+
+        accept_input!(eval, time, a_ref, Signed(11));
+        accept_input!(eval, time, i_ref, Signed(1));
+        spawn_stream!(eval, time, b_ref);
+        eval_stream_instances!(eval, time, b_ref);
+        eval_stream_instances!(eval, time, c_ref);
+
+        assert!(stream_has_instance!(eval, b_ref, vec![Signed(11)]));
+
+        assert_eq!(eval.peek_value(b_ref, &[Signed(16)], 0).unwrap(), Bool(true));
+        assert_eq!(eval.peek_value(b_ref, &[Signed(6)], 0).unwrap(), Bool(false));
+        assert_eq!(eval.peek_value(b_ref, &[Signed(11)], 0).unwrap(), Bool(true));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(true));
+
+        time += Duration::from_secs(1);
+        eval.new_cycle(time);
+
+        accept_input!(eval, time, a_ref, Signed(42));
+        accept_input!(eval, time, i_ref, Signed(1));
+        spawn_stream!(eval, time, b_ref);
+        eval_stream_instances!(eval, time, b_ref);
+        eval_stream_instances!(eval, time, c_ref);
+
+        assert!(stream_has_instance!(eval, b_ref, vec![Signed(42)]));
+
+        assert_eq!(eval.peek_value(b_ref, &[Signed(16)], 0).unwrap(), Bool(true));
+        assert_eq!(eval.peek_value(b_ref, &[Signed(6)], 0).unwrap(), Bool(false));
+        assert_eq!(eval.peek_value(b_ref, &[Signed(11)], 0).unwrap(), Bool(true));
+        assert!(eval.peek_value(b_ref, &[Signed(42)], 0).is_none());
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(true));
+
+        eval_close!(eval, time, b_ref, vec![Signed(16)]);
+        eval_close!(eval, time, b_ref, vec![Signed(6)]);
+        eval_close!(eval, time, b_ref, vec![Signed(11)]);
+        eval_close!(eval, time, b_ref, vec![Signed(42)]);
+
+        time += Duration::from_secs(1);
+        eval.new_cycle(time);
+
+        accept_input!(eval, time, a_ref, Signed(4));
+        accept_input!(eval, time, i_ref, Signed(0));
+        spawn_stream!(eval, time, b_ref);
+        eval_stream_instances!(eval, time, b_ref);
+        eval_stream_instances!(eval, time, c_ref);
+
+        assert!(stream_has_instance!(eval, b_ref, vec![Signed(4)]));
+
+        assert_eq!(eval.peek_value(b_ref, &[Signed(4)], 0).unwrap(), Bool(false));
+        assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(false));
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses() {
+        let (_, eval, start) = setup(
+            "input a : UInt64\n\
+            output b
+                eval @a when a < 10 with a + 1
+                eval @a when a < 20 with a + 2
+                eval @a with a + 3",
+        );
+        let mut eval = eval.into_evaluator();
+        let out_ref = StreamReference::Out(0);
+        let a_ref = StreamReference::In(0);
+
+        accept_input!(eval, start, a_ref, Unsigned(0));
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Unsigned(1));
+        accept_input!(eval, start, a_ref, Unsigned(12));
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Unsigned(14));
+        accept_input!(eval, start, a_ref, Unsigned(20));
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Unsigned(23));
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses_no_filter() {
+        let (_, eval, start) = setup(
+            "input a : UInt64\n\
+            output b
+                eval @a with a + 1
+                eval @a when a < 20 with a + 2",
+        );
+        let mut eval = eval.into_evaluator();
+        let out_ref = StreamReference::Out(0);
+        let a_ref = StreamReference::In(0);
+
+        accept_input!(eval, start, a_ref, Unsigned(0));
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Unsigned(1));
+        accept_input!(eval, start, a_ref, Unsigned(12));
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Unsigned(13));
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses_different_ac() {
+        let (_, eval, start) = setup(
+            "input a : UInt64\ninput b : UInt64\n\
+            output c : UInt64
+                eval @a&&b with 1
+                eval @a with 2",
+        );
+        let mut eval = eval.into_evaluator();
+        let out_ref = StreamReference::Out(0);
+        let a_ref = StreamReference::In(0);
+        let b_ref = StreamReference::In(1);
+
+        accept_input!(eval, start, a_ref, Unsigned(0));
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Unsigned(2));
+        accept_input!(eval, start, a_ref, Unsigned(1));
+        accept_input!(eval, start, b_ref, Unsigned(1));
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Unsigned(1));
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses_ac_and_filter() {
+        let (_, eval, start) = setup(
+            "input a : UInt64\ninput b : UInt64\n\
+            output c : UInt64
+                eval @a&&b when b < 10 with 1
+                eval @a&&b with 3
+                eval @a when a < 10 with 2
+                eval @a with 4",
+        );
+        let mut eval = eval.into_evaluator();
+        let out_ref = StreamReference::Out(0);
+        let a_ref = StreamReference::In(0);
+        let b_ref = StreamReference::In(1);
+
+        accept_input!(eval, start, a_ref, Unsigned(11));
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Unsigned(4));
+
+        accept_input!(eval, start, a_ref, Unsigned(0));
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Unsigned(2));
+
+        accept_input!(eval, start, a_ref, Unsigned(1));
+        accept_input!(eval, start, b_ref, Unsigned(11));
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Unsigned(3));
+
+        accept_input!(eval, start, a_ref, Unsigned(1));
+        accept_input!(eval, start, b_ref, Unsigned(1));
+        eval_stream_instances!(eval, start, out_ref);
+        assert_eq!(eval.peek_value(out_ref, &[], 0).unwrap(), Unsigned(1));
+    }
+
+    // Corresponds to issue #18
+    #[test]
+    fn test_parameterized_window_bug() {
+        let (_, eval, mut time) = setup(
+            "input a : Int64
+                output b(p1)
+                    spawn with a
+                    eval when a == p1 with true
+                output c(p1)
+                    spawn with a
+                    eval @1Hz with b(p1).aggregate(over: 10s, using: count)
+                ",
+        );
+        let mut eval = eval.into_evaluator();
+        let a_ref = StreamReference::In(0);
+        let b_ref = StreamReference::Out(0);
+        let c_ref = StreamReference::Out(1);
+        let mut tracer = NoTracer::default();
+
+        time += Duration::from_millis(1000);
+        eval.eval_event(&[Signed(1)], time, &mut tracer);
+        assert!(stream_has_instance!(eval, b_ref, vec![Signed(1)]));
+        assert!(stream_has_instance!(eval, c_ref, vec![Signed(1)]));
+        assert_eq!(eval.peek_value(b_ref, &[Signed(1)], 0).unwrap(), Bool(true));
+
+        time += Duration::from_millis(1000);
+        eval.eval_time_driven_tasks(
+            vec![EvaluationTask::Evaluate(c_ref.out_ix(), vec![Signed(1)])],
+            time,
+            &mut tracer,
+        );
+        eval.eval_event(&[Signed(1)], time, &mut tracer);
+        assert_eq!(eval.peek_value(b_ref, &[Signed(1)], 0).unwrap(), Bool(true));
+        assert_eq!(eval.peek_value(c_ref, &[Signed(1)], 0).unwrap(), Unsigned(1));
+
+        time += Duration::from_millis(1000);
+        eval.eval_time_driven_tasks(
+            vec![EvaluationTask::Evaluate(c_ref.out_ix(), vec![Signed(1)])],
+            time,
+            &mut tracer,
+        );
+        assert_eq!(eval.peek_value(c_ref, &[Signed(1)], 0).unwrap(), Unsigned(2));
+
+        // This test is correct and shows the inteded behavior. Yet it is confusing as inputs coincide with periods.
+        /*
+         The following is the order of events that take place:
+         1s: a = 1 -> b spawns -> c spawns -> the windows is created -> b = true -> window = 1
+         2s: c = 1 -> a = 1 -> b = true -> window = 2
+         3s: c = 2
+        !!! Remember that in case that an input coincides with a deadline, the deadline is evaluated first, hence the confusing order of events at time 2s
+         */
     }
 }

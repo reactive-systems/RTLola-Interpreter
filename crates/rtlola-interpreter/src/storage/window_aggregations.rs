@@ -1,6 +1,9 @@
 use std::marker::PhantomData;
 use std::ops::Add;
 
+use ordered_float::NotNan;
+use rust_decimal::prelude::*;
+
 use crate::storage::window::{WindowGeneric, WindowIv};
 use crate::storage::Value;
 use crate::Time;
@@ -186,10 +189,10 @@ impl<G: WindowGeneric> From<(Value, Time)> for AvgIv<G> {
 
 #[derive(Clone, Debug)]
 pub(crate) struct IntegralIv {
-    volume: f64,
-    end_value: f64,
+    volume: Decimal,
+    end_value: Decimal,
     end_time: Time,
-    start_value: f64,
+    start_value: Decimal,
     start_time: Time,
     valid: bool,
 }
@@ -197,10 +200,10 @@ pub(crate) struct IntegralIv {
 impl WindowIv for IntegralIv {
     fn default(time: Time) -> IntegralIv {
         IntegralIv {
-            volume: 0f64,
-            end_value: 0f64,
+            volume: Decimal::zero(),
+            end_value: Decimal::zero(),
             end_time: time,
-            start_value: 0f64,
+            start_value: Decimal::zero(),
             start_time: time,
             valid: false,
         }
@@ -209,7 +212,7 @@ impl WindowIv for IntegralIv {
 
 impl From<IntegralIv> for Value {
     fn from(iv: IntegralIv) -> Value {
-        Value::new_float(iv.volume)
+        Value::try_from(iv.volume).unwrap()
     }
 }
 
@@ -226,14 +229,13 @@ impl Add for IntegralIv {
         }
 
         let start_volume = self.volume + other.volume;
-
         assert!(other.start_time >= self.end_time, "Time does not behave monotonically!");
-        let time_diff = other.start_time - self.end_time;
-        let time_diff_secs = (time_diff.as_secs() as f64) + (f64::from(time_diff.subsec_nanos())) / (100_000_000f64);
-        let time_diff = time_diff_secs;
+        let time_diff_dur = other.start_time - self.end_time;
+        let time_diff = (Decimal::from(time_diff_dur.as_secs()))
+            + (Decimal::from(time_diff_dur.subsec_nanos()) / Decimal::from(100_000_000));
         let value_sum = other.start_value + self.end_value;
 
-        let additional_volume = value_sum * time_diff / 2f64;
+        let additional_volume = value_sum * time_diff / Decimal::from(2);
 
         let volume = start_volume + additional_volume;
         let end_value = other.end_value;
@@ -255,13 +257,13 @@ impl Add for IntegralIv {
 impl From<(Value, Time)> for IntegralIv {
     fn from(v: (Value, Time)) -> IntegralIv {
         let f = match v.0 {
-            Value::Signed(i) => i as f64,
-            Value::Unsigned(u) => u as f64,
-            Value::Float(f) => f.into(),
+            Value::Signed(i) => Decimal::from(i),
+            Value::Unsigned(u) => Decimal::from(u),
+            Value::Float(f) => Decimal::from_f64(f.into()).unwrap(),
             _ => unreachable!("Type error."),
         };
         IntegralIv {
-            volume: 0f64,
+            volume: Decimal::zero(),
             end_value: f,
             end_time: v.1,
             start_value: f,
@@ -497,7 +499,6 @@ impl<G: WindowGeneric> PercentileIv<G> {
     pub(crate) fn percentile_get_value(self, percentile: u8) -> Value {
         let idx: f32 = self.count as f32 * (percentile as f32 / 100.0);
         let int_idx = (idx.ceil() as usize) - 1;
-        let idx = idx;
         if self.values.is_empty() {
             return Value::None;
         }
@@ -520,7 +521,7 @@ impl<G: WindowGeneric> PercentileIv<G> {
         let denominator = match &values[0] {
             Value::Unsigned(_) => Value::Unsigned(2),
             Value::Signed(_) => Value::Signed(2),
-            Value::Float(_) => Value::new_float(2.0),
+            Value::Float(_) => Value::try_from(2.0).unwrap(),
             _ => unreachable!("Type error."),
         };
 
@@ -584,68 +585,70 @@ impl<G: WindowGeneric> Add for PercentileIv<G> {
 
 #[derive(Clone, Debug)]
 pub(crate) struct VarianceIv {
-    count: Value,
-    var: Value,
-    mean: Value,
+    count: usize,
+    m_2: Decimal,
+    sum: Decimal,
 }
 
 impl WindowIv for VarianceIv {
     fn default(_ts: Time) -> VarianceIv {
         VarianceIv {
-            count: Value::new_float(0.0),
-            var: Value::None,
-            mean: Value::None,
+            count: 0,
+            m_2: Decimal::zero(),
+            sum: Decimal::zero(),
         }
     }
 }
 
 impl From<VarianceIv> for Value {
     fn from(iv: VarianceIv) -> Value {
-        iv.var / iv.count
+        if iv.count == 0 {
+            return Value::Float(NotNan::from(0));
+        }
+        Value::try_from(iv.m_2 / Decimal::from(iv.count)).expect("")
     }
 }
 
 impl From<(Value, Time)> for VarianceIv {
     fn from(v: (Value, Time)) -> VarianceIv {
         VarianceIv {
-            count: Value::new_float(1.0),
-            var: Value::new_float(0.0),
-            mean: v.0,
+            count: 1,
+            m_2: 0.0.try_into().unwrap(),
+            sum: v.0.try_into().unwrap(),
         }
     }
 }
 
+// This is baded on: https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
 impl Add for VarianceIv {
     type Output = VarianceIv;
 
     fn add(self, other: VarianceIv) -> VarianceIv {
-        if self.mean == Value::None {
+        if self.count == 0 {
             return other;
         }
-        if other.mean == Value::None {
+        if other.count == 0 {
             return self;
         }
 
-        let VarianceIv { count, var, mean } = self;
+        let VarianceIv { count, m_2: var, sum } = self;
 
         let VarianceIv {
             count: o_count,
-            var: o_var,
-            mean: o_mean,
+            m_2: o_var,
+            sum: o_sum,
         } = other;
 
-        let mean_diff = o_mean - mean.clone();
-        let new_var = var
-            + o_var
-            + (mean_diff.clone().pow(Value::new_float(2.0)) * count.clone() * o_count.clone()
-                / (count.clone() + o_count.clone()));
-        let new_mean = mean + mean_diff * (o_count.clone() / (count.clone() + o_count.clone()));
+        let mean_diff = (o_sum / (Decimal::from(o_count))) - (sum / Decimal::from(count));
+
+        let new_var =
+            var + o_var + mean_diff * mean_diff * (Decimal::from(count * o_count)) / (Decimal::from(count + o_count));
 
         let new_count = count + o_count;
         VarianceIv {
             count: new_count,
-            var: new_var,
-            mean: new_mean,
+            m_2: new_var,
+            sum: sum + o_sum,
         }
     }
 }
@@ -666,7 +669,7 @@ impl WindowIv for SdIv {
 impl From<SdIv> for Value {
     fn from(iv: SdIv) -> Value {
         let v: Value = iv.viv.into();
-        v.pow(Value::new_float(0.5))
+        v.pow(Value::try_from(0.5).unwrap())
     }
 }
 
@@ -690,30 +693,32 @@ impl Add for SdIv {
 ///////////////////////////////////////////////
 //////////////// Covariance //////////////////
 ///////////////////////////////////////////////
-
-//TODO NOT FINAL DO NOT USE
+// See https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Online for refernce
 #[derive(Clone, Debug)]
 pub(crate) struct CovIv {
-    count: Value,
-    co_moment: Value,
-    mean_x: Value,
-    mean_y: Value,
+    count: usize,
+    co_moment: Decimal,
+    sum_x: Decimal,
+    sum_y: Decimal,
 }
 
 impl WindowIv for CovIv {
     fn default(_ts: Time) -> CovIv {
         CovIv {
-            count: Value::new_float(0.0),
-            co_moment: Value::None,
-            mean_x: Value::None,
-            mean_y: Value::None,
+            count: 0,
+            co_moment: Decimal::zero(),
+            sum_x: Decimal::zero(),
+            sum_y: Decimal::zero(),
         }
     }
 }
 
 impl From<CovIv> for Value {
     fn from(iv: CovIv) -> Value {
-        iv.co_moment / iv.count
+        if iv.count == 0 {
+            return Value::None;
+        }
+        Value::try_from(iv.co_moment / Decimal::from(iv.count)).unwrap()
     }
 }
 
@@ -724,10 +729,10 @@ impl From<(Value, Time)> for CovIv {
             _ => unreachable!("covariance expects tuple input, ensured by type checker"),
         };
         CovIv {
-            count: Value::new_float(1.0),
-            co_moment: Value::new_float(0.0),
-            mean_x: x,
-            mean_y: y,
+            count: 1,
+            co_moment: Decimal::zero(),
+            sum_x: x.try_into().unwrap(),
+            sum_y: y.try_into().unwrap(),
         }
     }
 }
@@ -736,44 +741,42 @@ impl Add for CovIv {
     type Output = CovIv;
 
     fn add(self, other: CovIv) -> CovIv {
-        if self.mean_x == Value::None {
+        if self.count == 0 {
             return other;
         }
-        if other.mean_x == Value::None {
+        if other.count == 0 {
             return self;
         }
 
         let CovIv {
             count,
             co_moment,
-            mean_x,
-            mean_y,
+            sum_x,
+            sum_y,
         } = self;
 
         let CovIv {
             count: o_count,
             co_moment: o_co_moment,
-            mean_x: o_mean_x,
-            mean_y: o_mean_y,
+            sum_x: o_sum_x,
+            sum_y: o_sum_y,
         } = other;
 
-        let new_count = count.clone() + o_count.clone();
+        let new_count = count + o_count;
+        let count = Decimal::from(count);
+        let o_count = Decimal::from(o_count);
 
-        let mean_diff_x = o_mean_x.clone() - mean_x.clone();
-        let new_mean_x = mean_x.clone() + mean_diff_x * (o_count.clone() / (count.clone() + o_count.clone()));
+        let mean_diff_x = (o_sum_x / o_count) - (sum_x / count);
+        let mean_diff_y = (o_sum_y / o_count) - (sum_y / count);
 
-        let mean_diff_y = o_mean_y.clone() - mean_y.clone();
-        let new_mean_y = mean_y.clone() + mean_diff_y * (o_count.clone() / (count.clone() + o_count.clone()));
-
-        let new_co_moment = co_moment
-            + o_co_moment
-            + (mean_x - o_mean_x) * (mean_y - o_mean_y) * (count * o_count / (new_count.clone()));
+        let new_co_moment =
+            co_moment + o_co_moment + mean_diff_x * mean_diff_y * (count * o_count / Decimal::from(new_count));
 
         CovIv {
             count: new_count,
             co_moment: new_co_moment,
-            mean_x: new_mean_x,
-            mean_y: new_mean_y,
+            sum_x: sum_x + o_sum_x,
+            sum_y: sum_y + o_sum_y,
         }
     }
 }

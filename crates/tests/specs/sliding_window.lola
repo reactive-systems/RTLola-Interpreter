@@ -3,8 +3,26 @@ input a: Int64
 output count @ 10Hz := a.aggregate(over: 0.1s, using: count)
 output sum @ 10Hz := a.aggregate(over: 0.1s, using: sum)
 output average @ 10Hz := a.aggregate(over: 0.1s, using: avg).defaults(to: 10)
-//output a_float: Float32 := cast(a)
-//output integral @ 10Hz := a.aggregate(over: 0.1s, using: integral).defaults(to: 10)
+output discrete := a.aggregate(over_discrete: 2, using: sum)
+
+trigger discrete == 0 "discrete is 0"
+trigger discrete == 1 "discrete is 1"
+trigger discrete == 2 "discrete is 2"
+trigger discrete == 3 "discrete is 3"
+trigger discrete == 4 "discrete is 4"
+trigger discrete == 5 "discrete is 5"
+trigger discrete == 6 "discrete is 6"
+trigger discrete == 7 "discrete is 7"
+trigger discrete == 8 "discrete is 8"
+trigger discrete == 9 "discrete is 9"
+trigger discrete == 10 "discrete is 10"
+trigger discrete == 11 "discrete is 11"
+trigger discrete == 12 "discrete is 12"
+trigger discrete == 13 "discrete is 13"
+trigger discrete == 14 "discrete is 14"
+trigger discrete == 15 "discrete is 15"
+trigger discrete == 16 "discrete is 16"
+trigger discrete == 17 "discrete is 17"
 
 trigger count == 1 "count is 1"
 trigger count == 2 "count is 2"

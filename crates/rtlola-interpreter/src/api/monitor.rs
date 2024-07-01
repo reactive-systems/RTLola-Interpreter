@@ -6,9 +6,9 @@
 //! The preferred method to create an API is using the [ConfigBuilder](crate::ConfigBuilder) and the [monitor](crate::ConfigBuilder::monitor) method.
 //!
 //! # Input Method
-//! An input method has to implement the [Input] trait. Out of the box two different methods are provided:
-//! * [EventInput]: Provides a basic input method for anything that already is an [Event] or that can be transformed into one using `Into<Event>`.
-//! * [RecordInput]: Is a more elaborate input method. It allows to provide a custom data structure to the monitor as an input, as long as it implements the [Record] trait.
+//! An input method has to implement the [EventFactory](crate::input::EventFactory) trait. Out of the box two different methods are provided:
+//! * [ArrayFactory](crate::input::ArrayFactory): Provides a basic input method for anything that already is an [Event] or that can be transformed into one using `TryInto<[Value]>`.
+//! * [MappedFactory](crate::input::MappedFactory): Is a more elaborate input method. It allows to provide a custom data structure to the monitor as an event, as long as it implements the [InputMap](crate::input::InputMap) trait.
 //!     If implemented this traits provides functionality to generate a new value for any input stream from the data structure.
 //!
 //! # Output Method
@@ -17,10 +17,7 @@
 //! * [Total]: For each event a complete snapshot of the current monitor state is returned
 //! * [TotalIncremental](crate::monitor::TotalIncremental): For each processed event a complete list of monitor state changes is provided
 //! * [TriggerMessages]: For each event a list of violated triggers with their description is produced.
-//! * [TriggersWithInfoValues]: For each event a list of violated triggers with their specified corresponding values is returned.
 use std::cell::RefCell;
-use std::collections::HashMap;
-use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomData;
 use std::rc::Rc;
@@ -31,13 +28,14 @@ use rtlola_frontend::mir::{InputReference, OutputReference, RtLolaMir, Type};
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-use crate::config::Config;
-use crate::configuration::time::{init_start_time, OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
+use crate::config::{Config, ExecutionMode};
+use crate::configuration::time::{OutputTimeRepresentation, RelativeFloat, TimeRepresentation};
 use crate::evaluator::{Evaluator, EvaluatorData};
+use crate::input::{EventFactory, EventFactoryError};
 use crate::schedule::schedule_manager::ScheduleManager;
 use crate::schedule::DynamicSchedule;
 use crate::storage::Value;
-use crate::{CondDeserialize, CondSerialize, NoError, Time};
+use crate::{CondSerialize, Time};
 
 /// An event to be handled by the interpreter
 pub type Event = Vec<Value>;
@@ -207,7 +205,7 @@ pub struct TotalIncremental {
     /// The set of changed outputs.
     pub outputs: Vec<(OutputReference, Vec<Change>)>,
     /// The set of changed triggers. I.e. all triggers that were activated.
-    pub trigger: Vec<(OutputReference, String)>,
+    pub trigger: Vec<OutputReference>,
 }
 
 impl VerdictRepresentation for TotalIncremental {
@@ -216,12 +214,7 @@ impl VerdictRepresentation for TotalIncremental {
     fn create(data: RawVerdict) -> Self {
         let inputs = data.eval.peek_fresh_input();
         let outputs = data.eval.peek_fresh_outputs();
-        let trigger = data
-            .eval
-            .peek_violated_triggers()
-            .into_iter()
-            .map(|t| (t, data.eval.format_trigger_message(t)))
-            .collect();
+        let trigger = data.eval.peek_violated_triggers();
         Self {
             inputs,
             outputs,
@@ -266,7 +259,7 @@ impl VerdictRepresentation for Total {
 /**
     Represents the index and the formatted message of all violated triggers.
 */
-pub type TriggerMessages = Vec<(OutputReference, String)>;
+pub type TriggerMessages = Vec<(OutputReference, Parameters, String)>;
 
 impl VerdictRepresentation for TriggerMessages {
     type Tracing = NoTracer;
@@ -275,35 +268,7 @@ impl VerdictRepresentation for TriggerMessages {
     where
         Self: Sized,
     {
-        let violated_trigger = data.eval.peek_violated_triggers();
-        violated_trigger
-            .into_iter()
-            .map(|sr| (sr, data.eval.format_trigger_message(sr)))
-            .collect()
-    }
-
-    fn is_empty(&self) -> bool {
-        Vec::is_empty(self)
-    }
-}
-
-/**
-    Represents the index and the info values of all violated triggers.
-*/
-pub type TriggersWithInfoValues = Vec<(OutputReference, Vec<Option<Value>>)>;
-
-impl VerdictRepresentation for TriggersWithInfoValues {
-    type Tracing = NoTracer;
-
-    fn create(data: RawVerdict) -> Self
-    where
-        Self: Sized,
-    {
-        let violated_trigger = data.eval.peek_violated_triggers();
-        violated_trigger
-            .into_iter()
-            .map(|sr| (sr, data.eval.peek_info_stream_values(sr)))
-            .collect()
+        data.eval.peek_violated_triggers_messages()
     }
 
     fn is_empty(&self) -> bool {
@@ -334,16 +299,16 @@ The Monitor is the central object exposed by the API.
 The [Monitor] accepts new events and computes streams.
 It can compute event-based streams based on new events through `accept_event`.
 It can also simply advance periodic streams up to a given timestamp through `accept_time`.
-The generic argument `Source` implements the [Input] trait describing the input source of the API.
+The generic argument `Source` implements the [EventFactory] trait describing the input source of the API.
 The generic argument `SourceTime` implements the [TimeRepresentation] trait defining the input time format.
 The generic argument `Verdict` implements the [VerdictRepresentation] trait describing the output format of the API that is by default [Incremental].
 The generic argument `VerdictTime` implements the [TimeRepresentation] trait defining the output time format. It defaults to [RelativeFloat]
  */
 #[allow(missing_debug_implementations)]
-pub struct Monitor<Source, SourceTime, Verdict = Incremental, VerdictTime = RelativeFloat>
+pub struct Monitor<Source, Mode, Verdict = Incremental, VerdictTime = RelativeFloat>
 where
-    Source: Input,
-    SourceTime: TimeRepresentation,
+    Source: EventFactory,
+    Mode: ExecutionMode,
     Verdict: VerdictRepresentation,
     VerdictTime: OutputTimeRepresentation + 'static,
 {
@@ -354,30 +319,31 @@ where
 
     source: Source,
 
-    source_time: SourceTime,
+    source_time: Mode::SourceTime,
     output_time: VerdictTime,
 
     phantom: PhantomData<Verdict>,
 }
 
 /// Crate-public interface
-impl<Source, SourceTime, Verdict, VerdictTime> Monitor<Source, SourceTime, Verdict, VerdictTime>
+impl<Source, Mode, Verdict, VerdictTime> Monitor<Source, Mode, Verdict, VerdictTime>
 where
-    Source: Input,
-    SourceTime: TimeRepresentation,
+    Source: EventFactory,
+    Mode: ExecutionMode,
     Verdict: VerdictRepresentation,
     VerdictTime: OutputTimeRepresentation,
 {
     ///setup
     pub fn setup(
-        config: Config<SourceTime, VerdictTime>,
+        config: Config<Mode, VerdictTime>,
         setup_data: Source::CreationData,
-    ) -> Result<Monitor<Source, SourceTime, Verdict, VerdictTime>, Source::Error> {
+    ) -> Result<Monitor<Source, Mode, Verdict, VerdictTime>, EventFactoryError> {
         let dyn_schedule = Rc::new(RefCell::new(DynamicSchedule::new()));
-        let source_time = config.input_time_representation;
-        let output_time = VerdictTime::default();
+        let mut source_time = config.mode.time_representation().clone();
+        let mut output_time = VerdictTime::default();
 
-        init_start_time::<SourceTime>(config.start_time);
+        let st = source_time.init_start_time(config.start_time);
+        output_time.set_start_time(st);
 
         let input_map = config
             .ir
@@ -438,155 +404,11 @@ impl<'a> From<&'a Evaluator> for RawVerdict<'a> {
     }
 }
 
-/// This trait provides the functionality to pass inputs to the monitor.
-/// You can either implement this trait for your own Datatype or use one of the predefined input methods.
-/// See [RecordInput] and [EventInput]
-pub trait Input: Sized {
-    /// The type from which an event is generated by the input source.
-    type Record: Send;
-
-    /// The error type returned by the input source on IO errors or parsing issues.
-    type Error: Error + Send + 'static;
-
-    /// Arbitrary type of the data provided to the input source at creation time.
-    type CreationData: Clone + Send;
-
-    /// Creates a new input source from a HashMap mapping the names of the inputs in the specification to their position in the event.
-    fn new(map: HashMap<String, InputReference>, setup_data: Self::CreationData) -> Result<Self, Self::Error>;
-
-    /// This function converts a record to an event.
-    fn get_event(&self, rec: Self::Record) -> Result<Event, Self::Error>;
-}
-
-/// This trait provides functionality to parse a record into an event.
-/// It is only used in combination with the [RecordInput].
-pub trait Record: Send {
-    /// Arbitrary type of the data provided at creation time to help initializing the input method.
-    type CreationData: Clone + Send;
-    /// The error returned if anything goes wrong.
-    type Error: Error + Send + 'static;
-    /// Given the name of an input this function returns a function that given a record returns the value for that input.
-    fn func_for_input(name: &str, data: Self::CreationData) -> Result<ValueProjection<Self, Self::Error>, Self::Error>;
-}
-
-/// A function Type that projects a reference to `From` to a `Value`
-pub type ValueProjection<From, E> = Box<dyn (Fn(&From) -> Result<Value, E>)>;
-
-/// An input method for types that implement the [Record] trait. Useful if you do not want to bother with the order of the input streams in an event.
-/// Assuming the specification has 3 inputs: 'a', 'b' and 'c'. You could implement this trait for your custom 'MyType' as follows:
-/// ```
-/// use std::fmt::Formatter;
-///
-/// use rtlola_interpreter::monitor::Record;
-/// use rtlola_interpreter::Value;
-/// #[cfg(feature = "serde")]
-/// use serde::{Deserialize, Serialize};
-///
-/// #[derive(Debug, Clone)]
-/// struct MyError(String);
-/// impl std::fmt::Display for MyError {
-///     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-///         write!(f, "An error occurred: {}", self.0)
-///     }
-/// }
-/// impl std::error::Error for MyError {}
-///
-/// #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-/// struct MyType {
-///     a: u64,
-///     b: Option<bool>,
-///     c: String,
-/// }
-///
-/// impl MyType {
-///     // Generate a new value for input stream 'a'
-///     fn a(rec: &Self) -> Result<Value, MyError> {
-///         Ok(Value::from(rec.a))
-///     }
-///
-///     // Generate a new value for input stream 'b'
-///     fn b(rec: &Self) -> Result<Value, MyError> {
-///         Ok(rec.b.map(|b| Value::from(b)).unwrap_or(Value::None))
-///     }
-///
-///     // Generate a new value for input stream 'c'
-///     fn c(rec: &Self) -> Result<Value, MyError> {
-///         Ok(Value::Str(rec.c.clone().into_boxed_str()))
-///     }
-/// }
-///
-/// impl Record for MyType {
-///     type CreationData = ();
-///     type Error = MyError;
-///
-///     fn func_for_input(
-///         name: &str,
-///         _data: Self::CreationData,
-///     ) -> Result<Box<dyn (Fn(&MyType) -> Result<Value, MyError>)>, MyError> {
-///         match name {
-///             "a" => Ok(Box::new(Self::a)),
-///             "b" => Ok(Box::new(Self::b)),
-///             "c" => Ok(Box::new(Self::c)),
-///             x => {
-///                 Err(MyError(format!(
-///                     "Unexpected input stream {} in specification.",
-///                     x
-///                 )))
-///             },
-///         }
-///     }
-/// }
-/// ```
-#[allow(missing_debug_implementations)]
-pub struct RecordInput<Inner: Record> {
-    translators: Vec<ValueProjection<Inner, Inner::Error>>,
-}
-
-impl<Inner: Record> Input for RecordInput<Inner> {
-    type CreationData = Inner::CreationData;
-    type Error = Inner::Error;
-    type Record = Inner;
-
-    fn new(map: HashMap<String, InputReference>, setup_data: Self::CreationData) -> Result<Self, Self::Error> {
-        let mut translators: Vec<Option<_>> = (0..map.len()).map(|_| None).collect();
-        for (input_name, index) in map {
-            translators[index] = Some(Inner::func_for_input(input_name.as_str(), setup_data.clone())?)
-        }
-        let translators = translators.into_iter().map(Option::unwrap).collect();
-        Ok(Self { translators })
-    }
-
-    fn get_event(&self, rec: Inner) -> Result<Event, Self::Error> {
-        self.translators.iter().map(|f| f(&rec)).collect()
-    }
-}
-
-/// The simplest input method to the monitor. It accepts any type that implements `Into<Event>`.
-/// The conversion to values and the order of inputs must be handled externally.
-#[derive(Debug, Clone)]
-pub struct EventInput<E: Into<Event> + CondSerialize + CondDeserialize> {
-    phantom: PhantomData<E>,
-}
-
-impl<E: Into<Event> + Send + CondSerialize + CondDeserialize> Input for EventInput<E> {
-    type CreationData = ();
-    type Error = NoError;
-    type Record = E;
-
-    fn new(_map: HashMap<String, InputReference>, _setup_data: Self::CreationData) -> Result<Self, Self::Error> {
-        Ok(EventInput { phantom: PhantomData })
-    }
-
-    fn get_event(&self, rec: Self::Record) -> Result<Event, Self::Error> {
-        Ok(rec.into())
-    }
-}
-
 /// Public interface
-impl<Source, SourceTime, Verdict, VerdictTime> Monitor<Source, SourceTime, Verdict, VerdictTime>
+impl<Source, Mode, Verdict, VerdictTime> Monitor<Source, Mode, Verdict, VerdictTime>
 where
-    Source: Input,
-    SourceTime: TimeRepresentation,
+    Source: EventFactory,
+    Mode: ExecutionMode,
     Verdict: VerdictRepresentation,
     VerdictTime: OutputTimeRepresentation,
 {
@@ -598,8 +420,8 @@ where
     pub fn accept_event(
         &mut self,
         ev: Source::Record,
-        ts: SourceTime::InnerTime,
-    ) -> Result<Verdicts<Verdict, VerdictTime>, Source::Error> {
+        ts: <Mode::SourceTime as TimeRepresentation>::InnerTime,
+    ) -> Result<Verdicts<Verdict, VerdictTime>, EventFactoryError> {
         let mut tracer = Verdict::Tracing::default();
 
         tracer.parse_start();
@@ -635,7 +457,10 @@ where
     /**
     Computes all periodic streams up through and including the timestamp.
     */
-    pub fn accept_time(&mut self, ts: SourceTime::InnerTime) -> Vec<(VerdictTime::InnerTime, Verdict)> {
+    pub fn accept_time(
+        &mut self,
+        ts: <Mode::SourceTime as TimeRepresentation>::InnerTime,
+    ) -> Vec<(VerdictTime::InnerTime, Verdict)> {
         let ts = self.source_time.convert_from(ts);
 
         let timed = if self.ir.has_time_driven_features() {
@@ -674,19 +499,10 @@ where
     }
 
     /**
-    Get the message of a trigger based on its index.
-
-    The reference is valid for the lifetime of the monitor.
-    */
-    pub fn trigger_message(&self, id: usize) -> &str {
-        self.ir.triggers[id].message.as_str()
-    }
-
-    /**
     Get the [OutputReference] of a trigger based on its index.
     */
     pub fn trigger_stream_index(&self, id: usize) -> usize {
-        self.ir.triggers[id].reference.out_ix()
+        self.ir.triggers[id].output_reference.out_ix()
     }
 
     /**
@@ -742,7 +558,7 @@ where
     }
 
     /// Switch [VerdictRepresentation]s of the [Monitor].
-    pub fn with_verdict_representation<T: VerdictRepresentation>(self) -> Monitor<Source, SourceTime, T, VerdictTime> {
+    pub fn with_verdict_representation<T: VerdictRepresentation>(self) -> Monitor<Source, Mode, T, VerdictTime> {
         let Monitor {
             ir,
             eval,
@@ -766,21 +582,27 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::convert::Infallible;
     use std::time::{Duration, Instant};
 
     use crate::api::monitor::Change;
-    use crate::monitor::{Event, EventInput, Incremental, Monitor, Total, Value, VerdictRepresentation};
+    use crate::config::OfflineMode;
+    use crate::input::ArrayFactory;
+    use crate::monitor::{Incremental, Monitor, Total, Value, VerdictRepresentation};
     use crate::time::RelativeFloat;
     use crate::ConfigBuilder;
 
-    fn setup<V: VerdictRepresentation>(
+    fn setup<const N: usize, V: VerdictRepresentation>(
         spec: &str,
-    ) -> (Instant, Monitor<EventInput<Event>, RelativeFloat, V, RelativeFloat>) {
+    ) -> (
+        Instant,
+        Monitor<ArrayFactory<N, Infallible, [Value; N]>, OfflineMode<RelativeFloat>, V, RelativeFloat>,
+    ) {
         // Init Monitor API
         let monitor = ConfigBuilder::new()
             .spec_str(spec)
             .offline::<RelativeFloat>()
-            .event_input::<Event>()
+            .with_array_events::<N, Infallible, [Value; N]>()
             .with_verdict::<V>()
             .monitor()
             .expect("Failed to create monitor");
@@ -800,7 +622,7 @@ mod tests {
 
     #[test]
     fn test_const_output_literals() {
-        let (start, mut monitor) = setup::<Total>(
+        let (start, mut monitor) = setup::<1, Total>(
             r#"
         input i_0: UInt8
 
@@ -813,7 +635,7 @@ mod tests {
         );
         let v = Value::Unsigned(3);
         let res = monitor
-            .accept_event(vec![v.clone()], start.elapsed())
+            .accept_event([v.clone()], start.elapsed())
             .expect("Failed to accept value");
         assert!(res.timed.is_empty());
         let res = res.event;
@@ -821,19 +643,19 @@ mod tests {
         assert_eq!(res.outputs[0][0], (None, Some(Value::Bool(true))));
         assert_eq!(res.outputs[1][0], (None, Some(Value::Unsigned(3))));
         assert_eq!(res.outputs[2][0], (None, Some(Value::Signed(-5))));
-        assert_eq!(res.outputs[3][0], (None, Some(Value::new_float(-123.456))));
+        assert_eq!(res.outputs[3][0], (None, Some(Value::try_from(-123.456).unwrap())));
         assert_eq!(res.outputs[4][0], (None, Some(Value::Str("foobar".into()))));
     }
 
     #[test]
     fn test_count_window() {
         let (_, mut monitor) =
-            setup::<Incremental>("input a: UInt16\noutput b: UInt16 @0.25Hz := a.aggregate(over: 40s, using: #)");
+            setup::<1, Incremental>("input a: UInt16\noutput b: UInt16 @0.25Hz := a.aggregate(over: 40s, using: #)");
 
         let n = 25;
         let mut time = Duration::from_secs(45);
         let res = monitor
-            .accept_event(vec![Value::Unsigned(1)], time)
+            .accept_event([Value::Unsigned(1)], time)
             .expect("Failed to accept value");
         assert!(res.event.is_empty());
         assert_eq!(res.timed.len(), 11);
@@ -843,7 +665,7 @@ mod tests {
         for v in 2..=n {
             time += Duration::from_secs(1);
             let res = monitor
-                .accept_event(vec![Value::Unsigned(v)], time)
+                .accept_event([Value::Unsigned(v)], time)
                 .expect("Failed to accept value");
 
             assert_eq!(res.event.len(), 0);
@@ -858,7 +680,7 @@ mod tests {
 
     #[test]
     fn test_spawn_eventbased() {
-        let (_, mut monitor) = setup::<Total>(
+        let (_, mut monitor) = setup::<2, Total>(
             "input a: Int32\n\
                   input b: Int32\n\
                   output c(x: Int32) spawn with a eval with x + a\n\
@@ -866,7 +688,7 @@ mod tests {
         );
 
         let res = monitor
-            .accept_event(vec![Value::Signed(15), Value::None], Duration::from_secs(1))
+            .accept_event([Value::Signed(15), Value::None], Duration::from_secs(1))
             .expect("Failed to accept value");
         let expected = Total {
             inputs: vec![Some(Value::Signed(15)), None],
@@ -879,7 +701,7 @@ mod tests {
         assert_eq!(res.timed.len(), 0);
 
         let res = monitor
-            .accept_event(vec![Value::Signed(20), Value::Signed(7)], Duration::from_secs(2))
+            .accept_event([Value::Signed(20), Value::Signed(7)], Duration::from_secs(2))
             .expect("Failed to accept value");
         let expected = Total {
             inputs: vec![Some(Value::Signed(20)), Some(Value::Signed(7))],
@@ -895,7 +717,7 @@ mod tests {
         assert_eq!(res.timed.len(), 0);
 
         let res = monitor
-            .accept_event(vec![Value::None, Value::Signed(42)], Duration::from_secs(3))
+            .accept_event([Value::None, Value::Signed(42)], Duration::from_secs(3))
             .expect("Failed to accept value");
         let expected = Total {
             inputs: vec![Some(Value::Signed(20)), Some(Value::Signed(42))],
@@ -913,7 +735,7 @@ mod tests {
 
     #[test]
     fn test_eval_close() {
-        let (_, mut monitor) = setup::<Incremental>(
+        let (_, mut monitor) = setup::<1, Incremental>(
             "input a: Int32\n\
                   output c(x: Int32)\n\
                     spawn with a \n\
@@ -922,7 +744,7 @@ mod tests {
         );
 
         let res = monitor
-            .accept_event(vec![Value::Signed(15)], Duration::from_secs(1))
+            .accept_event([Value::Signed(15)], Duration::from_secs(1))
             .expect("Failed to accept value");
         let mut expected = vec![
             Change::Spawn(vec![Value::Signed(15)]),

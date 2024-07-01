@@ -1,6 +1,6 @@
 [package]
 name = "rtlola-cli"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "A CLI interface for the RTLola interpreter."
 readme = "README.md"
@@ -15,22 +15,28 @@ authors = [
     "Stefan Oswald <stefano97@gmx.de>",
     "Malte Schledjewski <schledjewski@react.uni-saarland.de>",
     "Maximilian Schwenger <schwenger@react.uni-saarland.de>",
+    "Frederik Scheerer <frederik.scheerer@cispa.de>",
     "Marvin Stenger <stenger@react.uni-saarland.de>",
-    "Leander Tentrup <tentrup@react.uni-saarland.de>"
+    "Leander Tentrup <tentrup@react.uni-saarland.de>",
 ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rtlola-interpreter = "0.9.0"
-rtlola-input-plugins = {version="0.1.0", default-features = false, features=["csv_plugin"]}
-rtlola-frontend = "0.6.0"
-clap = { version = "4.0.9", features = ["derive", "cargo", "wrap_help"] } # command line parsing
+rtlola-interpreter = "0.10.0"
+rtlola-io-plugins = { version = "0.2.0", default-features = false, features = [
+    "csv_plugin",
+] }
+clap = { version = "4.0.9", features = [
+    "derive",
+    "cargo",
+    "wrap_help",
+] } # command line parsing
 clap_complete = "4.0.2"
-crossterm = "0.25.0"  # terminal output
+crossterm = "0.25.0" # terminal output
 human-panic = { version = "1.0.1", optional = true }
 humantime = "2.0"
 
 [features]
 public = ["human-panic"]
-pcap_interface = ["rtlola-input-plugins/pcap_plugin"]
+pcap_interface = ["rtlola-io-plugins/pcap_plugin"]

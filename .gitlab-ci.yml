@@ -5,7 +5,8 @@ stages:
   - test
   - additional-test
   - bench
-#  - release
+  - release
+  - comparison
 
 variables:
   CARGO_HOME: $CI_PROJECT_DIR/.cargo
@@ -18,9 +19,10 @@ variables:
 default:
   before_script:
     - cd crates
-    - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ rtlola-interpreter/Cargo.toml
-    - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ rtlola-input-plugins/Cargo.toml
-    - sed -i s/'git=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ rtlola-cli/Cargo.toml
+    - sed -i s/'git.*=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ rtlola-interpreter/Cargo.toml
+    - sed -i s/'git.*=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ rtlola-io-plugins/Cargo.toml
+    - sed -i s/'git.*=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ rtlola-cli/Cargo.toml
+    - sed -i s/'git.*=.*git@projects'/"git=\"https:\/\/gitlab-ci-token:${CI_JOB_TOKEN}@projects"/ rtlola-interpreter-macros/Cargo.toml
 
 # Use cargo to check the source code formatting
 format:cli:
@@ -29,8 +31,9 @@ format:cli:
     - docker
   image: rustlang/rust:nightly
   script:
-    - rustc --version && cargo --version      # Print version info for debugging
-    - cargo +nightly fmt -p rtlola-cli --verbose -- --check
+    - rustup component add rustfmt
+    - rustc --version && cargo --version # Print version info for debugging
+    - cargo fmt -p rtlola-cli --verbose -- --check
 
 format:plugins:
   stage: check-format
@@ -38,8 +41,9 @@ format:plugins:
     - docker
   image: rustlang/rust:nightly
   script:
-    - rustc --version && cargo --version      # Print version info for debugging
-    - cargo +nightly fmt -p rtlola-input-plugins --verbose -- --check
+    - rustup component add rustfmt
+    - rustc --version && cargo --version # Print version info for debugging
+    - cargo fmt -p rtlola-io-plugins --verbose -- --check
 
 # Use cargo to check the source code formatting
 format:interpreter:
@@ -48,8 +52,19 @@ format:interpreter:
     - docker
   image: rustlang/rust:nightly
   script:
-    - rustc --version && cargo --version      # Print version info for debugging
-    - cargo +nightly fmt -p rtlola-interpreter --verbose -- --check
+    - rustup component add rustfmt
+    - rustc --version && cargo --version # Print version info for debugging
+    - cargo fmt -p rtlola-interpreter --verbose -- --check
+
+format:macros:
+  stage: check-format
+  tags:
+    - docker
+  image: rustlang/rust:nightly
+  script:
+    - rustup component add rustfmt
+    - rustc --version && cargo --version # Print version info for debugging
+    - cargo fmt -p rtlola-interpreter-macros --verbose -- --check
 
 # Use cargo to run clippy (Rust linter)
 clippy:cli:
@@ -66,7 +81,7 @@ clippy:cli:
       - $CARGO_HOME
   script:
     - rustup component add clippy
-    - rustc --version && cargo --version      # Print version info for debugging
+    - rustc --version && cargo --version # Print version info for debugging
     - cargo clippy -p rtlola-cli
 
 clippy:plugins:
@@ -83,8 +98,8 @@ clippy:plugins:
       - $CARGO_HOME
   script:
     - rustup component add clippy
-    - rustc --version && cargo --version      # Print version info for debugging
-    - cargo clippy -p rtlola-input-plugins
+    - rustc --version && cargo --version # Print version info for debugging
+    - cargo clippy -p rtlola-io-plugins --all-features
 
 # Use cargo to run clippy (Rust linter)
 clippy:interpreter:
@@ -101,8 +116,25 @@ clippy:interpreter:
       - $CARGO_HOME
   script:
     - rustup component add clippy
-    - rustc --version && cargo --version      # Print version info for debugging
+    - rustc --version && cargo --version # Print version info for debugging
     - cargo clippy -p rtlola-interpreter
+
+clippy:macros:
+  stage: clippy
+  tags:
+    - docker
+  image: rust:latest
+  needs: ["format:macros"]
+  cache:
+    key: "macros"
+    policy: pull-push
+    paths:
+      - crates/target/
+      - $CARGO_HOME
+  script:
+    - rustup component add clippy
+    - rustc --version && cargo --version # Print version info for debugging
+    - cargo clippy -p rtlola-interpreter-macros
 
 # Check that every ignored test has an accompanying comment
 ignored:interpreter:
@@ -131,8 +163,26 @@ test:interpreter:
   script:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev
-    - rustc --version && cargo --version      # Print version info for debugging
+    - rustc --version && cargo --version # Print version info for debugging
     - cargo test -p rtlola-interpreter --all --verbose
+
+test:macros:
+  stage: test
+  tags:
+    - docker
+  image: rust:latest
+  needs: ["clippy:macros"]
+  cache:
+    key: "macros"
+    policy: pull-push
+    paths:
+      - crates/target/
+      - $CARGO_HOME
+  script:
+    - apt-get update -yqq
+    - apt-get install -yqq --no-install-recommends libpcap-dev
+    - rustc --version && cargo --version # Print version info for debugging
+    - cargo test -p rtlola-interpreter-macros --all --verbose
 
 # Use cargo to test the project on stable toolchain
 test:plugins:
@@ -150,8 +200,8 @@ test:plugins:
   script:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev
-    - rustc --version && cargo --version      # Print version info for debugging
-    - cargo test -p rtlola-input-plugins --all --verbose
+    - rustc --version && cargo --version # Print version info for debugging
+    - cargo test -p rtlola-io-plugins --verbose --all-features
 
 # Run the tool by checking the number of triggers fired
 test:cli:
@@ -169,7 +219,7 @@ test:cli:
   script:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev python3-pip
-    - pip3 install junit-xml
+    - pip3 install --break-system-packages junit-xml
     - python3 ./rtlola-cli/rtlola-interpreter-e2e-tests.py
   artifacts:
     when: always
@@ -182,21 +232,23 @@ test:windows:
   tags:
     - windows
     - rust
-  needs: ["test:cli", "test:plugins", "test:interpreter"]
+  needs: ["test:cli", "test:plugins", "test:interpreter", "test:macros"]
   variables:
     CARGO_HOME: "C:\\Users\\react\\.cargo"
   before_script:
     - cd crates
-    - (get-content rtlola-cli\Cargo.toml) | %{$_ -replace "git=.*git@projects","git=`"https://gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content rtlola-cli\Cargo.toml
-    - (get-content rtlola-input-plugins\Cargo.toml) | %{$_ -replace "git=.*git@projects","git=`"https://gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content rtlola-input-plugins\Cargo.toml
-    - (get-content rtlola-interpreter\Cargo.toml) | %{$_ -replace "git=.*git@projects","git=`"https://gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content rtlola-interpreter\Cargo.toml
+    - (get-content rtlola-cli\Cargo.toml) | %{$_ -replace "git.*=.*git@projects","git=`"https://gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content rtlola-cli\Cargo.toml
+    - (get-content rtlola-io-plugins\Cargo.toml) | %{$_ -replace "git.*=.*git@projects","git=`"https://gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content rtlola-io-plugins\Cargo.toml
+    - (get-content rtlola-interpreter\Cargo.toml) | %{$_ -replace "git.*=.*git@projects","git=`"https://gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content rtlola-interpreter\Cargo.toml
+    - (get-content rtlola-interpreter-macros\Cargo.toml) | %{$_ -replace "git.*=.*git@projects","git=`"https://gitlab-ci-token:${CI_JOB_TOKEN}@projects"} | set-content rtlola-interpreter-macros\Cargo.toml
     - rustup update
     - rustc --version
     - cargo --version
   script:
     - cargo test -p rtlola-cli
-    - cargo test -p rtlola-input-plugins --no-default-features --features csv_plugin
+    - cargo test -p rtlola-io-plugins --no-default-features --features csv_plugin
     - cargo test -p rtlola-interpreter
+    - cargo test -p rtlola-interpreter-macros
 
 # Use cargo to test the project on nightly toolchain
 test:nightly:
@@ -204,7 +256,7 @@ test:nightly:
   tags:
     - docker
   image: rustlang/rust:nightly
-  needs: ["test:cli", "test:plugins", "test:interpreter"]
+  needs: ["test:cli", "test:plugins", "test:interpreter", "test:macros"]
   cache:
     key: "build-nightly"
     policy: pull-push
@@ -212,19 +264,18 @@ test:nightly:
       - crates/target/
       - $CARGO_HOME
   variables:
-    RUSTFLAGS: "-Zinstrument-coverage -Zgcc-ld=lld"
+    RUSTFLAGS: "-Cinstrument-coverage"
     LLVM_PROFILE_FILE: "json5format-%m.profraw"
   script:
     - apt-get update -yqq
-    - apt-get install -yqq --no-install-recommends libpcap-dev python3-pip
-    - pip3 install junit-xml
+    - apt-get install -yqq --no-install-recommends libpcap-dev python3-junit.xml
     - cargo install cargo2junit
     - curl -L https://github.com/mozilla/grcov/releases/download/v0.6.1/grcov-linux-x86_64.tar.bz2 | tar jxf -
     - rustup component add llvm-tools-preview
     - (rm -r ./target/debug/coverage/) || true
-    - rustc --version && cargo --version      # Print version info for debugging
+    - rustc --version && cargo --version # Print version info for debugging
     - (cargo test -- -Z unstable-options --format json | $CARGO_HOME/bin/cargo2junit > results.xml) || true # ignore the return code so that we can show the complete output (including ignored tests)
-    - python3 ./rtlola-cli/rtlola-interpreter-e2e-tests.py || true        # count the e2e test for coverage but keep going
+    - python3 ./rtlola-cli/rtlola-interpreter-e2e-tests.py || true # count the e2e test for coverage but keep going
     - ./grcov . --ignore ".cargo/*" --binary-path ./target/debug/ -s . -t html --branch --ignore-not-existing --llvm -o ./target/debug/coverage/
     - cat ./target/debug/coverage/index.html
     - cargo test --all --verbose
@@ -256,7 +307,7 @@ test:online_e2e:
   script:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev python3-pip
-    - pip3 install junit-xml
+    - pip3 install --break-system-packages junit-xml
     - python3 ./rtlola-cli/rtlola-interpreter-e2e-tests.py --online
   artifacts:
     when: always
@@ -265,7 +316,7 @@ test:online_e2e:
 
 test:wasm:
   stage: additional-test
-  needs: ["test:cli", "test:plugins", "test:interpreter"]
+  needs: ["test:cli", "test:plugins", "test:interpreter", "test:macros"]
   tags:
     - docker
   image: rust:latest
@@ -318,7 +369,6 @@ test:wasm:
 # Windows, Linux, and MacOS could resolve to different Cargo.lock files.
 # However, we keep the Cargo.lock files as artifacts.
 
-
 #release-windows:
 #  stage: release
 #  only:
@@ -343,8 +393,6 @@ test:wasm:
 #      - target/x86_64-pc-windows-msvc/release/rtlola-interpreter.exe
 #      - Cargo.lock
 
-
-
 #release-windows-gnu:
 #  stage: release
 #  only:
@@ -366,29 +414,53 @@ test:wasm:
 #      - target/x86_64-pc-windows-gnu/release/rtlola-interpreter.exe
 #      - Cargo.lock
 
-#release-linux:
-#  stage: release
-#  tags:
-#    - docker
-#  image: rust:latest
-#  only:
-#    - tags
-#    - web
-#    - triggers
-#  before_script:
-#    - apt-get update -yqq
-#    - apt-get install -yqq --no-install-recommends musl-dev musl-tools clang
-#    - cd evaluator
-#    - rustup target add x86_64-unknown-linux-musl
-#    - rustc --version && cargo --version      # Print version info for debugging
-#  script:
-#    - cargo build --release --target x86_64-unknown-linux-musl --features public
-#  artifacts:
-#    name: "rtlola-interpreter-linux-${CI_COMMIT_REF_NAME}_${CI_COMMIT_SHORT_SHA}"
-#    paths:
-#      - target/x86_64-unknown-linux-musl/release/rtlola-interpreter
-#      - Cargo.lock
+release-linux:
+  stage: release
+  tags:
+    - docker
+  image: rust:latest
+  rules:
+    - if: $CI_COMMIT_BRANCH == "development"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  cache:
+    key: "cli"
+    policy: pull-push
+    paths:
+      - crates/target/
+      - $CARGO_HOME
+  script:
+    - cd rtlola-cli
+    - rustc --version && cargo --version # Print version info for debugging
+    - cargo update
+    - cargo build --release --features public
+  artifacts:
+    name: "rtlola-cli-linux-${CI_COMMIT_REF_NAME}_${CI_COMMIT_SHORT_SHA}"
+    paths:
+      - crates/target/release/rtlola-cli
 
+comparison-merge-request:
+  stage: comparison
+  needs: ["release-linux"]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  variables:
+    INTERPRETER_REF: $CI_MERGE_REQUEST_REF_PATH
+  trigger:
+    project: group-finkbeiner/tools/RTLola/rtlola-backends-comparison
+    branch: main
+
+comparison-branch:
+  stage: comparison
+  needs: ["release-linux"]
+  rules:
+    - if: $CI_COMMIT_BRANCH == "development"
+    - if: $CI_COMMIT_BRANCH == "main"
+  variables:
+    INTERPRETER_REF: $CI_COMMIT_BRANCH
+  trigger:
+    project: group-finkbeiner/tools/RTLola/rtlola-backends-comparison
+    branch: main
 #release-macos:
 #  stage: release
 #  only:

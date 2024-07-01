@@ -25,14 +25,17 @@
     unused_qualifications
 )]
 
-use std::error::Error;
-use std::fmt::{Display, Formatter};
 // Public exports
 use std::time::Duration;
 
+// Reexport itertools helper for macros
+pub use itertools::izip;
 // Reexport Frontend
+pub use rtlola_frontend;
 pub use rtlola_frontend::mir as rtlola_mir;
 
+pub use crate::api::input;
+pub use crate::api::input::ValueGetter;
 // Serialize and Deserialize traits for serde support
 pub use crate::api::monitor;
 pub use crate::api::monitor::Monitor;
@@ -42,7 +45,7 @@ pub use crate::api::queued;
 pub use crate::api::queued::QueuedMonitor;
 pub use crate::configuration::config_builder::ConfigBuilder;
 pub use crate::configuration::{config, time};
-pub use crate::storage::Value;
+pub use crate::storage::{Value, ValueConvertError};
 
 mod api;
 mod closuregen;
@@ -55,16 +58,6 @@ mod tests;
 
 /// The internal time representation.
 pub type Time = Duration;
-
-/// Represents an error type that never occurs. This can be replaced by the `Never` type once it is stabilized.
-#[derive(Debug, Copy, Clone)]
-pub struct NoError {}
-impl Display for NoError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "This error will never be thrown.")
-    }
-}
-impl Error for NoError {}
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};

@@ -194,7 +194,7 @@ with open(repo_base_dir/"tests/e2e-results.xml", 'w') as results_file:
                             if line == "":
                                 continue
                             line = ansi_escape.sub(r'', line)
-                            m = re.match(r'\[(?P<timeinfo>\d+\.\d+)\]\[Trigger\]\[#\d+\]\s(?P<trig_msg>.*)\r?\n?$', line)
+                            m = re.match(r'\[(?P<timeinfo>\d+\.\d+)\]\[Trigger\]\[#\d+\]\[Value\]\s=\s(?P<trig_msg>.*)\r?\n?$', line)
                             if m:
                                 timeinfo = m.group('timeinfo')
                                 trig_msg = m.group('trig_msg')

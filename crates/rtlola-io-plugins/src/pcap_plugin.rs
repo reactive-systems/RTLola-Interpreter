@@ -1,6 +1,5 @@
 //! This plugins enables the parsing of network packets either from a pcap file or from a network device.
 
-use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
@@ -15,7 +14,7 @@ use etherparse::{
 };
 use ip_network::IpNetwork;
 use pcap::{Activated, Capture, Device, Error as PCAPError, Packet};
-use rtlola_interpreter::monitor::{Record, ValueProjection};
+use rtlola_interpreter::input::{EventFactoryError, InputMap, ValueGetter};
 use rtlola_interpreter::time::TimeRepresentation;
 use rtlola_interpreter::Value;
 
@@ -468,11 +467,17 @@ fn get_packet_protocol(packet: &SlicedPacket) -> Value {
 /// Represents different kind of errors that might occur.
 #[derive(Debug)]
 pub enum PcapError {
+    #[allow(missing_docs)]
     UnknownInput(String),
+    #[allow(missing_docs)]
     UnknownDevice(String, Vec<String>),
+    #[allow(missing_docs)]
     InvalidLocalNetwork(String, ip_network::IpNetworkParseError),
+    #[allow(missing_docs)]
     TimeParseError(TryFromIntError),
+    #[allow(missing_docs)]
     TimeFormatError(String),
+    #[allow(missing_docs)]
     Pcap(pcap::Error),
 }
 
@@ -511,14 +516,24 @@ impl Error for PcapError {
     }
 }
 
+impl From<PcapError> for EventFactoryError {
+    fn from(value: PcapError) -> Self {
+        match value {
+            PcapError::UnknownInput(i) => EventFactoryError::InputStreamUnknown(vec![i]),
+            e => EventFactoryError::Other(Box::new(e)),
+        }
+    }
+}
+
 /// Represents a raw network packet
+#[derive(Debug)]
 pub struct PcapRecord(Vec<u8>);
 
-impl Record for PcapRecord {
+impl InputMap for PcapRecord {
     type CreationData = IpNetwork;
     type Error = PcapError;
 
-    fn func_for_input(name: &str, data: Self::CreationData) -> Result<ValueProjection<Self, PcapError>, PcapError> {
+    fn func_for_input(name: &str, data: Self::CreationData) -> Result<ValueGetter<Self, PcapError>, PcapError> {
         let local_net = data;
         let layers: Vec<&str> = name.split("::").collect();
         if layers.len() > 3 || layers.is_empty() {
@@ -702,10 +717,11 @@ pub struct PcapEventSource<InputTime: TimeRepresentation> {
 }
 
 impl<InputTime: TimeRepresentation> PcapEventSource<InputTime> {
+    /// Creates a new [PcapEventSource]
     pub fn setup(src: &PcapInputSource) -> Result<PcapEventSource<InputTime>, PcapError> {
         let capture_handle = match src {
             PcapInputSource::Device { name, .. } => {
-                let all_devices = Device::list().map_err(|e| PcapError::Pcap(e))?;
+                let all_devices = Device::list().map_err(PcapError::Pcap)?;
                 let device_names: Vec<_> = all_devices.iter().map(|d| d.name.clone()).collect();
                 let dev: Device = all_devices
                     .into_iter()
@@ -713,15 +729,15 @@ impl<InputTime: TimeRepresentation> PcapEventSource<InputTime> {
                     .ok_or_else(|| PcapError::UnknownDevice(name.clone(), device_names))?;
 
                 let capture_handle = Capture::from_device(dev)
-                    .map_err(|e| PcapError::Pcap(e))?
+                    .map_err(PcapError::Pcap)?
                     .promisc(true)
                     .snaplen(65535)
                     .open()
-                    .map_err(|e| PcapError::Pcap(e))?;
+                    .map_err(PcapError::Pcap)?;
                 capture_handle.into()
             },
             PcapInputSource::File { path, .. } => {
-                let capture_handle = Capture::from_file(path).map_err(|e| PcapError::Pcap(e))?;
+                let capture_handle = Capture::from_file(path).map_err(PcapError::Pcap)?;
                 capture_handle.into()
             },
         };
@@ -743,7 +759,7 @@ impl<InputTime: TimeRepresentation> PcapEventSource<InputTime> {
 
 impl<InputTime: TimeRepresentation> EventSource<InputTime> for PcapEventSource<InputTime> {
     type Error = PcapError;
-    type Rec = PcapRecord;
+    type Factory = PcapRecord;
 
     fn init_data(&self) -> Result<IpNetwork, PcapError> {
         Ok(self.local_net)
@@ -759,9 +775,9 @@ impl<InputTime: TimeRepresentation> EventSource<InputTime> for PcapEventSource<I
 
         let (secs, nanos) = u64::try_from(raw_packet.header.ts.tv_sec)
             .and_then(|secs| u32::try_from(raw_packet.header.ts.tv_usec * 1000).map(|sub_secs| (secs, sub_secs)))
-            .map_err(|e| PcapError::TimeParseError(e))?;
+            .map_err(PcapError::TimeParseError)?;
         let time_str = format!("{}.{:09}", secs, nanos);
-        let time = InputTime::parse(&time_str).map_err(|e| PcapError::TimeFormatError(e))?;
+        let time = InputTime::parse(&time_str).map_err(PcapError::TimeFormatError)?;
 
         Ok(Some((PcapRecord(p), time)))
     }

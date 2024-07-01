@@ -8,14 +8,15 @@ use clap_complete::generate;
 use clap_complete::shells::*;
 #[cfg(feature = "public")]
 use human_panic::setup_panic;
-use rtlola_input_plugins::csv_plugin::{CsvEventSource, CsvInputSourceKind};
-#[cfg(feature = "pcap_interface")]
-use rtlola_input_plugins::pcap_plugin::{PcapEventSource, PcapInputSource};
-use rtlola_interpreter::config::ExecutionMode;
+use rtlola_interpreter::config::{ExecutionMode, OfflineMode, OnlineMode};
+use rtlola_interpreter::rtlola_frontend;
 use rtlola_interpreter::time::{
     parse_float_time, AbsoluteFloat, AbsoluteRfc, DelayTime, OffsetFloat, OffsetNanos, RealTime, RelativeFloat,
     RelativeNanos,
 };
+use rtlola_io_plugins::csv_plugin::{CsvEventSource, CsvInputSourceKind};
+#[cfg(feature = "pcap_interface")]
+use rtlola_io_plugins::pcap_plugin::{PcapEventSource, PcapInputSource};
 
 use crate::config::{Config, EventSourceConfig, Statistics, Verbosity};
 use crate::output::OutputChannel;
@@ -319,27 +320,6 @@ impl From<CliOutputChannel> for OutputChannel {
     }
 }
 
-impl From<CliExecutionMode> for ExecutionMode {
-    fn from(mode: CliExecutionMode) -> Self {
-        if mode.offline.is_some() {
-            ExecutionMode::Offline
-        } else {
-            ExecutionMode::Online
-        }
-    }
-}
-
-#[cfg(feature = "pcap_interface")]
-impl From<IdsInput> for ExecutionMode {
-    fn from(input: IdsInput) -> Self {
-        if input.interface.is_some() {
-            ExecutionMode::Online
-        } else {
-            ExecutionMode::Offline
-        }
-    }
-}
-
 impl From<CliStartTime> for Option<SystemTime> {
     fn from(st: CliStartTime) -> Self {
         st.rfc.or_else(|| st.unix.map(|d| UNIX_EPOCH + d))
@@ -347,7 +327,7 @@ impl From<CliStartTime> for Option<SystemTime> {
 }
 
 macro_rules! run_config {
-    ($it:expr, $ot: expr, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: expr, $start_time: expr) => {
+    ($it:expr, $ot: expr, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr) => {
         match $it {
             CliInputTimeRepresentation::RelativeNanos | CliInputTimeRepresentation::RelativeUintNanos => {
                 run_config_it!(
@@ -436,7 +416,7 @@ macro_rules! run_config {
 }
 
 macro_rules! run_config_it {
-    ($it:expr, $ot: expr, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: expr, $start_time: expr) => {
+    ($it:expr, $ot: expr, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr) => {
         match $ot {
             CliOutputTimeRepresentation::RelativeNanos | CliOutputTimeRepresentation::RelativeUintNanos => {
                 run_config_it_ot!(
@@ -497,7 +477,7 @@ macro_rules! run_config_it {
 }
 
 macro_rules! run_config_it_ot {
-    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: expr, $start_time: expr) => {
+    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr) => {
         match $source {
             EventSourceConfig::Csv { time_col, kind } => {
                 let src: CsvEventSource<_> = CsvEventSource::setup(time_col, kind, &$ir)?;
@@ -513,15 +493,14 @@ macro_rules! run_config_it_ot {
 }
 
 macro_rules! run_config_it_ot_src {
-    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: expr, $start_time: expr) => {
+    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr) => {
         Config {
             ir: $ir,
             source: $source,
             statistics: $statistics,
             verbosity: $verbosity,
             output_channel: $output,
-            mode: $mode,
-            input_time_representation: $it,
+            mode: <$mode as ExecutionMode>::new($it),
             output_time_representation: PhantomData::<$ot>::default(),
             start_time: $start_time,
         }
@@ -549,8 +528,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 eprintln!("{}", e);
                 std::process::exit(1)
             });
-            let handler = rtlola_frontend::Handler::from(config.clone());
-            match rtlola_frontend::parse(config) {
+            let handler = rtlola_frontend::Handler::from(&config);
+            match rtlola_frontend::parse(&config) {
                 Ok(_) => std::process::exit(0),
                 Err(e) => {
                     handler.emit_error(&e);
@@ -572,8 +551,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 eprintln!("{}", e);
                 std::process::exit(1)
             });
-            let handler = rtlola_frontend::Handler::from(config.clone());
-            let ir = rtlola_frontend::parse(config).unwrap_or_else(|e| {
+            let handler = rtlola_frontend::Handler::from(&config);
+            let ir = rtlola_frontend::parse(&config).unwrap_or_else(|e| {
                 handler.emit_error(&e);
                 std::process::exit(1);
             });
@@ -589,7 +568,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         statistics,
                         verbosity,
                         output.into(),
-                        mode.into(),
+                        OnlineMode,
                         start_time.into()
                     )?;
                 },
@@ -603,7 +582,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                             statistics,
                             verbosity,
                             output.into(),
-                            mode.into(),
+                            OfflineMode<_>,
                             start_time.into()
                         )?;
                     } else {
@@ -615,7 +594,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                             statistics,
                             verbosity,
                             output.into(),
-                            mode.into(),
+                            OfflineMode<_>,
                             start_time.into()
                         )?;
                     }
@@ -639,8 +618,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 eprintln!("{}", e);
                 std::process::exit(1)
             });
-            let handler = rtlola_frontend::Handler::from(config.clone());
-            let ir = rtlola_frontend::parse(config).unwrap_or_else(|e| {
+            let handler = rtlola_frontend::Handler::from(&config);
+            let ir = rtlola_frontend::parse(&config).unwrap_or_else(|e| {
                 handler.emit_error(&e);
                 std::process::exit(1);
             });
@@ -656,7 +635,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     statistics,
                     verbosity,
                     output.into(),
-                    input.into(),
+                    OnlineMode,
                     start_time.into()
                 )?;
             } else if let Some(d) = input.input_delay {
@@ -668,7 +647,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     statistics,
                     verbosity,
                     output.into(),
-                    input.into(),
+                    OfflineMode<_>,
                     start_time.into()
                 )?;
             } else {
@@ -680,7 +659,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     statistics,
                     verbosity,
                     output.into(),
-                    input.into(),
+                    OfflineMode<_>,
                     start_time.into()
                 )?;
             }

@@ -1,6 +1,6 @@
 input a:Int8
 
-output b spawn when a % 2 == 0 eval @1Hz with  a.aggregate(over: 1s, using: sum)
+output b spawn when a % 2 == 0 eval @1Hz with a.aggregate(over: 1s, using: sum)
 output c spawn when a % 2 == 0 eval with b + 42
 
 trigger @a b.hold(or: 0) = 2 "b is 2"

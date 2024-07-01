@@ -4,6 +4,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 28.06.2024
+
+## Fixed
+- critical Bug in handling deadlines in online mode.
+- Bug when executing two monitor instances in parallel.
+
+### Changed
+- Refactored input handling types into their own file.
+- Renamed most input types to be clearer.
+  - `Input` -> `EventFactory`
+  - `Record` -> `InputMap`
+  - `DerivedInput` -> `AssociatedFactory`
+  - `ValueProjection` -> `ValueGetter`
+  - `RecordInput` -> `MappedFactory`
+- Type Parameters of the Api to include the monitoring mode. 
+- Update to trigger representation in frontend.
+- Exclude trigger messages from `TotalIncrement` verdict.
+
+### Removed
+- `EventInput` in favor of the new `ArrayFactory`
+
+### Added
+- `ArrayFactory` to pass arrays of values to the monitor API.
+- `VectorFactory` to pass vectors of values to the monitor API.
+- `EmptyFactory` a dummy factory that always produces the empty event.
+- Instance aggregations to aggregate the values of all instances of a stream.
+- Support for the floating rounding function.
+- Add support for multiple eval clauses.
+
 ## [0.9.0] - 19.12.2022
 
 ### Changed
