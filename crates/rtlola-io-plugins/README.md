@@ -21,5 +21,5 @@ Each plugin (or input/output method) is marked with a feature flag, so only the 
 
 # Copyright
 
-Copyright (C) CISPA - Helmholtz Center for Information Security 2021.  Authors: Jan Baumeister, Florian Kohn, Stefan Oswald, Maximilian Schwenger.
+Copyright (C) CISPA - Helmholtz Center for Information Security 2024.  Authors: Jan Baumeister, Florian Kohn, Stefan Oswald, Maximilian Schwenger.
 Based on original work at Universität des Saarlandes (C) 2020.  Authors: Jan Baumeister, Florian Kohn, Malte Schledjewski, Maximilian Schwenger, Marvin Stenger, and Leander Tentrup.

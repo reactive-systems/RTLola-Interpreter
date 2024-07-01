@@ -6,7 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
-## [0.1.0] - t.b.d
+## [0.1.0] - 28.06.2024
 
 ### Added
 - Derive macro ```ValueFactory``` to derive the `AssociateFactory` trait for a type with fields that implement `TryInto<Value>` 
