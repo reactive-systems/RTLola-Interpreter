@@ -236,9 +236,9 @@ checksum = "514de17de45fdb8dc022b1a7975556c53c86f9f0aa5f534b98977b171857c2c9"
 
 [[package]]
 name = "cc"
-version = "1.0.101"
+version = "1.0.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac367972e516d45567c7eafc73d24e1c193dcf200a8d94e9db7b3d38b349572d"
+checksum = "74b6a57f98764a267ff415d50a25e6e166f3831a5071af4995296ea97d210490"
 
 [[package]]
 name = "cfg-if"
@@ -254,9 +254,9 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "clap"
-version = "4.5.7"
+version = "4.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5db83dced34638ad474f39f250d7fea9598bdd239eaced1bdf45d597da0f433f"
+checksum = "84b3edb18336f4df585bc9aa31dd99c036dfa5dc5e9a2939a722a188f3a8970d"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -264,9 +264,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.7"
+version = "4.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7e204572485eb3fbf28f871612191521df159bc3e15a9f5064c66dba3a8c05f"
+checksum = "c1c09dd5ada6c6c78075d6fd0da3f90d8080651e2d6cc8eb2f1aaa4034ced708"
 dependencies = [
  "anstream",
  "anstyle",
@@ -277,18 +277,18 @@ dependencies = [
 
 [[package]]
 name = "clap_complete"
-version = "4.5.6"
+version = "4.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fbca90c87c2a04da41e95d1856e8bcd22f159bdbfa147314d2ce5218057b0e58"
+checksum = "1d598e88f6874d4b888ed40c71efbcbf4076f1dfbae128a08a8c9e45f710605d"
 dependencies = [
  "clap",
 ]
 
 [[package]]
 name = "clap_derive"
-version = "4.5.5"
+version = "4.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c780290ccf4fb26629baa7a1081e68ced113f1d3ec302fa5948f1c381ebf06c6"
+checksum = "2bac35c6dafb060fd4d275d9a4ffae97917c13a6327903a8be2153cd964f7085"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -763,9 +763,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.21"
+version = "0.4.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "90ed8c1e510134f979dbc4f070f87d4313098b704861a105fe34231c70a3901c"
+checksum = "a7a70ba024b9dc04c27ea2f0c0548feb474ec5c54bba33a7f72f873a39d07b24"
 
 [[package]]
 name = "memchr"
@@ -833,11 +833,11 @@ version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b7a8e9be5e039e2ff869df49155f1c06bd01ade2117ec783e56ab0932b67a8f"
 dependencies = [
- "num-bigint 0.3.3",
+ "num-bigint",
  "num-complex",
  "num-integer",
  "num-iter",
- "num-rational 0.3.2",
+ "num-rational",
  "num-traits",
 ]
 
@@ -848,16 +848,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f6f7833f2cbf2360a6cfd58cd41a53aa7a90bd4c202f5b1c7dd2ed73c57b2c3"
 dependencies = [
  "autocfg",
- "num-integer",
- "num-traits",
-]
-
-[[package]]
-name = "num-bigint"
-version = "0.4.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c165a9ab64cf766f73521c0dd2cfdff64f488b8f0b3e621face3462d3db536d7"
-dependencies = [
  "num-integer",
  "num-traits",
 ]
@@ -904,19 +894,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "12ac428b1cb17fce6f731001d307d351ec70a6d202fc2e60f7d4c5e42d8f4f07"
 dependencies = [
  "autocfg",
- "num-bigint 0.3.3",
- "num-integer",
- "num-traits",
- "serde",
-]
-
-[[package]]
-name = "num-rational"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f83d14da390562dca69fc84082e73e548e1ad308d24accdedd2720017cb37824"
-dependencies = [
- "num-bigint 0.4.5",
+ "num-bigint",
  "num-integer",
  "num-traits",
  "serde",
@@ -933,9 +911,9 @@ dependencies = [
 
 [[package]]
 name = "object"
-version = "0.36.0"
+version = "0.36.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "576dfe1fc8f9df304abb159d767a29d0476f7750fbf8aa7ad07816004a207434"
+checksum = "081b846d1d56ddfc18fdf1a922e4f6e07a11768ea1b92dec44e42b72712ccfce"
 dependencies = [
  "memchr",
 ]
@@ -1014,9 +992,9 @@ dependencies = [
 
 [[package]]
 name = "pest"
-version = "2.7.10"
+version = "2.7.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "560131c633294438da9f7c4b08189194b20946c8274c6b9e38881a7874dc8ee8"
+checksum = "cd53dff83f26735fdc1ca837098ccf133605d794cdae66acfc2bfac3ec809d95"
 dependencies = [
  "memchr",
  "thiserror",
@@ -1025,9 +1003,9 @@ dependencies = [
 
 [[package]]
 name = "pest_derive"
-version = "2.7.10"
+version = "2.7.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26293c9193fbca7b1a3bf9b79dc1e388e927e6cacaa78b4a3ab705a1d3d41459"
+checksum = "2a548d2beca6773b1c244554d36fcf8548a8a58e74156968211567250e48e49a"
 dependencies = [
  "pest",
  "pest_generator",
@@ -1035,9 +1013,9 @@ dependencies = [
 
 [[package]]
 name = "pest_generator"
-version = "2.7.10"
+version = "2.7.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ec22af7d3fb470a85dd2ca96b7c577a1eb4ef6f1683a9fe9a8c16e136c04687"
+checksum = "3c93a82e8d145725dcbaf44e5ea887c8a869efdcc28706df2d08c69e17077183"
 dependencies = [
  "pest",
  "pest_meta",
@@ -1048,9 +1026,9 @@ dependencies = [
 
 [[package]]
 name = "pest_meta"
-version = "2.7.10"
+version = "2.7.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7a240022f37c361ec1878d646fc5b7d7c4d28d5946e1a80ad5a7a4f4ca0bdcd"
+checksum = "a941429fea7e08bedec25e4f6785b6ffaacc6b755da98df5ef3e7dcf4a124c4f"
 dependencies = [
  "once_cell",
  "pest",
@@ -1310,27 +1288,28 @@ dependencies = [
 
 [[package]]
 name = "rtlola-cli"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "clap",
  "clap_complete",
  "crossterm",
  "human-panic",
  "humantime",
- "rtlola-interpreter",
- "rtlola-io-plugins",
+ "rtlola-interpreter 0.10.0",
+ "rtlola-io-plugins 0.2.0",
 ]
 
 [[package]]
 name = "rtlola-frontend"
-version = "0.6.2"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#d4601c9d353d4ca560223d05cab886ab18d390d7"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61e84f455466c0f3b448c5032a6993c617c54d19a745582798c2f879cb845318"
 dependencies = [
  "dot",
  "itertools 0.10.5",
  "lazy_static",
  "num",
- "num-rational 0.3.2",
+ "num-rational",
  "rtlola-hir",
  "rtlola-parser",
  "rtlola-reporting",
@@ -1342,13 +1321,14 @@ dependencies = [
 
 [[package]]
 name = "rtlola-hir"
-version = "0.4.2"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#d4601c9d353d4ca560223d05cab886ab18d390d7"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4004e9157d963c6083146ddc85c41522895aa88662894c253e8dbe7eb8fe6b86"
 dependencies = [
  "itertools 0.10.5",
  "lazy_static",
  "num",
- "num-rational 0.4.2",
+ "num-rational",
  "petgraph",
  "rtlola-macros",
  "rtlola-parser",
@@ -1361,6 +1341,33 @@ dependencies = [
 [[package]]
 name = "rtlola-interpreter"
 version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "815eb572c863037c24c1c60a04232b1d83fb58235caec10e08447061b388db8e"
+dependencies = [
+ "bimap",
+ "bit-set",
+ "byteorder",
+ "crossbeam-channel",
+ "dyn-clone",
+ "either",
+ "hex",
+ "humantime",
+ "itertools 0.11.0",
+ "num",
+ "num-traits",
+ "ordered-float",
+ "priority-queue",
+ "regex",
+ "rtlola-frontend",
+ "rust_decimal",
+ "serde",
+ "string_template",
+ "uom",
+]
+
+[[package]]
+name = "rtlola-interpreter"
+version = "0.10.1"
 dependencies = [
  "bimap",
  "bit-set",
@@ -1392,6 +1399,8 @@ dependencies = [
 [[package]]
 name = "rtlola-interpreter-macros"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d2ab3484a2102adee31aeef061682492cfddc54af7fc3a589237345198c1ced"
 dependencies = [
  "convert_case",
  "deluxe",
@@ -1399,7 +1408,21 @@ dependencies = [
  "proc-macro-error",
  "proc-macro2",
  "quote",
- "rtlola-interpreter",
+ "rtlola-interpreter 0.10.0",
+ "syn 2.0.68",
+]
+
+[[package]]
+name = "rtlola-interpreter-macros"
+version = "0.1.1"
+dependencies = [
+ "convert_case",
+ "deluxe",
+ "paste",
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "rtlola-interpreter 0.10.0",
  "syn 2.0.68",
  "trybuild",
 ]
@@ -1407,6 +1430,19 @@ dependencies = [
 [[package]]
 name = "rtlola-io-plugins"
 version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b5abac97c04365b5c7f4b605ae985246331f997c44272a1f5171c502c7481644"
+dependencies = [
+ "csv",
+ "etherparse",
+ "ip_network",
+ "pcap",
+ "rtlola-interpreter 0.10.0",
+]
+
+[[package]]
+name = "rtlola-io-plugins"
+version = "0.2.1"
 dependencies = [
  "bincode",
  "csv",
@@ -1415,15 +1451,16 @@ dependencies = [
  "ntest",
  "pcap",
  "portpicker",
- "rtlola-interpreter",
- "rtlola-interpreter-macros",
+ "rtlola-interpreter 0.10.0",
+ "rtlola-interpreter-macros 0.1.0",
  "serde",
 ]
 
 [[package]]
 name = "rtlola-macros"
 version = "0.1.2"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#d4601c9d353d4ca560223d05cab886ab18d390d7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "905504c513f961eaff05eab901b792937b9fcd5fa1fff2bc31f506ba40347d15"
 dependencies = [
  "quote",
  "syn 1.0.109",
@@ -1432,11 +1469,12 @@ dependencies = [
 [[package]]
 name = "rtlola-parser"
 version = "0.3.2"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#d4601c9d353d4ca560223d05cab886ab18d390d7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "375a9bdab9b671b8e50f35c9c84c0aa363644cc95236334d3dfaef27664652e7"
 dependencies = [
  "lazy_static",
  "num",
- "num-rational 0.4.2",
+ "num-rational",
  "pest",
  "pest_derive",
  "rtlola-reporting",
@@ -1446,8 +1484,9 @@ dependencies = [
 
 [[package]]
 name = "rtlola-reporting"
-version = "0.2.2"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#d4601c9d353d4ca560223d05cab886ab18d390d7"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e545250e462255635a40b5f65ef17a058565aef966206f0590d07299eb45bdf"
 dependencies = [
  "codespan-reporting",
  "pest",
@@ -1491,8 +1530,9 @@ dependencies = [
 
 [[package]]
 name = "rusttyc"
-version = "0.4.2"
-source = "git+https://github.com/Schwenger/RustTyC.git?branch=context_sensitive#b6990e088c28340c7ed3df26d9b340191c64d8f7"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "14ae3b1a443c1a8f71f24d05d6d7081e161e5babc225818c5e3223a5afd045cb"
 
 [[package]]
 name = "ryu"
@@ -1534,9 +1574,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.118"
+version = "1.0.120"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d947f6b3163d8857ea16c4fa0dd4840d52f3041039a85decd46867eb1abef2e4"
+checksum = "4e0d21c9a8cae1235ad58a00c11cb40d4b1e5c784f1ef2c537876ed6ffd8b7c5"
 dependencies = [
  "itoa",
  "ryu",
@@ -1878,7 +1918,7 @@ version = "0.31.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b1ee6bfd0a27bf614353809a035cf6880b74239ec6c5e39a7b2860ca16809137"
 dependencies = [
- "num-rational 0.3.2",
+ "num-rational",
  "num-traits",
  "serde",
  "typenum",

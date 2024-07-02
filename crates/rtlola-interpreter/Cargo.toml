@@ -21,7 +21,7 @@ keywords = ["verification", "interpreter", "monitoring"]
 
 
 [dependencies]
-rtlola-frontend = "0.7.0"
+rtlola-frontend = "0.7"
 ordered-float = "3.2.0"
 rust_decimal = "1.30.0"                                                                                                                   # accurate floating point addition
 num-traits = "0.2.16"
