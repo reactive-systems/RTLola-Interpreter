@@ -241,7 +241,7 @@ impl EvaluatorData {
             .iter()
             .map(|o| {
                 match (o.spawn.expression.as_ref(), o.spawn.condition.as_ref()) {
-                    (None, None) => CompiledExpr::new(|_| Value::None),
+                    (None, None) => CompiledExpr::new(|_| Value::Tuple(vec![].into_boxed_slice())),
                     (Some(target), None) => target.clone().compile(),
                     (None, Some(condition)) => {
                         CompiledExpr::create_filter(
