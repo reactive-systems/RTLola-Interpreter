@@ -1,8 +1,9 @@
 #![allow(clippy::mutex_atomic)]
 
-use std::collections::HashMap;
+use std::convert::Infallible;
 use std::fs::File;
 use std::io::{stderr, stdout, BufWriter, Write};
+use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -11,11 +12,11 @@ use crossterm::cursor::MoveToPreviousLine;
 use crossterm::execute;
 use crossterm::style::{Print, ResetColor, SetForegroundColor};
 use crossterm::terminal::{Clear, ClearType};
-use rtlola_interpreter::monitor::{Change, Parameters, TotalIncremental, Tracer, TracingVerdict};
-use rtlola_interpreter::queued::{QueuedVerdict, Receiver, RecvTimeoutError, VerdictKind};
-use rtlola_interpreter::rtlola_frontend::mir::{OutputReference, RtLolaMir, TriggerReference};
-use rtlola_interpreter::rtlola_mir::OutputKind;
+use rtlola_interpreter::monitor::{TotalIncremental, Tracer, TracingVerdict};
+use rtlola_interpreter::queued::{QueuedVerdict, Receiver, RecvTimeoutError};
+use rtlola_interpreter::rtlola_frontend::mir::RtLolaMir;
 use rtlola_interpreter::time::OutputTimeRepresentation;
+use rtlola_io_plugins::VerdictsSink;
 
 use crate::config::Verbosity;
 
@@ -31,7 +32,7 @@ pub enum OutputChannel {
     File(PathBuf),
 }
 
-impl From<OutputChannel> for Box<dyn Write> {
+impl From<OutputChannel> for Box<dyn Write + Send> {
     fn from(channel: OutputChannel) -> Self {
         match channel {
             OutputChannel::StdOut => Box::new(stdout()),
@@ -45,56 +46,43 @@ impl From<OutputChannel> for Box<dyn Write> {
 }
 
 /// Manages the output of the interpreter.
-pub struct OutputHandler<OutputTime: OutputTimeRepresentation> {
+pub struct OutputHandler<
+    OutputTime: OutputTimeRepresentation,
+    Sink: VerdictsSink<TotalIncremental, OutputTime, Error = Infallible, Return = ()>,
+> {
     verbosity: Verbosity,
     statistics: Option<Statistics>,
-    output_time: OutputTime,
-
-    ir: RtLolaMir,
-    or_to_tr: HashMap<OutputReference, TriggerReference>,
+    sink: Sink,
+    output_time: PhantomData<OutputTime>,
 }
 
-impl<OutputTime: OutputTimeRepresentation> OutputHandler<OutputTime> {
+impl<
+        OutputTime: OutputTimeRepresentation,
+        Sink: VerdictsSink<TotalIncremental, OutputTime, Error = Infallible, Return = ()>,
+    > OutputHandler<OutputTime, Sink>
+{
     /// Creates a new Output Handler. If None is given as 'start_time', then the first event determines it.
     pub(crate) fn new(
         ir: &RtLolaMir,
         verbosity: Verbosity,
         stats: crate::config::Statistics,
-    ) -> OutputHandler<OutputTime> {
+        sink: Sink,
+    ) -> OutputHandler<OutputTime, Sink> {
         let statistics = match stats {
             crate::Statistics::None => None,
             crate::Statistics::All => Some(Statistics::new(ir.triggers.len())),
         };
 
-        let or_to_tr = ir
-            .triggers
-            .iter()
-            .map(|trigger| (trigger.output_reference.out_ix(), trigger.trigger_reference))
-            .collect();
-
         OutputHandler {
             verbosity,
             statistics,
-            output_time: OutputTime::default(),
-            ir: ir.clone(),
-            or_to_tr,
-        }
-    }
-
-    fn display_parameter(paras: Parameters) -> String {
-        if let Some(paras) = paras {
-            format!(
-                "({})",
-                paras.iter().map(|p| p.to_string()).collect::<Vec<String>>().join(", ")
-            )
-        } else {
-            String::new()
+            output_time: PhantomData,
+            sink,
         }
     }
 
     pub(crate) fn run(
         mut self,
-        mut output: impl Write,
         input: Receiver<QueuedVerdict<TracingVerdict<EvalTimeTracer, TotalIncremental>, OutputTime>>,
     ) {
         let mut last_stat_print = Instant::now();
@@ -103,7 +91,7 @@ impl<OutputTime: OutputTimeRepresentation> OutputHandler<OutputTime> {
             if let Some(stats) = self.statistics.as_mut() {
                 if self.verbosity != Verbosity::Silent {
                     // If we dont print anything, better clear later directly before reprinting for smoother look
-                    stats.clear_progress(&mut output);
+                    // stats.clear_progress(&mut self.sink.writer);
                 }
             }
             loop {
@@ -117,98 +105,47 @@ impl<OutputTime: OutputTimeRepresentation> OutputHandler<OutputTime> {
                 };
 
                 let TracingVerdict { tracer, verdict } = queue_verdict.verdict;
-                let ts = self.output_time.to_string(queue_verdict.ts);
 
                 if let Some(stats) = self.statistics.as_mut() {
                     stats.new_cycle(tracer);
                 }
 
-                let TotalIncremental {
-                    inputs,
-                    outputs,
-                    trigger: _,
-                } = verdict;
-                match queue_verdict.kind {
-                    VerdictKind::Timed => {
-                        self.debug(&mut output, || "Deadline reached", &ts);
-                    },
-                    VerdictKind::Event => {
-                        self.debug(&mut output, || "Processing new event", &ts);
-                        for (idx, val) in inputs {
-                            let name = &self.ir.inputs[idx].name;
-                            self.debug(&mut output, move || format!("[Input][{}][Value] = {}", name, val), &ts);
-                        }
-                    },
-                }
+                self.sink.sink_verdict(queue_verdict.ts, verdict).unwrap();
 
-                for (out, changes) in outputs {
-                    let kind = &self.ir.outputs[out].kind;
-                    let name = match kind {
-                        OutputKind::NamedOutput(name) => format!("[Output][{name}"),
-                        OutputKind::Trigger(idx) => format!("[#{idx}"),
-                    };
-                    let name = &name;
-                    for change in changes {
-                        match change {
-                            Change::Spawn(parameter) => {
-                                self.debug(
-                                    &mut output,
-                                    || format!("{}][Spawn] = {}", name, Self::display_parameter(Some(parameter))),
-                                    &ts,
-                                );
-                            },
-                            Change::Value(parameter, val) => {
-                                let msg =
-                                    move || format!("{}{}][Value] = {}", name, Self::display_parameter(parameter), val);
-                                let is_trigger = matches!(kind, OutputKind::Trigger(_));
-                                self.stream(&mut output, msg, &ts, is_trigger);
-                                if is_trigger {
-                                    if let Some(statistics) = self.statistics.as_mut() {
-                                        statistics.trigger(self.or_to_tr[&out]);
-                                    }
-                                }
-                            },
-                            Change::Close(parameter) => {
-                                self.debug(
-                                    &mut output,
-                                    move || format!("{}][Close] = {}", name, Self::display_parameter(Some(parameter))),
-                                    &ts,
-                                );
-                            },
-                        }
-                    }
-                }
+                // match queue_verdict.kind {
+                //     VerdictKind::Timed => {
+                //         self.logger.debug(&mut output, || "Deadline reached", &ts);
+                //     },
+                //     VerdictKind::Event => {
+                //         self.logger.debug(&mut output, || "Processing new event", &ts);
+                //     },
+                // }
             }
+
             if let Some(stats) = self.statistics.as_mut() {
                 if self.verbosity == Verbosity::Silent && !first_loop {
                     // If we dont print anything, better clear later directly before reprinting for smoother look
-                    stats.clear_progress(&mut output);
+                    // stats.clear_progress(&mut log_printer.writer);
                 }
-                stats.print_progress(&mut output);
+                // stats.print_progress(&mut log_printer.writer);
                 thread::sleep(Duration::from_millis(120));
                 last_stat_print = Instant::now();
             }
             first_loop = false;
         }
-        self.terminate(&mut output);
+        // if let Some(statistics) = self.statistics.as_mut() {
+        //     statistics.print_final(&mut output);
+        // }
     }
+}
 
-    pub(crate) fn debug<F, T: Into<String>>(&self, out: &mut impl Write, msg: F, ts: &str)
-    where
-        F: FnOnce() -> T,
-    {
-        self.emit(out, Verbosity::Debug, msg, ts);
-    }
+pub struct Logger {
+    verbosity: Verbosity,
+}
 
-    pub(crate) fn stream<F, T: Into<String>>(&self, out: &mut impl Write, msg: F, ts: &str, is_trigger: bool)
-    where
-        F: FnOnce() -> T,
-    {
-        if is_trigger {
-            self.emit(out, Verbosity::Trigger, msg, ts);
-        } else {
-            self.emit(out, Verbosity::Streams, msg, ts);
-        }
+impl Logger {
+    pub(crate) fn new(verbosity: Verbosity) -> Self {
+        Self { verbosity }
     }
 
     /// Accepts a message and forwards it to the appropriate output channel.
@@ -229,10 +166,24 @@ impl<OutputTime: OutputTimeRepresentation> OutputHandler<OutputTime> {
             .expect("Failed to write to output channel");
         }
     }
+}
 
-    pub(crate) fn terminate(&mut self, out: &mut impl Write) {
-        if let Some(statistics) = self.statistics.as_mut() {
-            statistics.print_final(out);
+impl rtlola_io_plugins::log_printer::Logger for Logger {
+    fn debug<F, T: Into<String>>(&self, out: &mut impl Write, msg: F, ts: &str)
+    where
+        F: FnOnce() -> T,
+    {
+        self.emit(out, Verbosity::Debug, msg, ts);
+    }
+
+    fn stream<F, T: Into<String>>(&self, out: &mut impl Write, msg: F, ts: &str, is_trigger: bool)
+    where
+        F: FnOnce() -> T,
+    {
+        if is_trigger {
+            self.emit(out, Verbosity::Trigger, msg, ts);
+        } else {
+            self.emit(out, Verbosity::Streams, msg, ts);
         }
     }
 }

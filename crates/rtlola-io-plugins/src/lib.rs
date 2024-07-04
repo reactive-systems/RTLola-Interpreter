@@ -20,6 +20,11 @@ pub mod pcap_plugin;
 #[cfg(feature = "byte_plugin")]
 pub mod byte_plugin;
 
+pub mod log_printer;
+
+#[cfg(feature = "jsonl_plugin")]
+pub mod jsonl_plugin;
+
 use std::convert::Infallible;
 use std::error::Error;
 use std::marker::PhantomData;

@@ -1,21 +1,24 @@
 //! An input plugin that parses data in csv format
 
 use std::collections::{HashMap, VecDeque};
+use std::convert::Infallible;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
-use std::io::stdin;
+use std::io::{stdin, Write};
+use std::iter;
 use std::marker::PhantomData;
 use std::path::PathBuf;
 
 use csv::{ByteRecord, Reader as CSVReader, ReaderBuilder, Result as ReaderResult, StringRecord, Trim};
 use rtlola_interpreter::input::{EventFactoryError, InputMap, ValueGetter};
+use rtlola_interpreter::monitor::TotalIncremental;
 use rtlola_interpreter::rtlola_frontend::mir::InputStream;
-use rtlola_interpreter::rtlola_mir::{RtLolaMir, Type};
-use rtlola_interpreter::time::TimeRepresentation;
+use rtlola_interpreter::rtlola_mir::{RtLolaMir, Stream, Type};
+use rtlola_interpreter::time::{OutputTimeRepresentation, TimeRepresentation};
 use rtlola_interpreter::Value;
 
-use crate::EventSource;
+use crate::{EventSource, VerdictFactory, VerdictsSink};
 
 const TIME_COLUMN_NAMES: [&str; 3] = ["time", "ts", "timestamp"];
 
@@ -263,5 +266,95 @@ impl<InputTime: TimeRepresentation> EventSource<InputTime> for CsvEventSource<In
                     Ok(None)
                 }
             })
+    }
+}
+
+/// A verdict sink to write the new values of the output streams in CSV format
+///
+/// Note: only suitable on specifications that do not contain parameterized streams
+#[derive(Debug)]
+pub struct CsvVerdictSink<O: OutputTimeRepresentation, W: Write> {
+    writer: csv::Writer<W>,
+    factory: CsvVerdictFactory<O>,
+}
+
+impl<O: OutputTimeRepresentation, W: Write> CsvVerdictSink<O, W> {
+    /// Construct a new sink for the given specification that writes to the supplied writer
+    pub fn new(ir: &RtLolaMir, writer: W) -> Self {
+        for output in &ir.outputs {
+            if output.is_parameterized() {
+                panic!("csv output format only supported for unparameterized specifications");
+            }
+        }
+        let factory = CsvVerdictFactory {
+            output_time: O::default(),
+            num_outputs: ir.outputs.len(),
+        };
+        let mut writer = csv::Writer::from_writer(writer);
+        writer
+            .write_record(
+                iter::once("time")
+                    .chain(ir.outputs.iter().map(|o| o.name()))
+                    .collect::<Vec<&str>>(),
+            )
+            .unwrap();
+        Self { writer, factory }
+    }
+}
+
+impl<O: OutputTimeRepresentation, W: Write> VerdictsSink<TotalIncremental, O> for CsvVerdictSink<O, W> {
+    type Error = Infallible;
+    type Factory = CsvVerdictFactory<O>;
+    type Return = ();
+
+    fn sink(&mut self, verdict: Option<Vec<String>>) -> Result<Self::Return, Self::Error> {
+        if let Some(verdict) = verdict {
+            self.writer.write_record(verdict).unwrap();
+        }
+        Ok(())
+    }
+
+    fn factory(&mut self) -> &mut Self::Factory {
+        &mut self.factory
+    }
+}
+
+/// Factory to construct the CSV representation for a single verdict
+#[derive(Debug)]
+pub struct CsvVerdictFactory<O: OutputTimeRepresentation> {
+    output_time: O,
+    num_outputs: usize,
+}
+
+impl<O: OutputTimeRepresentation> VerdictFactory<TotalIncremental, O> for CsvVerdictFactory<O> {
+    type Error = Infallible;
+    type Verdict = Option<Vec<String>>;
+
+    fn get_verdict(&mut self, rec: TotalIncremental, ts: O::InnerTime) -> Result<Self::Verdict, Self::Error> {
+        let mut outputs = vec![None; self.num_outputs];
+        for (output, changes) in rec.outputs {
+            for change in changes {
+                match change {
+                    rtlola_interpreter::monitor::Change::Spawn(_) => {},
+                    rtlola_interpreter::monitor::Change::Value(None, v) => outputs[output] = Some(v),
+                    rtlola_interpreter::monitor::Change::Value(Some(p), v) if p == [] => outputs[output] = Some(v),
+                    rtlola_interpreter::monitor::Change::Value(Some(_), _) => unreachable!("checked in new"),
+                    rtlola_interpreter::monitor::Change::Close(_) => {},
+                }
+            }
+        }
+        if outputs.iter().all(|v| v.is_none()) {
+            Ok(None)
+        } else {
+            Ok(Some(
+                iter::once(self.output_time.to_string(ts))
+                    .chain(
+                        outputs
+                            .into_iter()
+                            .map(|v| v.map(|v| v.to_string()).unwrap_or_else(|| "#".into())),
+                    )
+                    .collect(),
+            ))
+        }
     }
 }

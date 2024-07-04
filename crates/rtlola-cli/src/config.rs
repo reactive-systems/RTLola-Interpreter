@@ -1,9 +1,8 @@
 //! This module contains all configuration related structures.
 
+use std::convert::Infallible;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::fs::File;
-use std::io::{stderr, stdout, BufWriter};
 use std::marker::PhantomData;
 use std::thread;
 use std::time::SystemTime;
@@ -19,9 +18,9 @@ use rtlola_interpreter::QueuedMonitor;
 use rtlola_io_plugins::csv_plugin::CsvInputSourceKind;
 #[cfg(feature = "pcap_interface")]
 use rtlola_io_plugins::pcap_plugin::PcapInputSource;
-use rtlola_io_plugins::EventSource;
+use rtlola_io_plugins::{EventSource, VerdictsSink};
 
-use crate::output::{EvalTimeTracer, OutputChannel, OutputHandler};
+use crate::output::{EvalTimeTracer, OutputHandler};
 
 /**
 `Config` combines an RTLola specification in [RtLolaMir] form with various configuration parameters for the interpreter.
@@ -34,6 +33,7 @@ pub(crate) struct Config<
     Mode: ExecutionMode<SourceTime = InputTime>,
     InputTime: TimeRepresentation,
     OutputTime: OutputTimeRepresentation,
+    Sink: VerdictsSink<TotalIncremental, OutputTime>,
 > {
     /// The representation of the specification
     pub(crate) ir: RtLolaMir,
@@ -43,14 +43,13 @@ pub(crate) struct Config<
     pub(crate) statistics: Statistics,
     /// The verbosity to use
     pub(crate) verbosity: Verbosity,
-    /// Where the output should go
-    pub(crate) output_channel: OutputChannel,
     /// In which mode the evaluator is executed
     pub(crate) mode: Mode,
     /// Which format to use to output time
     pub(crate) output_time_representation: PhantomData<OutputTime>,
     /// The start time to assume
     pub(crate) start_time: Option<SystemTime>,
+    pub(crate) sink: Sink,
 }
 
 /// Used to define the level of statistics that should be computed.
@@ -116,8 +115,12 @@ pub enum EventSourceConfig {
     Pcap(PcapInputSource),
 }
 
-impl<Source: EventSource<InputTime> + 'static, InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation>
-    Config<Source, OfflineMode<InputTime>, InputTime, OutputTime>
+impl<
+        Source: EventSource<InputTime> + 'static,
+        InputTime: TimeRepresentation,
+        OutputTime: OutputTimeRepresentation,
+        Sink: VerdictsSink<TotalIncremental, OutputTime, Return = (), Error = Infallible> + Send + 'static,
+    > Config<Source, OfflineMode<InputTime>, InputTime, OutputTime, Sink>
 where
     Source::Factory:
         InputMap<CreationData = <<Source::Factory as AssociatedFactory>::Factory as EventFactory>::CreationData>,
@@ -130,13 +133,13 @@ where
             mut source,
             statistics,
             verbosity,
-            output_channel,
             mode,
             output_time_representation,
             start_time,
+            sink,
         } = self;
 
-        let output: OutputHandler<OutputTime> = OutputHandler::new(&ir, verbosity, statistics);
+        let output: OutputHandler<OutputTime, Sink> = OutputHandler::new(&ir, verbosity, statistics, sink);
 
         let cfg = InterpreterConfig {
             ir,
@@ -159,14 +162,7 @@ where
         >>::setup(cfg, source.init_data()?);
 
         let queue = monitor.output_queue();
-        let output_handler = match output_channel {
-            OutputChannel::StdOut => thread::spawn(move || output.run(stdout(), queue)),
-            OutputChannel::StdErr => thread::spawn(move || output.run(stderr(), queue)),
-            OutputChannel::File(f) => {
-                let file = File::create(f.as_path()).expect("Could not open output file!");
-                thread::spawn(move || output.run(BufWriter::new(file), queue))
-            },
-        };
+        let output_handler = thread::spawn(move || output.run(queue));
 
         // start evaluation
         monitor.start()?;
@@ -181,8 +177,11 @@ where
     }
 }
 
-impl<Source: EventSource<RealTime> + 'static, OutputTime: OutputTimeRepresentation>
-    Config<Source, OnlineMode, RealTime, OutputTime>
+impl<
+        Source: EventSource<RealTime> + 'static,
+        OutputTime: OutputTimeRepresentation,
+        Sink: VerdictsSink<TotalIncremental, OutputTime, Return = (), Error = Infallible> + Send + 'static,
+    > Config<Source, OnlineMode, RealTime, OutputTime, Sink>
 where
     Source::Factory:
         InputMap<CreationData = <<Source::Factory as AssociatedFactory>::Factory as EventFactory>::CreationData>,
@@ -195,13 +194,13 @@ where
             mut source,
             statistics,
             verbosity,
-            output_channel,
             mode,
             output_time_representation,
             start_time,
+            sink,
         } = self;
 
-        let output: OutputHandler<OutputTime> = OutputHandler::new(&ir, verbosity, statistics);
+        let output: OutputHandler<OutputTime, Sink> = OutputHandler::new(&ir, verbosity, statistics, sink);
 
         let cfg = InterpreterConfig {
             ir,
@@ -224,14 +223,7 @@ where
         >>::setup(cfg, source.init_data()?);
 
         let queue = monitor.output_queue();
-        let output_handler = match output_channel {
-            OutputChannel::StdOut => thread::spawn(move || output.run(stdout(), queue)),
-            OutputChannel::StdErr => thread::spawn(move || output.run(stderr(), queue)),
-            OutputChannel::File(f) => {
-                let file = File::create(f.as_path()).expect("Could not open output file!");
-                thread::spawn(move || output.run(BufWriter::new(file), queue))
-            },
-        };
+        let output_handler = thread::spawn(move || output.run(queue));
 
         // start evaluation
         monitor.start()?;

@@ -30,12 +30,14 @@ ip_network = { version = "0.4.1", optional = true }  # IP Address handling
 # Byte plugin dependencies
 serde = { version = "1.0.203", optional = true }
 bincode = { version = "1.3.3", optional = true }
+jsonl = { version = "4.0.1", optional = true }
 
 [features]
-default = []
+default = ["serde"]
 pcap_plugin = ["pcap", "etherparse", "ip_network"]
 csv_plugin = ["csv"]
 byte_plugin = ["serde", "bincode", "rtlola-interpreter/serde"]
+jsonl_plugin = ["serde", "jsonl"]
 
 [dev-dependencies]
 portpicker = "0.1.1"
