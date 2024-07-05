@@ -15,7 +15,7 @@ use rtlola_interpreter::rtlola_mir::RtLolaMir;
 use rtlola_interpreter::time::{OutputTimeRepresentation, RealTime, TimeRepresentation};
 use rtlola_interpreter::QueuedMonitor;
 use rtlola_io_plugins::csv_plugin::{CsvInputSourceKind, CsvVerbosity};
-use rtlola_io_plugins::jsonl_plugin::JsonVerbosity;
+use rtlola_io_plugins::json_plugin::JsonVerbosity;
 #[cfg(feature = "pcap_interface")]
 use rtlola_io_plugins::pcap_plugin::PcapInputSource;
 use rtlola_io_plugins::{EventSource, VerdictsSink};

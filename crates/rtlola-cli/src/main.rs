@@ -17,7 +17,7 @@ use rtlola_interpreter::time::{
     RelativeNanos,
 };
 use rtlola_io_plugins::csv_plugin::{CsvEventSource, CsvInputSourceKind, CsvVerdictSink};
-use rtlola_io_plugins::jsonl_plugin::JsonlSink;
+use rtlola_io_plugins::json_plugin::JsonFactory;
 use rtlola_io_plugins::log_printer::LogPrinter;
 #[cfg(feature = "pcap_interface")]
 use rtlola_io_plugins::pcap_plugin::{PcapEventSource, PcapInputSource};
@@ -608,7 +608,7 @@ macro_rules! run_config_it_ot_src2 {
                 )
             },
             CliOutputFormat::Json => {
-                let sink = JsonlSink::new(&$ir, $output, $verbosity.try_into().unwrap());
+                let sink = JsonFactory::new(&$ir, $verbosity.try_into().unwrap()).sink($output);
                 run_config_it_ot_src_of!(
                     $it,
                     $ot,

@@ -23,7 +23,7 @@ pub mod byte_plugin;
 pub mod log_printer;
 
 #[cfg(feature = "jsonl_plugin")]
-pub mod jsonl_plugin;
+pub mod json_plugin;
 // mod statistics_plugin;
 
 use std::convert::Infallible;

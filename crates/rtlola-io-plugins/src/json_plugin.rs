@@ -2,9 +2,10 @@
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::io::Write;
+use std::marker::PhantomData;
 
 use jsonl::WriteError;
-use rtlola_interpreter::monitor::{Change, TotalIncremental};
+use rtlola_interpreter::monitor::{Change, TotalIncremental, VerdictRepresentation};
 use rtlola_interpreter::rtlola_mir::{OutputReference, RtLolaMir, StreamReference};
 use rtlola_interpreter::time::OutputTimeRepresentation;
 use rtlola_interpreter::Value;
@@ -14,42 +15,50 @@ use crate::{VerdictFactory, VerdictsSink};
 
 /// Print the verdicts in JSONL format to the writer
 #[derive(Debug)]
-pub struct JsonlSink<O: OutputTimeRepresentation, W: Write> {
+pub struct JsonSink<
+    Factory: VerdictFactory<MonitorOutput, OutputTime>,
+    MonitorOutput: VerdictRepresentation,
+    OutputTime: OutputTimeRepresentation,
+    W: Write,
+> {
     writer: W,
-    factory: JsonFactory<O>,
+    factory: Factory,
+    verdict: PhantomData<MonitorOutput>,
+    output_time: PhantomData<OutputTime>,
 }
 
-impl<O: OutputTimeRepresentation, W: Write> JsonlSink<O, W> {
-    /// Construct a new sink for the given specification that writes to the supplied writer
-    pub fn new(ir: &RtLolaMir, writer: W, verbosity: JsonVerbosity) -> Self {
-        let stream_names = ir
-            .all_streams()
-            .map(|stream| (stream, ir.stream(stream).name().to_owned()))
-            .collect();
-        let triggers = ir
-            .triggers
-            .iter()
-            .map(|trigger| trigger.output_reference.out_ix())
-            .collect();
-        let factory = JsonFactory {
-            stream_names,
-            output_time: O::default(),
-            verbosity,
-            triggers,
-        };
-        Self { writer, factory }
+impl<
+        Factory: VerdictFactory<MonitorOutput, OutputTime>,
+        MonitorOutput: VerdictRepresentation,
+        OutputTime: OutputTimeRepresentation,
+        W: Write,
+    > JsonSink<Factory, MonitorOutput, OutputTime, W>
+{
+    /// Construct a new JsonSink with a factory produing Serializeable verdicts
+    pub fn new(factory: Factory, writer: W) -> Self {
+        Self {
+            writer,
+            factory,
+            verdict: PhantomData,
+            output_time: PhantomData,
+        }
     }
 }
 
-impl<OutputTime: OutputTimeRepresentation, W: Write> VerdictsSink<TotalIncremental, OutputTime>
-    for JsonlSink<OutputTime, W>
+impl<
+        Factory: VerdictFactory<MonitorOutput, OutputTime, Verdict = Option<FactoryVerdict>>,
+        MonitorOutput: VerdictRepresentation,
+        OutputTime: OutputTimeRepresentation,
+        W: Write,
+        FactoryVerdict: Serialize,
+    > VerdictsSink<MonitorOutput, OutputTime> for JsonSink<Factory, MonitorOutput, OutputTime, W>
 {
     type Error = WriteError;
-    type Factory = JsonFactory<OutputTime>;
+    type Factory = Factory;
     type Return = ();
 
-    fn sink(&mut self, verdict: JsonVerdict) -> Result<Self::Return, Self::Error> {
-        if !verdict.updates.is_empty() {
+    fn sink(&mut self, verdict: Option<FactoryVerdict>) -> Result<Self::Return, Self::Error> {
+        if let Some(verdict) = verdict {
             jsonl::write(&mut self.writer, &verdict)?;
             self.writer.flush()?;
         }
@@ -102,6 +111,30 @@ pub struct JsonFactory<OutputTime: OutputTimeRepresentation> {
 }
 
 impl<O: OutputTimeRepresentation> JsonFactory<O> {
+    /// Construct a new factory for the given specification that writes to the supplied writer
+    pub fn new(ir: &RtLolaMir, verbosity: JsonVerbosity) -> Self {
+        let stream_names = ir
+            .all_streams()
+            .map(|stream| (stream, ir.stream(stream).name().to_owned()))
+            .collect();
+        let triggers = ir
+            .triggers
+            .iter()
+            .map(|trigger| trigger.output_reference.out_ix())
+            .collect();
+        Self {
+            stream_names,
+            output_time: Default::default(),
+            triggers,
+            verbosity,
+        }
+    }
+
+    /// Turn the json factory into a sink writing to a writer
+    pub fn sink<W: Write>(self, writer: W) -> JsonSink<Self, TotalIncremental, O, W> {
+        JsonSink::new(self, writer)
+    }
+
     fn include_stream(&self, stream: StreamReference) -> bool {
         match stream {
             StreamReference::In(_) => self.verbosity.include_inputs(),
@@ -163,10 +196,10 @@ impl InstanceUpdate {
 
 impl<O: OutputTimeRepresentation> VerdictFactory<TotalIncremental, O> for JsonFactory<O> {
     type Error = Infallible;
-    type Verdict = JsonVerdict;
+    type Verdict = Option<JsonVerdict>;
 
     fn get_verdict(&mut self, rec: TotalIncremental, ts: O::InnerTime) -> Result<Self::Verdict, Self::Error> {
-        let updates = rec
+        let updates: HashMap<_, _> = rec
             .outputs
             .iter()
             .filter(|(s, _)| self.include_stream(StreamReference::Out(*s)))
@@ -208,9 +241,9 @@ impl<O: OutputTimeRepresentation> VerdictFactory<TotalIncremental, O> for JsonFa
                     .flatten(),
             )
             .collect();
-        Ok(JsonVerdict {
+        Ok((!updates.is_empty()).then_some(JsonVerdict {
             updates,
             time: self.output_time.to_string(ts),
-        })
+        }))
     }
 }
