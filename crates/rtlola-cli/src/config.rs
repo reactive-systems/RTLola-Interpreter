@@ -1,24 +1,24 @@
 //! This module contains all configuration related structures.
 
 use std::error::Error;
-use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::thread;
 use std::time::SystemTime;
 
 use clap::ValueEnum;
-use crossterm::style::Color;
 use rtlola_interpreter::config::{ExecutionMode, OfflineMode, OnlineMode};
 use rtlola_interpreter::input::{AssociatedFactory, EventFactory, InputMap, MappedFactory};
 use rtlola_interpreter::monitor::{TotalIncremental, TracingVerdict};
 use rtlola_interpreter::rtlola_mir::RtLolaMir;
 use rtlola_interpreter::time::{OutputTimeRepresentation, RealTime, TimeRepresentation};
 use rtlola_interpreter::QueuedMonitor;
-use rtlola_io_plugins::csv_plugin::{CsvInputSourceKind, CsvVerbosity};
-use rtlola_io_plugins::json_plugin::JsonVerbosity;
+use rtlola_io_plugins::inputs::csv_plugin::CsvInputSourceKind;
+use rtlola_io_plugins::inputs::EventSource;
+use rtlola_io_plugins::outputs::csv_plugin::CsvVerbosity;
+use rtlola_io_plugins::outputs::json_plugin::JsonVerbosity;
+use rtlola_io_plugins::outputs::{log_printer, VerdictsSink};
 #[cfg(feature = "pcap_interface")]
 use rtlola_io_plugins::pcap_plugin::PcapInputSource;
-use rtlola_io_plugins::{EventSource, VerdictsSink};
 
 use crate::output::{EvalTimeTracer, OutputHandler};
 
@@ -41,8 +41,6 @@ pub(crate) struct Config<
     pub(crate) source: Source,
     /// A statistics module
     pub(crate) statistics: Statistics,
-    /// The verbosity to use
-    pub(crate) verbosity: Verbosity,
     /// In which mode the evaluator is executed
     pub(crate) mode: Mode,
     /// Which format to use to output time
@@ -106,26 +104,16 @@ impl TryFrom<Verbosity> for JsonVerbosity {
     }
 }
 
-impl Display for Verbosity {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Verbosity::Silent => write!(f, "Silent"),
-            Verbosity::Trigger => write!(f, "Trigger"),
-            Verbosity::Outputs => write!(f, "Outputs"),
-            Verbosity::Streams => write!(f, "Stream"),
-            Verbosity::Debug => write!(f, "Debug"),
-        }
-    }
-}
+impl TryFrom<Verbosity> for log_printer::Verbosity {
+    type Error = ();
 
-impl From<Verbosity> for Color {
-    fn from(v: Verbosity) -> Self {
-        match v {
-            Verbosity::Silent => Color::White,
-            Verbosity::Trigger => Color::DarkRed,
-            Verbosity::Outputs => Color::DarkGrey,
-            Verbosity::Streams => Color::Grey,
-            Verbosity::Debug => Color::Grey,
+    fn try_from(value: Verbosity) -> Result<Self, Self::Error> {
+        match value {
+            Verbosity::Silent => Err(()),
+            Verbosity::Trigger => Ok(log_printer::Verbosity::Trigger),
+            Verbosity::Outputs => Ok(log_printer::Verbosity::Outputs),
+            Verbosity::Streams => Ok(log_printer::Verbosity::Streams),
+            Verbosity::Debug => Ok(log_printer::Verbosity::Debug),
         }
     }
 }
@@ -165,14 +153,13 @@ where
             ir,
             mut source,
             statistics,
-            verbosity,
             mode,
             output_time_representation,
             start_time,
             sink,
         } = self;
 
-        let output: OutputHandler<_, _, _> = OutputHandler::new(&ir, verbosity, statistics, sink);
+        let output: OutputHandler<_, _, _> = OutputHandler::new(statistics, sink);
 
         let cfg = InterpreterConfig {
             ir,
@@ -227,14 +214,13 @@ where
             ir,
             mut source,
             statistics,
-            verbosity,
             mode,
             output_time_representation,
             start_time,
             sink,
         } = self;
 
-        let output: OutputHandler<_, _, _> = OutputHandler::new(&ir, verbosity, statistics, sink);
+        let output: OutputHandler<_, _, _> = OutputHandler::new(statistics, sink);
 
         let cfg = InterpreterConfig {
             ir,

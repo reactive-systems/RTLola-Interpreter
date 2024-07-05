@@ -369,6 +369,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "crossterm"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f476fe445d41c9e991fd07515a6f463074b782242ccf4a5b7b1d1012e70824df"
+dependencies = [
+ "bitflags 2.6.0",
+ "crossterm_winapi",
+ "libc",
+ "mio",
+ "parking_lot",
+ "signal-hook",
+ "signal-hook-mio",
+ "winapi",
+]
+
+[[package]]
 name = "crossterm_winapi"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1325,7 +1341,7 @@ version = "0.1.1"
 dependencies = [
  "clap",
  "clap_complete",
- "crossterm",
+ "crossterm 0.25.0",
  "human-panic",
  "humantime",
  "rtlola-interpreter",
@@ -1378,7 +1394,7 @@ dependencies = [
  "byteorder",
  "clap",
  "crossbeam-channel",
- "crossterm",
+ "crossterm 0.25.0",
  "csv",
  "dyn-clone",
  "either",
@@ -1420,6 +1436,7 @@ name = "rtlola-io-plugins"
 version = "0.2.0"
 dependencies = [
  "bincode",
+ "crossterm 0.27.0",
  "csv",
  "etherparse",
  "ip_network",

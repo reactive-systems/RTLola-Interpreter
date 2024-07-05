@@ -10,7 +10,8 @@ use rtlola_interpreter::time::{OutputTimeRepresentation, TimeRepresentation};
 use serde::{Deserialize, Serialize};
 use time_converter::TimeConverter;
 
-use crate::{EventSource, VerdictFactory, VerdictsSink};
+use super::{EventResult, EventSource};
+use crate::outputs::{VerdictFactory, VerdictsSink};
 
 pub mod time_converter;
 pub mod upd;
@@ -113,9 +114,7 @@ where
         Ok(())
     }
 
-    fn next_event(
-        &mut self,
-    ) -> crate::EventResult<Self::Factory, <InputTime as TimeRepresentation>::InnerTime, Self::Error> {
+    fn next_event(&mut self) -> EventResult<Self::Factory, <InputTime as TimeRepresentation>::InnerTime, Self::Error> {
         loop {
             let event = self.parser.from_bytes(&self.buffer).map(|(event, package_size)| {
                 let ts = <<Parser as ByteParser>::Output as TimeConverter<InputTime>>::convert_time(&event)

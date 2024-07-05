@@ -11,7 +11,7 @@ use rtlola_interpreter::time::OutputTimeRepresentation;
 use rtlola_interpreter::Value;
 use serde::Serialize;
 
-use crate::{VerdictFactory, VerdictsSink};
+use super::{VerdictFactory, VerdictsSink};
 
 /// Print the verdicts in JSONL format to the writer
 #[derive(Debug)]

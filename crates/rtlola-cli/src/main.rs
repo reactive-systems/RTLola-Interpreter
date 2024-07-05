@@ -16,14 +16,15 @@ use rtlola_interpreter::time::{
     parse_float_time, AbsoluteFloat, AbsoluteRfc, DelayTime, OffsetFloat, OffsetNanos, RealTime, RelativeFloat,
     RelativeNanos,
 };
-use rtlola_io_plugins::csv_plugin::{CsvEventSource, CsvInputSourceKind, CsvVerdictSink};
-use rtlola_io_plugins::json_plugin::JsonFactory;
-use rtlola_io_plugins::log_printer::LogPrinter;
+use rtlola_io_plugins::inputs::csv_plugin::{CsvEventSource, CsvInputSourceKind};
+use rtlola_io_plugins::outputs::csv_plugin::CsvVerdictSink;
+use rtlola_io_plugins::outputs::json_plugin::JsonFactory;
+use rtlola_io_plugins::outputs::log_printer::LogPrinter;
 #[cfg(feature = "pcap_interface")]
 use rtlola_io_plugins::pcap_plugin::{PcapEventSource, PcapInputSource};
 
 use crate::config::{Config, EventSourceConfig, Statistics, Verbosity};
-use crate::output::{Logger, OutputChannel};
+use crate::output::OutputChannel;
 
 mod config;
 mod output;
@@ -593,61 +594,27 @@ macro_rules! run_config_it_ot_src2 {
     ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr) => {
         match $of {
             CliOutputFormat::Default => {
-                let sink = LogPrinter::new(Logger::new($verbosity), $output, &$ir);
-                run_config_it_ot_src_of!(
-                    $it,
-                    $ot,
-                    $ir,
-                    $source,
-                    $statistics,
-                    $verbosity,
-                    $output,
-                    $mode,
-                    $start_time,
-                    sink
-                )
+                let sink = LogPrinter::new($verbosity.try_into().unwrap(), &$ir).sink($output);
+                run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $output, $mode, $start_time, sink)
             },
             CliOutputFormat::Json => {
                 let sink = JsonFactory::new(&$ir, $verbosity.try_into().unwrap()).sink($output);
-                run_config_it_ot_src_of!(
-                    $it,
-                    $ot,
-                    $ir,
-                    $source,
-                    $statistics,
-                    $verbosity,
-                    $output,
-                    $mode,
-                    $start_time,
-                    sink
-                )
+                run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $output, $mode, $start_time, sink)
             },
             CliOutputFormat::Csv => {
                 let sink = CsvVerdictSink::for_verbosity(&$ir, $output, $verbosity.try_into().unwrap());
-                run_config_it_ot_src_of!(
-                    $it,
-                    $ot,
-                    $ir,
-                    $source,
-                    $statistics,
-                    $verbosity,
-                    $output,
-                    $mode,
-                    $start_time,
-                    sink
-                )
+                run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $output, $mode, $start_time, sink)
             },
         }
     };
 }
 
 macro_rules! run_config_it_ot_src_of {
-    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr) => {
+    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr) => {
         Config {
             ir: $ir,
             source: $source,
             statistics: $statistics,
-            verbosity: $verbosity,
             mode: <$mode as ExecutionMode>::new($it),
             output_time_representation: PhantomData::<$ot>::default(),
             start_time: $start_time,
