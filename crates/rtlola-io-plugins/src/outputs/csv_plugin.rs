@@ -23,17 +23,17 @@ pub struct CsvVerdictSink<O: OutputTimeRepresentation, W: Write> {
 #[derive(PartialEq, Ord, PartialOrd, Eq, Debug, Clone, Copy)]
 /// The verbosity of the CSV output
 pub enum CsvVerbosity {
-    /// print the values of all streams (including inputs)
-    Streams,
-    /// print the values of the outputs (including trigger)
-    Outputs,
     /// only print the values of the trigger
     Trigger,
+    /// print the values of the outputs (including trigger)
+    Outputs,
+    /// print the values of all streams (including inputs)
+    Streams,
 }
 
 impl<O: OutputTimeRepresentation, W: Write> CsvVerdictSink<O, W> {
     /// Construct a CsvVerdictSink to print the verdicts according to the specified verbosity to CSV
-    pub fn for_verbosity(ir: &RtLolaMir, writer: W, verbosity: CsvVerbosity) -> Self {
+    pub fn for_verbosity(ir: &RtLolaMir, writer: W, verbosity: CsvVerbosity) -> Result<Self, String> {
         let verbosity_map = ir
             .all_streams()
             .filter_map(|s| Self::verbosity_index(s, ir, verbosity).map(|i| (s, i)))
@@ -43,18 +43,19 @@ impl<O: OutputTimeRepresentation, W: Write> CsvVerdictSink<O, W> {
     }
 
     /// Construct a CsvVerdictSink to print the verdicts of the specified streams to CSV
-    pub fn for_streams(ir: &RtLolaMir, writer: W, streams: Vec<StreamReference>) -> Self {
+    pub fn for_streams(ir: &RtLolaMir, writer: W, streams: Vec<StreamReference>) -> Result<Self, String> {
         let stream_map = streams.into_iter().enumerate().map(|(i, s)| (s, i)).collect();
 
         Self::new(ir, writer, stream_map)
     }
 
+    /// Maps the given `stream` to the index of the corresponding column in the CSV file.
     fn verbosity_index(stream: StreamReference, ir: &RtLolaMir, verbosity: CsvVerbosity) -> Option<usize> {
         match stream {
-            StreamReference::In(i) if verbosity <= CsvVerbosity::Streams => Some(i),
+            StreamReference::In(i) if verbosity >= CsvVerbosity::Streams => Some(i),
             StreamReference::In(_) => None,
-            StreamReference::Out(o) if verbosity <= CsvVerbosity::Streams => Some(ir.inputs.len() + o),
-            StreamReference::Out(o) if verbosity <= CsvVerbosity::Outputs => Some(o),
+            StreamReference::Out(o) if verbosity >= CsvVerbosity::Streams => Some(ir.inputs.len() + o),
+            StreamReference::Out(o) if verbosity >= CsvVerbosity::Outputs => Some(o),
             StreamReference::Out(o) => {
                 match ir.outputs[o].kind {
                     rtlola_interpreter::rtlola_mir::OutputKind::NamedOutput(_) => None,
@@ -65,10 +66,10 @@ impl<O: OutputTimeRepresentation, W: Write> CsvVerdictSink<O, W> {
     }
 
     /// Construct a new sink for the given specification that writes to the supplied writer
-    fn new(ir: &RtLolaMir, writer: W, stream_map: HashMap<StreamReference, usize>) -> Self {
+    fn new(ir: &RtLolaMir, writer: W, stream_map: HashMap<StreamReference, usize>) -> Result<Self, String> {
         for &stream in stream_map.keys() {
             if ir.stream(stream).is_parameterized() {
-                panic!("csv output format only supported for unparameterized specifications");
+                return Err("csv output format only supported for unparameterized specifications".into());
             }
         }
 
@@ -82,13 +83,13 @@ impl<O: OutputTimeRepresentation, W: Write> CsvVerdictSink<O, W> {
                 iter::once("time")
                     .chain(
                         ir.all_streams()
-                            .filter(|s| factory.stream_map.contains_key(&s))
+                            .filter(|s| factory.stream_map.contains_key(s))
                             .map(|s| ir.stream(s).name()),
                     )
                     .collect::<Vec<&str>>(),
             )
             .unwrap();
-        Self { writer, factory }
+        Ok(Self { writer, factory })
     }
 }
 
@@ -100,6 +101,7 @@ impl<O: OutputTimeRepresentation, W: Write> VerdictsSink<TotalIncremental, O> fo
     fn sink(&mut self, verdict: Option<Vec<String>>) -> Result<Self::Return, Self::Error> {
         if let Some(verdict) = verdict {
             self.writer.write_record(verdict).unwrap();
+            self.writer.flush().unwrap();
         }
         Ok(())
     }
@@ -124,24 +126,24 @@ impl<O: OutputTimeRepresentation> VerdictFactory<TotalIncremental, O> for CsvVer
         let mut values = vec![None; self.stream_map.len()];
 
         for (input, value) in rec.inputs {
-            let Some(index) = self.stream_map.get(&StreamReference::In(input)) else {
-                continue;
-            };
-            values[*index] = Some(value);
+            if let Some(index) = self.stream_map.get(&StreamReference::In(input)) {
+                values[*index] = Some(value);
+            }
         }
         for (output, changes) in rec.outputs {
-            let Some(index) = self.stream_map.get(&StreamReference::Out(output)) else {
-                continue;
-            };
-            for change in changes {
-                match change {
-                    rtlola_interpreter::monitor::Change::Spawn(_) => {},
-                    rtlola_interpreter::monitor::Change::Value(None, v) => values[*index] = Some(v),
-                    rtlola_interpreter::monitor::Change::Value(Some(p), v) if p == [] => values[*index] = Some(v),
-                    rtlola_interpreter::monitor::Change::Value(Some(_), _) => unreachable!("checked in new"),
-                    rtlola_interpreter::monitor::Change::Close(_) => {},
+            if let Some(index) = self.stream_map.get(&StreamReference::Out(output)) {
+                for change in changes {
+                    match change {
+                        rtlola_interpreter::monitor::Change::Spawn(_) => {},
+                        rtlola_interpreter::monitor::Change::Value(None, v) => values[*index] = Some(v),
+                        rtlola_interpreter::monitor::Change::Value(Some(p), v) if p.is_empty() => {
+                            values[*index] = Some(v)
+                        },
+                        rtlola_interpreter::monitor::Change::Value(Some(_), _) => unreachable!("checked in new"),
+                        rtlola_interpreter::monitor::Change::Close(_) => {},
+                    }
                 }
-            }
+            };
         }
         if values.iter().all(|v| v.is_none()) {
             Ok(None)

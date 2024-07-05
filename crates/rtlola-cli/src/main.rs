@@ -18,13 +18,13 @@ use rtlola_interpreter::time::{
     RelativeNanos,
 };
 use rtlola_io_plugins::inputs::csv_plugin::{CsvEventSource, CsvInputSourceKind};
+#[cfg(feature = "pcap_interface")]
+use rtlola_io_plugins::inputs::pcap_plugin::{PcapEventSource, PcapInputSource};
 use rtlola_io_plugins::outputs::csv_plugin::CsvVerdictSink;
 use rtlola_io_plugins::outputs::json_plugin::JsonFactory;
 use rtlola_io_plugins::outputs::log_printer::LogPrinter;
 use rtlola_io_plugins::outputs::statistics_plugin::{EvalTimeTracer, StatisticsFactory};
-use rtlola_io_plugins::outputs::{CloneableWrite, StringSink};
-#[cfg(feature = "pcap_interface")]
-use rtlola_io_plugins::pcap_plugin::{PcapEventSource, PcapInputSource};
+use rtlola_io_plugins::outputs::{DiscardSink, StringSink};
 
 use crate::config::{Config, EventSourceConfig, Statistics, Verbosity};
 use crate::output::OutputChannel;
@@ -81,6 +81,9 @@ enum Cli {
         default_value_t=CliOutputTimeRepresentation::RelativeFloatSecs
         )]
         output_time_format: CliOutputTimeRepresentation,
+        /// Set the formatting of the monitor output
+        #[arg(long, value_enum, default_value_t)]
+        output_format: CliOutputFormat,
     },
 
     /// Start the monitor using the given specification
@@ -112,6 +115,7 @@ enum Cli {
         #[arg(short='f', long, value_enum,
         default_value_t=CliOutputTimeRepresentation::RelativeFloatSecs
         )]
+        /// Set the formatting of the monitor output
         output_time_format: CliOutputTimeRepresentation,
         #[arg(long, value_enum, default_value_t)]
         output_format: CliOutputFormat,
@@ -289,7 +293,7 @@ enum CliOutputTimeRepresentation {
 #[derive(Clone, Copy, Debug, ValueEnum, Default)]
 enum CliOutputFormat {
     #[default]
-    Default,
+    Logger,
     Json,
     Csv,
 }
@@ -559,7 +563,8 @@ macro_rules! run_config_it_ot_src {
                     stdout(),
                     $mode,
                     $start_time,
-                    $of
+                    $of,
+                    atty::is(atty::Stream::Stdout)
                 )
             },
             OutputChannel::StdErr => {
@@ -573,7 +578,8 @@ macro_rules! run_config_it_ot_src {
                     stderr(),
                     $mode,
                     $start_time,
-                    $of
+                    $of,
+                    atty::is(atty::Stream::Stderr)
                 )
             },
             OutputChannel::File(f) => {
@@ -589,7 +595,8 @@ macro_rules! run_config_it_ot_src {
                     writer,
                     $mode,
                     $start_time,
-                    $of
+                    $of,
+                    false
                 )
             },
         }
@@ -597,29 +604,33 @@ macro_rules! run_config_it_ot_src {
 }
 
 macro_rules! run_config_it_ot_src2 {
-    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr) => {{
-        let output = CloneableWrite::new($output);
-        match $of {
-            CliOutputFormat::Default => {
-                let sink = LogPrinter::new($verbosity.try_into().unwrap(), &$ir).sink(output.clone());
-                run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, output, $mode, $start_time, sink)
-            },
-            CliOutputFormat::Json => {
-                let sink = JsonFactory::new(&$ir, $verbosity.try_into().unwrap()).sink(output.clone());
-                run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, output, $mode, $start_time, sink)
-            },
-            CliOutputFormat::Csv => {
-                let sink = CsvVerdictSink::for_verbosity(&$ir, output.clone(), $verbosity.try_into().unwrap());
-                run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, output, $mode, $start_time, sink)
-            },
+    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr, $colored: expr) => {{
+        if $verbosity == Verbosity::Silent {
+            let sink = DiscardSink::default();
+            run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
+        } else {
+            match $of {
+                CliOutputFormat::Logger => {
+                    let sink = LogPrinter::new($verbosity.try_into()?, &$ir, $colored).sink($output);
+                    run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
+                },
+                CliOutputFormat::Json => {
+                    let sink = JsonFactory::new(&$ir, $verbosity.try_into()?).sink($output);
+                    run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
+                },
+                CliOutputFormat::Csv => {
+                    let sink = CsvVerdictSink::for_verbosity(&$ir, $output, $verbosity.try_into()?)?;
+                    run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
+                },
+            }
         }
     }};
 }
 
 macro_rules! run_config_it_ot_src_of {
-    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr) => {{
+    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $mode: ty, $start_time: expr, $of: expr) => {{
         let stats_sink = match $statistics {
-            Statistics::All => Some(StatisticsFactory::new($ir.triggers.len(), 40).sink($output)),
+            Statistics::All => Some(StatisticsFactory::new($ir.triggers.len()).sink(stderr())),
             Statistics::None => None,
         };
         Config {
@@ -695,7 +706,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         source,
                         statistics,
                         verbosity,
-                        OutputChannel::from(output.clone()),
+                        output.into(),
                         OnlineMode,
                         start_time.into(),
                         output_format
@@ -710,7 +721,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                             source,
                             statistics,
                             verbosity,
-                            OutputChannel::from(output.clone()),
+                            output.into(),
                             OfflineMode<_>,
                             start_time.into(),
                             output_format
@@ -723,7 +734,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                             source,
                             statistics,
                             verbosity,
-                            OutputChannel::from(output.clone()),
+                            output.into(),
                             OfflineMode<_>,
                             start_time.into(),
                             output_format
@@ -744,6 +755,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             statistics,
             verbosity,
             output_time_format,
+            output_format,
         } => {
             let config = rtlola_frontend::ParserConfig::from_path(spec).unwrap_or_else(|e| {
                 eprintln!("{}", e);
@@ -767,7 +779,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                     verbosity,
                     output.into(),
                     OnlineMode,
-                    start_time.into()
+                    start_time.into(),
+                    output_format
                 )?;
             } else if let Some(d) = input.input_delay {
                 run_config_it!(
@@ -779,7 +792,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                     verbosity,
                     output.into(),
                     OfflineMode<_>,
-                    start_time.into()
+                    start_time.into(),
+                    output_format
                 )?;
             } else {
                 run_config_it!(
@@ -791,7 +805,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                     verbosity,
                     output.into(),
                     OfflineMode<_>,
-                    start_time.into()
+                    start_time.into(),
+                    output_format
                 )?;
             }
         },

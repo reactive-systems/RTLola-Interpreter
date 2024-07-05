@@ -172,16 +172,7 @@ impl VerdictRepresentation for Incremental {
     type Tracing = NoTracer;
 
     fn create(data: RawVerdict) -> Self {
-        data.eval
-            .peek_fresh_outputs()
-            .into_iter()
-            .chain(
-                data.eval
-                    .peek_violated_triggers()
-                    .into_iter()
-                    .map(|t| (t, vec![Change::Value(None, Value::Bool(true))])),
-            )
-            .collect()
+        data.eval.peek_fresh_outputs()
     }
 
     fn is_empty(&self) -> bool {

@@ -73,23 +73,23 @@ impl<
 #[derive(PartialEq, Ord, PartialOrd, Eq, Debug, Clone, Copy)]
 /// The verbosity of the JSON output
 pub enum JsonVerbosity {
-    /// also print the spawn and close of streams
-    Debug,
-    /// print the values of all streams (including inputs)
-    Streams,
-    /// print the values of the outputs (including trigger)
-    Outputs,
     /// only print the values of the trigger
     Trigger,
+    /// print the values of the outputs (including trigger)
+    Outputs,
+    /// print the values of all streams (including inputs)
+    Streams,
+    /// also print the spawn and close of streams
+    Debug,
 }
 
 impl JsonVerbosity {
     fn include_inputs(&self) -> bool {
-        self <= &JsonVerbosity::Streams
+        self >= &JsonVerbosity::Streams
     }
 
     fn include_non_trigger_outputs(&self) -> bool {
-        self <= &JsonVerbosity::Outputs
+        self >= &JsonVerbosity::Outputs
     }
 
     fn include_triggers(&self) -> bool {
@@ -97,7 +97,7 @@ impl JsonVerbosity {
     }
 
     fn include_spawn_and_close(&self) -> bool {
-        self <= &JsonVerbosity::Debug
+        self >= &JsonVerbosity::Debug
     }
 }
 
@@ -159,7 +159,7 @@ pub struct JsonVerdict {
     updates: HashMap<String, Vec<InstanceUpdate>>,
 }
 
-///
+/// The structured representation of the verdict
 #[derive(Serialize, Debug)]
 pub struct InstanceUpdate {
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -176,8 +176,8 @@ impl InstanceUpdate {
     fn new(instance: &Option<&Vec<Value>>) -> Self {
         Self {
             instance: instance
-                .map(|instances| instances.into_iter().map(|v| v.to_string()).collect())
-                .unwrap_or_else(Vec::new),
+                .map(|instances| instances.iter().map(|v| v.to_string()).collect())
+                .unwrap_or_default(),
             spawn: Default::default(),
             eval: Default::default(),
             close: Default::default(),
@@ -205,7 +205,7 @@ impl<O: OutputTimeRepresentation> VerdictFactory<TotalIncremental, O> for JsonFa
             .filter(|(s, _)| self.include_stream(StreamReference::Out(*s)))
             .flat_map(|(stream, changes)| {
                 let stream_name = &self.stream_names[&StreamReference::Out(*stream)];
-                let mut instances = HashMap::new();
+                let mut instances: HashMap<Option<&Vec<Value>>, InstanceUpdate> = HashMap::new();
                 for change in changes {
                     if !self.include_change(change) {
                         continue;

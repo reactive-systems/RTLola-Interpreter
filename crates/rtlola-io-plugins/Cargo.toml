@@ -38,7 +38,9 @@ default = ["serde"]
 pcap_plugin = ["pcap", "etherparse", "ip_network"]
 csv_plugin = ["csv"]
 byte_plugin = ["serde", "bincode", "rtlola-interpreter/serde"]
-jsonl_plugin = ["serde", "jsonl"]
+json_plugin = ["serde", "jsonl"]
+log_printer = []
+statistics_plugin = []
 
 [dev-dependencies]
 portpicker = "0.1.1"

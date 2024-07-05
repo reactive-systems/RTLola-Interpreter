@@ -65,6 +65,12 @@ pub struct StatisticsFactory {
     spinner: [char; 4],
     current_char: usize,
     term_width: u16,
+    last_update: Instant,
+
+    // cache last stats
+    cached_cycles_per_second: u128,
+    cached_nanos_per_cycle: u128,
+    cached_num_cycles: u64,
 }
 
 impl<OutputTime: OutputTimeRepresentation> VerdictFactory<TracingVerdict<EvalTimeTracer, TotalIncremental>, OutputTime>
@@ -92,7 +98,7 @@ impl<OutputTime: OutputTimeRepresentation> VerdictFactory<TracingVerdict<EvalTim
 
 impl StatisticsFactory {
     /// Create a new StatisticsFactory
-    pub fn new(num_trigger: usize, term_width: u16) -> Self {
+    pub fn new(num_trigger: usize) -> Self {
         Self {
             num_cycles: 0,
             num_events: 0,
@@ -101,7 +107,12 @@ impl StatisticsFactory {
             num_triggers: vec![0; num_trigger],
             spinner: ['▌', '▀', '▐', '▄'],
             current_char: 0,
-            term_width,
+            term_width: crossterm::terminal::size().map(|v| v.0).unwrap_or(70),
+            last_update: Instant::now(),
+
+            cached_cycles_per_second: 0,
+            cached_nanos_per_cycle: 0,
+            cached_num_cycles: 0,
         }
     }
 
@@ -118,6 +129,10 @@ impl StatisticsFactory {
         self.spinner[self.current_char]
     }
 
+    fn spinner_char(&self) -> char {
+        self.spinner[self.current_char]
+    }
+
     pub(crate) fn new_cycle(&mut self, trace: EvalTimeTracer) {
         self.elapsed_eval += trace.eval_duration();
         if let Some(parse_dur) = trace.parse_duration() {
@@ -131,17 +146,42 @@ impl StatisticsFactory {
         self.num_triggers[trigger_idx] += 1;
     }
 
-    /// print the current statistics
-    pub fn print_progress(&mut self, out: &mut impl Write) {
-        let spinner_char = self.next_spinner_char();
+    /// Return the current progress text as a string
+    pub fn progress(&mut self) -> String {
+        let mut res = Vec::new();
+        self.print_progress(&mut res);
+        String::from_utf8(res).unwrap()
+    }
+
+    fn update_cache(&mut self) {
+        self.next_spinner_char();
+        if self.num_cycles > 0 {
+            self.cached_cycles_per_second =
+                (self.num_cycles as u128 * Duration::from_secs(1).as_nanos()) / self.elapsed_eval.as_nanos();
+            self.cached_nanos_per_cycle = self.elapsed_eval.as_nanos() / self.num_cycles as u128;
+            self.cached_num_cycles = self.num_cycles;
+            self.last_update = Instant::now();
+        }
+    }
+
+    fn print_progress(&mut self, out: &mut impl Write) {
+        if self.last_update.elapsed() >= Duration::from_millis(250) {
+            self.update_cache();
+        }
         writeln!(out, "{}", "=".repeat(self.term_width as usize)).unwrap_or_else(|_| {});
-        self.cycle_stats(out, spinner_char);
+        self.cycle_stats(out, self.spinner_char());
         self.trigger_stats(out, true);
     }
 
     /// print additional statistics at the end of the monitoring
-    pub fn print_final(&self, out: &mut impl Write) {
-        self.clear_progress(out);
+    pub fn final_progress(&mut self) -> String {
+        let mut res = Vec::new();
+        self.print_final(&mut res);
+        String::from_utf8(res).unwrap()
+    }
+
+    fn print_final(&mut self, out: &mut impl Write) {
+        self.update_cache();
         writeln!(out, "{}", "=".repeat(self.term_width as usize)).unwrap_or_else(|_| {});
         self.cycle_stats(out, ' ');
         self.event_stats(out);
@@ -151,13 +191,10 @@ impl StatisticsFactory {
     fn cycle_stats(&self, out: &mut impl Write, spin_char: char) {
         // write event statistics
         if self.num_cycles > 0 {
-            let cycles_per_second =
-                (self.num_cycles as u128 * Duration::from_secs(1).as_nanos()) / self.elapsed_eval.as_nanos();
-            let nanos_per_cycle = self.elapsed_eval.as_nanos() / self.num_cycles as u128;
             writeln!(
                 out,
                 "{} {} cycles, {} cycles per second, {} nsec per cycles",
-                spin_char, self.num_cycles, cycles_per_second, nanos_per_cycle
+                spin_char, self.cached_num_cycles, self.cached_cycles_per_second, self.cached_nanos_per_cycle
             )
             .unwrap_or_else(|_| {});
         } else {
@@ -166,7 +203,7 @@ impl StatisticsFactory {
     }
 
     fn event_stats(&self, out: &mut impl Write) {
-        if self.num_cycles > 0 {
+        if self.num_events > 0 {
             let seconds_per_cycle = self.elapsed_parse.as_nanos() / self.num_events as u128;
             writeln!(
                 out,
@@ -193,9 +230,13 @@ impl StatisticsFactory {
     }
 
     /// clear screen as much as written in `progress`
-    pub fn clear_progress(&self, out: &mut impl Write) {
-        if self.num_cycles > 0 {
-            execute!(out, MoveToPreviousLine(3u16), Clear(ClearType::FromCursorDown)).unwrap_or_else(|_| {});
-        }
+    pub fn clear_progress_string(&self) -> String {
+        let mut res = Vec::new();
+        self.clear_progress(&mut res);
+        String::from_utf8(res).unwrap()
+    }
+
+    fn clear_progress(&self, out: &mut impl Write) {
+        execute!(out, MoveToPreviousLine(3u16), Clear(ClearType::FromCursorDown)).unwrap_or_else(|_| {});
     }
 }

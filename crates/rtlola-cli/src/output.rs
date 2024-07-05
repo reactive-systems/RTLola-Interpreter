@@ -1,13 +1,13 @@
 #![allow(clippy::mutex_atomic)]
 
 use std::error::Error;
-use std::io::{stderr, Write};
+use std::io::Write;
 use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use rtlola_interpreter::monitor::{TotalIncremental, TracingVerdict};
-use rtlola_interpreter::queued::{QueuedVerdict, Receiver};
+use rtlola_interpreter::queued::{QueuedVerdict, Receiver, RecvTimeoutError};
 use rtlola_interpreter::time::OutputTimeRepresentation;
 use rtlola_io_plugins::outputs::statistics_plugin::EvalTimeTracer;
 use rtlola_io_plugins::outputs::VerdictsSink;
@@ -60,23 +60,34 @@ impl<
         input: Receiver<QueuedVerdict<TracingVerdict<EvalTimeTracer, TotalIncremental>, OutputTime>>,
     ) {
         loop {
-            let res = input.recv_timeout(Duration::from_millis(250));
-            let queue_verdict = match res {
-                Ok(q) => q,
-                Err(_) => {
-                    if let Some(sink) = &mut self.stats_sink {
-                        sink.factory().print_progress(&mut stderr());
-                    }
-                    continue;
-                },
-            };
+            let res = input.recv_timeout(Duration::from_millis(100));
+
             if let Some(sink) = &mut self.stats_sink {
-                sink.sink_verdict(queue_verdict.ts.clone(), queue_verdict.verdict.clone())
-                    .unwrap();
+                let clear = sink.factory().clear_progress_string();
+                sink.sink(clear).unwrap();
             }
-            self.verdict_sink
-                .sink_verdict(queue_verdict.ts, queue_verdict.verdict.verdict)
-                .unwrap();
+
+            match res {
+                Ok(queue_verdict) => {
+                    self.verdict_sink
+                        .sink_verdict(queue_verdict.ts.clone(), queue_verdict.verdict.verdict.clone())
+                        .unwrap();
+                    if let Some(sink) = &mut self.stats_sink {
+                        sink.sink_verdict(queue_verdict.ts, queue_verdict.verdict).unwrap();
+                    }
+                },
+                Err(RecvTimeoutError::Timeout) => {
+                    if let Some(sink) = &mut self.stats_sink {
+                        let progress = sink.factory().progress();
+                        sink.sink(progress).unwrap();
+                    }
+                },
+                Err(RecvTimeoutError::Disconnected) => break,
+            };
+        }
+        if let Some(sink) = &mut self.stats_sink {
+            let progress = sink.factory().final_progress();
+            sink.sink(progress).unwrap();
         }
     }
 }

@@ -14,14 +14,14 @@ use super::{StringSink, VerdictFactory};
 #[derive(PartialEq, Ord, PartialOrd, Eq, Debug, Clone, Copy)]
 /// The verbosity of the log printer output
 pub enum Verbosity {
-    /// also print the spawn and close of streams
-    Debug,
-    /// print the values of all streams (including inputs)
-    Streams,
-    /// print the values of the outputs (including trigger)
-    Outputs,
     /// only print the values of the trigger
     Trigger,
+    /// print the values of the outputs (including trigger)
+    Outputs,
+    /// print the values of all streams (including inputs)
+    Streams,
+    /// also print the spawn and close of streams
+    Debug,
 }
 
 impl Display for Verbosity {
@@ -39,9 +39,9 @@ impl From<Verbosity> for Color {
     fn from(v: Verbosity) -> Self {
         match v {
             Verbosity::Trigger => Color::DarkRed,
-            Verbosity::Outputs => Color::DarkGrey,
-            Verbosity::Streams => Color::Grey,
-            Verbosity::Debug => Color::Grey,
+            Verbosity::Outputs => Color::DarkBlue,
+            Verbosity::Streams => Color::DarkMagenta,
+            Verbosity::Debug => Color::DarkGrey,
         }
     }
 }
@@ -52,15 +52,17 @@ pub struct LogPrinter<OutputTime: OutputTimeRepresentation> {
     output_time: OutputTime,
     verbosity: Verbosity,
     ir: RtLolaMir,
+    colored: bool,
 }
 
 impl<OutputTime: OutputTimeRepresentation> LogPrinter<OutputTime> {
     /// Construct a new LogPrinter based on the given verbosity
-    pub fn new(verbosity: Verbosity, ir: &RtLolaMir) -> Self {
+    pub fn new(verbosity: Verbosity, ir: &RtLolaMir, colored: bool) -> Self {
         Self {
             output_time: OutputTime::default(),
             verbosity,
             ir: ir.clone(),
+            colored,
         }
     }
 
@@ -146,16 +148,27 @@ impl<O: OutputTimeRepresentation> LogPrinter<O> {
     where
         F: FnOnce() -> T,
     {
-        if kind >= self.verbosity {
-            execute!(
-                out,
-                Print(format!("[{}]", ts)),
-                SetForegroundColor(kind.into()),
-                Print(format!("[{}]", kind)),
-                ResetColor,
-                Print(format!("{}\r\n", msg().into()))
-            )
-            .expect("Failed to write to output channel");
+        if kind <= self.verbosity {
+            if self.colored {
+                execute!(
+                    out,
+                    Print(format!("[{}]", ts)),
+                    SetForegroundColor(kind.into()),
+                    Print(format!("[{}]", kind)),
+                    Print(msg().into()),
+                    ResetColor,
+                    Print("\n")
+                )
+                .expect("Failed to write to output channel");
+            } else {
+                execute!(
+                    out,
+                    Print(format!("[{}]", ts)),
+                    Print(format!("[{}]", kind)),
+                    Print(format!("{}\n", msg().into()))
+                )
+                .expect("Failed to write to output channel")
+            }
         }
     }
 

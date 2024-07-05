@@ -9,7 +9,7 @@ use itertools::Itertools;
 use num::traits::Inv;
 use rtlola_frontend::mir::{
     ActivationCondition as Activation, InputReference, OutputKind, OutputReference, PacingLocality, PacingType,
-    RtLolaMir, Stream, StreamReference, Task, TimeDrivenStream, Trigger, WindowReference,
+    RtLolaMir, Stream, StreamReference, Task, TimeDrivenStream, Trigger, TriggerReference, WindowReference,
 };
 use uom::si::rational64::Time as UOM_Time;
 use uom::si::time::nanosecond;
@@ -147,7 +147,7 @@ impl EvaluatorData {
         let fresh_outputs = BitSet::with_capacity(ir.outputs.len());
         let spawned_outputs = BitSet::with_capacity(ir.outputs.len());
         let closed_outputs = BitSet::with_capacity(ir.outputs.len());
-        let fresh_triggers = BitSet::with_capacity(ir.outputs.len()); //trigger use their outputreferences
+        let fresh_triggers = BitSet::with_capacity(ir.outputs.len());
         let mut triggers = vec![None; ir.outputs.len()];
 
         let stream_windows = ir
@@ -374,7 +374,7 @@ impl Evaluator {
     }
 
     /// NOT for external use because the values are volatile
-    pub(crate) fn peek_violated_triggers(&self) -> Vec<OutputReference> {
+    pub(crate) fn peek_violated_triggers(&self) -> Vec<TriggerReference> {
         self.fresh_triggers.iter().collect()
     }
 
@@ -837,8 +837,8 @@ impl Evaluator {
         instance.push_value(res.clone());
         self.fresh_outputs.insert(ix);
 
-        if self.is_trigger(output).is_some() {
-            self.fresh_triggers.insert(ix);
+        if let Some(trigger) = self.is_trigger(output) {
+            self.fresh_triggers.insert(trigger.trigger_reference);
         }
 
         // Update Instance aggregations

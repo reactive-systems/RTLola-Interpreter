@@ -1,13 +1,16 @@
+#[cfg(feature = "csv_plugin")]
 pub mod csv_plugin;
+#[cfg(feature = "json_plugin")]
 pub mod json_plugin;
+#[cfg(feature = "log_printer")]
 pub mod log_printer;
+#[cfg(feature = "statistics_plugin")]
 pub mod statistics_plugin;
 
 use std::convert::Infallible;
 use std::error::Error;
 use std::io::Write;
 use std::marker::PhantomData;
-use std::sync::{Arc, Mutex};
 
 use rtlola_interpreter::monitor::{VerdictRepresentation, Verdicts};
 use rtlola_interpreter::time::{OutputTimeRepresentation, TimeRepresentation};
@@ -140,7 +143,8 @@ impl<
         OutputTime: OutputTimeRepresentation,
     > StringSink<W, Factory, MonitorOutput, OutputTime>
 {
-    fn new(writer: W, factory: Factory) -> Self {
+    /// Create a new StringSink that receives strings and forwards them to a writer
+    pub fn new(writer: W, factory: Factory) -> Self {
         Self {
             factory,
             writer,
@@ -170,54 +174,36 @@ impl<
     }
 }
 
-// /// A wrapper for a `Write` implementing type that is cloneable
-// #[derive(Debug)]
-// pub struct CloneableWrite<W: Write>(Rc<RefCell<W>>);
+/// A sink implementation that is completely discarding the verdicts
+#[derive(Default, Copy, Clone, Debug)]
+pub struct DiscardSink(EmptyFactory);
 
-// impl<W: Write> CloneableWrite<W> {
-//     pub fn new(write: W) -> Self {
-//         Self(Rc::new(RefCell::new(write)))
-//     }
-// }
+impl<O: OutputTimeRepresentation, V: VerdictRepresentation> VerdictsSink<V, O> for DiscardSink {
+    type Error = Infallible;
+    type Factory = EmptyFactory;
+    type Return = ();
 
-// impl<W: Write> Clone for CloneableWrite<W> {
-//     fn clone(&self) -> Self {
-//         Self(self.0.clone())
-//     }
-// }
+    fn sink(
+        &mut self,
+        _verdict: <Self::Factory as VerdictFactory<V, O>>::Verdict,
+    ) -> Result<Self::Return, Self::Error> {
+        Ok(())
+    }
 
-// impl<W: Write> Write for CloneableWrite<W> {
-//     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-//         self.0.borrow_mut().write(buf)
-//     }
-
-//     fn flush(&mut self) -> std::io::Result<()> {
-//         self.0.borrow_mut().flush()
-//     }
-// }
-
-/// A wrapper for a `Write` implementing type that is cloneable
-#[derive(Debug)]
-pub struct CloneableWrite<W: Write>(Arc<Mutex<W>>);
-
-impl<W: Write> CloneableWrite<W> {
-    pub fn new(write: W) -> Self {
-        Self(Arc::new(Mutex::new(write)))
+    fn factory(&mut self) -> &mut Self::Factory {
+        &mut self.0
     }
 }
 
-impl<W: Write> Clone for CloneableWrite<W> {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
+/// A factory implementation that does nothing
+#[derive(Default, Copy, Clone, Debug)]
+pub struct EmptyFactory;
 
-impl<W: Write> Write for CloneableWrite<W> {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().unwrap().write(buf)
-    }
+impl<V: VerdictRepresentation, O: OutputTimeRepresentation> VerdictFactory<V, O> for EmptyFactory {
+    type Error = Infallible;
+    type Verdict = ();
 
-    fn flush(&mut self) -> std::io::Result<()> {
-        self.0.lock().unwrap().flush()
+    fn get_verdict(&mut self, _rec: V, _ts: O::InnerTime) -> Result<Self::Verdict, Self::Error> {
+        Ok(())
     }
 }

@@ -14,13 +14,13 @@ use rtlola_interpreter::rtlola_mir::RtLolaMir;
 use rtlola_interpreter::time::{OutputTimeRepresentation, RealTime, TimeRepresentation};
 use rtlola_interpreter::QueuedMonitor;
 use rtlola_io_plugins::inputs::csv_plugin::CsvInputSourceKind;
+#[cfg(feature = "pcap_interface")]
+use rtlola_io_plugins::inputs::pcap_plugin::PcapInputSource;
 use rtlola_io_plugins::inputs::EventSource;
 use rtlola_io_plugins::outputs::csv_plugin::CsvVerbosity;
 use rtlola_io_plugins::outputs::json_plugin::JsonVerbosity;
 use rtlola_io_plugins::outputs::statistics_plugin::EvalTimeTracer;
 use rtlola_io_plugins::outputs::{log_printer, VerdictsSink};
-#[cfg(feature = "pcap_interface")]
-use rtlola_io_plugins::pcap_plugin::PcapInputSource;
 
 use crate::output::OutputHandler;
 use crate::StatsSink;
@@ -80,25 +80,25 @@ pub enum Verbosity {
 }
 
 impl TryFrom<Verbosity> for CsvVerbosity {
-    type Error = ();
+    type Error = String;
 
     fn try_from(value: Verbosity) -> Result<Self, Self::Error> {
         match value {
-            Verbosity::Silent => Err(()),
+            Verbosity::Silent => Err("Silent verbosity not supported with csv output format.".into()),
             Verbosity::Trigger => Ok(CsvVerbosity::Trigger),
             Verbosity::Outputs => Ok(CsvVerbosity::Outputs),
             Verbosity::Streams => Ok(CsvVerbosity::Streams),
-            Verbosity::Debug => Err(()),
+            Verbosity::Debug => Err("Debug verbosity not supported with csv output format. Use json instead.".into()),
         }
     }
 }
 
 impl TryFrom<Verbosity> for JsonVerbosity {
-    type Error = ();
+    type Error = String;
 
     fn try_from(value: Verbosity) -> Result<Self, Self::Error> {
         match value {
-            Verbosity::Silent => Err(()),
+            Verbosity::Silent => Err("Silent verbosity not supported with json output format.".into()),
             Verbosity::Trigger => Ok(JsonVerbosity::Trigger),
             Verbosity::Outputs => Ok(JsonVerbosity::Outputs),
             Verbosity::Streams => Ok(JsonVerbosity::Streams),
@@ -108,11 +108,11 @@ impl TryFrom<Verbosity> for JsonVerbosity {
 }
 
 impl TryFrom<Verbosity> for log_printer::Verbosity {
-    type Error = ();
+    type Error = String;
 
     fn try_from(value: Verbosity) -> Result<Self, Self::Error> {
         match value {
-            Verbosity::Silent => Err(()),
+            Verbosity::Silent => Err("Silent verbosity not supported with log printer".into()),
             Verbosity::Trigger => Ok(log_printer::Verbosity::Trigger),
             Verbosity::Outputs => Ok(log_printer::Verbosity::Outputs),
             Verbosity::Streams => Ok(log_printer::Verbosity::Streams),
