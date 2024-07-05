@@ -496,7 +496,6 @@ impl Evaluator {
             x => vec![x],
         };
 
-        self.spawned_outputs.insert(output);
         let own_windows: Vec<WindowReference> = self
             .stream_windows
             .get(&stream.reference)
@@ -600,6 +599,8 @@ impl Evaluator {
                 schedule.schedule_close(output, parameter_values.as_slice(), ts, period);
             }
         }
+
+        self.spawned_outputs.insert(output);
     }
 
     fn eval_close(&mut self, output: OutputReference, parameter: &[Value], ts: Time) {
