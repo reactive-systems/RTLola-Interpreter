@@ -1,6 +1,6 @@
 #![allow(clippy::mutex_atomic)]
 
-use std::convert::Infallible;
+use std::error::Error;
 use std::fs::File;
 use std::io::{stderr, stdout, BufWriter, Write};
 use std::marker::PhantomData;
@@ -48,7 +48,8 @@ impl From<OutputChannel> for Box<dyn Write + Send> {
 /// Manages the output of the interpreter.
 pub struct OutputHandler<
     OutputTime: OutputTimeRepresentation,
-    Sink: VerdictsSink<TotalIncremental, OutputTime, Error = Infallible, Return = ()>,
+    Sink: VerdictsSink<TotalIncremental, OutputTime, Error = SinkError, Return = ()>,
+    SinkError: Error,
 > {
     verbosity: Verbosity,
     statistics: Option<Statistics>,
@@ -58,8 +59,9 @@ pub struct OutputHandler<
 
 impl<
         OutputTime: OutputTimeRepresentation,
-        Sink: VerdictsSink<TotalIncremental, OutputTime, Error = Infallible, Return = ()>,
-    > OutputHandler<OutputTime, Sink>
+        Sink: VerdictsSink<TotalIncremental, OutputTime, Error = SinkError, Return = ()>,
+        SinkError: Error + 'static,
+    > OutputHandler<OutputTime, Sink, SinkError>
 {
     /// Creates a new Output Handler. If None is given as 'start_time', then the first event determines it.
     pub(crate) fn new(
@@ -67,7 +69,7 @@ impl<
         verbosity: Verbosity,
         stats: crate::config::Statistics,
         sink: Sink,
-    ) -> OutputHandler<OutputTime, Sink> {
+    ) -> OutputHandler<OutputTime, Sink, SinkError> {
         let statistics = match stats {
             crate::Statistics::None => None,
             crate::Statistics::All => Some(Statistics::new(ir.triggers.len())),

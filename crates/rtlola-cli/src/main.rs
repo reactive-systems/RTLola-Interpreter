@@ -608,7 +608,7 @@ macro_rules! run_config_it_ot_src2 {
                 )
             },
             CliOutputFormat::Json => {
-                let sink = JsonlSink::new(&$ir, $output);
+                let sink = JsonlSink::new(&$ir, $output, $verbosity.try_into().unwrap());
                 run_config_it_ot_src_of!(
                     $it,
                     $ot,
@@ -623,7 +623,7 @@ macro_rules! run_config_it_ot_src2 {
                 )
             },
             CliOutputFormat::Csv => {
-                let sink = CsvVerdictSink::new(&$ir, $output);
+                let sink = CsvVerdictSink::for_verbosity(&$ir, $output, $verbosity.try_into().unwrap());
                 run_config_it_ot_src_of!(
                     $it,
                     $ot,

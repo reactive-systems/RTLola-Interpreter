@@ -1,6 +1,5 @@
 //! This module contains all configuration related structures.
 
-use std::convert::Infallible;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
@@ -15,7 +14,8 @@ use rtlola_interpreter::monitor::{TotalIncremental, TracingVerdict};
 use rtlola_interpreter::rtlola_mir::RtLolaMir;
 use rtlola_interpreter::time::{OutputTimeRepresentation, RealTime, TimeRepresentation};
 use rtlola_interpreter::QueuedMonitor;
-use rtlola_io_plugins::csv_plugin::CsvInputSourceKind;
+use rtlola_io_plugins::csv_plugin::{CsvInputSourceKind, CsvVerbosity};
+use rtlola_io_plugins::jsonl_plugin::JsonVerbosity;
 #[cfg(feature = "pcap_interface")]
 use rtlola_io_plugins::pcap_plugin::PcapInputSource;
 use rtlola_io_plugins::{EventSource, VerdictsSink};
@@ -70,10 +70,40 @@ pub enum Verbosity {
     /// Prints only triggers and runtime warnings.
     #[default]
     Trigger,
+    /// Prints new stream values for outputs (and triggers).
+    Outputs,
     /// Prints new stream values for every stream.
     Streams,
     /// Prints fine-grained debug information. Not suitable for production.
     Debug,
+}
+
+impl TryFrom<Verbosity> for CsvVerbosity {
+    type Error = ();
+
+    fn try_from(value: Verbosity) -> Result<Self, Self::Error> {
+        match value {
+            Verbosity::Silent => Err(()),
+            Verbosity::Trigger => Ok(CsvVerbosity::Trigger),
+            Verbosity::Outputs => Ok(CsvVerbosity::Outputs),
+            Verbosity::Streams => Ok(CsvVerbosity::Streams),
+            Verbosity::Debug => Err(()),
+        }
+    }
+}
+
+impl TryFrom<Verbosity> for JsonVerbosity {
+    type Error = ();
+
+    fn try_from(value: Verbosity) -> Result<Self, Self::Error> {
+        match value {
+            Verbosity::Silent => Err(()),
+            Verbosity::Trigger => Ok(JsonVerbosity::Trigger),
+            Verbosity::Outputs => Ok(JsonVerbosity::Outputs),
+            Verbosity::Streams => Ok(JsonVerbosity::Streams),
+            Verbosity::Debug => Ok(JsonVerbosity::Debug),
+        }
+    }
 }
 
 impl Display for Verbosity {
@@ -81,6 +111,7 @@ impl Display for Verbosity {
         match self {
             Verbosity::Silent => write!(f, "Silent"),
             Verbosity::Trigger => write!(f, "Trigger"),
+            Verbosity::Outputs => write!(f, "Outputs"),
             Verbosity::Streams => write!(f, "Stream"),
             Verbosity::Debug => write!(f, "Debug"),
         }
@@ -92,7 +123,8 @@ impl From<Verbosity> for Color {
         match v {
             Verbosity::Silent => Color::White,
             Verbosity::Trigger => Color::DarkRed,
-            Verbosity::Streams => Color::DarkGrey,
+            Verbosity::Outputs => Color::DarkGrey,
+            Verbosity::Streams => Color::Grey,
             Verbosity::Debug => Color::Grey,
         }
     }
@@ -119,7 +151,8 @@ impl<
         Source: EventSource<InputTime> + 'static,
         InputTime: TimeRepresentation,
         OutputTime: OutputTimeRepresentation,
-        Sink: VerdictsSink<TotalIncremental, OutputTime, Return = (), Error = Infallible> + Send + 'static,
+        Sink: VerdictsSink<TotalIncremental, OutputTime, Return = (), Error = SinkError> + Send + 'static,
+        SinkError: Error + 'static,
     > Config<Source, OfflineMode<InputTime>, InputTime, OutputTime, Sink>
 where
     Source::Factory:
@@ -139,7 +172,7 @@ where
             sink,
         } = self;
 
-        let output: OutputHandler<OutputTime, Sink> = OutputHandler::new(&ir, verbosity, statistics, sink);
+        let output: OutputHandler<_, _, _> = OutputHandler::new(&ir, verbosity, statistics, sink);
 
         let cfg = InterpreterConfig {
             ir,
@@ -180,7 +213,8 @@ where
 impl<
         Source: EventSource<RealTime> + 'static,
         OutputTime: OutputTimeRepresentation,
-        Sink: VerdictsSink<TotalIncremental, OutputTime, Return = (), Error = Infallible> + Send + 'static,
+        Sink: VerdictsSink<TotalIncremental, OutputTime, Return = (), Error = SinkError> + Send + 'static,
+        SinkError: Error + 'static,
     > Config<Source, OnlineMode, RealTime, OutputTime, Sink>
 where
     Source::Factory:
@@ -200,7 +234,7 @@ where
             sink,
         } = self;
 
-        let output: OutputHandler<OutputTime, Sink> = OutputHandler::new(&ir, verbosity, statistics, sink);
+        let output: OutputHandler<_, _, _> = OutputHandler::new(&ir, verbosity, statistics, sink);
 
         let cfg = InterpreterConfig {
             ir,

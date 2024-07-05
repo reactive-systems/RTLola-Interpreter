@@ -24,9 +24,11 @@ pub mod log_printer;
 
 #[cfg(feature = "jsonl_plugin")]
 pub mod jsonl_plugin;
+// mod statistics_plugin;
 
 use std::convert::Infallible;
 use std::error::Error;
+use std::io::Write;
 use std::marker::PhantomData;
 
 use rtlola_interpreter::input::{AssociatedFactory, EventFactory};
@@ -157,5 +159,39 @@ impl<SinkError: Error, FactoryError: Error> Error for VerdictSinkError<SinkError
             VerdictSinkError::Sink(e) => Some(e),
             VerdictSinkError::Factory(e) => Some(e),
         }
+    }
+}
+
+/// Generic VerdictSink that accepts verdicts as strings and writes them to a Writer.
+#[derive(Debug)]
+pub struct StringSink<
+    W: Write,
+    Factory: VerdictFactory<MonitorOutput, OutputTime>,
+    MonitorOutput: VerdictRepresentation,
+    OutputTime: OutputTimeRepresentation,
+> {
+    factory: Factory,
+    writer: W,
+    output: PhantomData<MonitorOutput>,
+    time: PhantomData<OutputTime>,
+}
+
+impl<
+        W: Write,
+        Factory: VerdictFactory<MonitorOutput, OutputTime, Verdict = String>,
+        MonitorOutput: VerdictRepresentation,
+        OutputTime: OutputTimeRepresentation,
+    > VerdictsSink<MonitorOutput, OutputTime> for StringSink<W, Factory, MonitorOutput, OutputTime>
+{
+    type Error = std::io::Error;
+    type Factory = Factory;
+    type Return = ();
+
+    fn sink(&mut self, verdict: String) -> Result<Self::Return, Self::Error> {
+        write!(self.writer, "{}", verdict)
+    }
+
+    fn factory(&mut self) -> &mut Self::Factory {
+        &mut self.factory
     }
 }
