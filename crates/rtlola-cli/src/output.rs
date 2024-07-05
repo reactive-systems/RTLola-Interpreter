@@ -1,16 +1,18 @@
 #![allow(clippy::mutex_atomic)]
 
 use std::error::Error;
-use std::fs::File;
-use std::io::{stderr, stdout, BufWriter, Write};
+use std::io::{stderr, Write};
 use std::marker::PhantomData;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use rtlola_interpreter::monitor::{TotalIncremental, Tracer, TracingVerdict};
+use rtlola_interpreter::monitor::{TotalIncremental, TracingVerdict};
 use rtlola_interpreter::queued::{QueuedVerdict, Receiver};
 use rtlola_interpreter::time::OutputTimeRepresentation;
+use rtlola_io_plugins::outputs::statistics_plugin::EvalTimeTracer;
 use rtlola_io_plugins::outputs::VerdictsSink;
+
+use crate::StatsSink;
 
 /// The possible targets at which the output of the interpreter can be directed.
 #[derive(Debug, Clone, Default)]
@@ -24,47 +26,32 @@ pub enum OutputChannel {
     File(PathBuf),
 }
 
-impl From<OutputChannel> for Box<dyn Write + Send> {
-    fn from(channel: OutputChannel) -> Self {
-        match channel {
-            OutputChannel::StdOut => Box::new(stdout()),
-            OutputChannel::StdErr => Box::new(stderr()),
-            OutputChannel::File(f) => {
-                let file = File::create(f.as_path()).expect("Could not open output file!");
-                Box::new(BufWriter::new(file))
-            },
-        }
-    }
-}
-
 /// Manages the output of the interpreter.
 pub struct OutputHandler<
     OutputTime: OutputTimeRepresentation,
-    Sink: VerdictsSink<TotalIncremental, OutputTime, Error = SinkError, Return = ()>,
-    SinkError: Error,
+    W: Write,
+    VerdictSink: VerdictsSink<TotalIncremental, OutputTime, Error: Error + 'static, Return = ()>,
 > {
-    // statistics: Option<Statistics>,
-    sink: Sink,
+    stats_sink: Option<StatsSink<W, OutputTime>>,
+    verdict_sink: VerdictSink,
     output_time: PhantomData<OutputTime>,
 }
 
 impl<
         OutputTime: OutputTimeRepresentation,
-        Sink: VerdictsSink<TotalIncremental, OutputTime, Error = SinkError, Return = ()>,
-        SinkError: Error + 'static,
-    > OutputHandler<OutputTime, Sink, SinkError>
+        W: Write,
+        VerdictSink: VerdictsSink<TotalIncremental, OutputTime, Error: Error + 'static, Return = ()>,
+    > OutputHandler<OutputTime, W, VerdictSink>
 {
     /// Creates a new Output Handler. If None is given as 'start_time', then the first event determines it.
-    pub(crate) fn new(stats: crate::config::Statistics, sink: Sink) -> OutputHandler<OutputTime, Sink, SinkError> {
-        // let statistics = match stats {
-        //     crate::Statistics::None => None,
-        //     crate::Statistics::All => todo!(), //Some(Statistics::new(ir.triggers.len())),
-        // };
-
+    pub(crate) fn new(
+        verdict_sink: VerdictSink,
+        stats_sink: Option<StatsSink<W, OutputTime>>,
+    ) -> OutputHandler<OutputTime, W, VerdictSink> {
         OutputHandler {
-            // statistics,
             output_time: PhantomData,
-            sink,
+            verdict_sink,
+            stats_sink,
         }
     }
 
@@ -72,51 +59,24 @@ impl<
         mut self,
         input: Receiver<QueuedVerdict<TracingVerdict<EvalTimeTracer, TotalIncremental>, OutputTime>>,
     ) {
-        while let Ok(queue_verdict) = input.recv() {
-            let TracingVerdict { tracer, verdict } = queue_verdict.verdict;
-
-            self.sink.sink_verdict(queue_verdict.ts, verdict).unwrap();
+        loop {
+            let res = input.recv_timeout(Duration::from_millis(250));
+            let queue_verdict = match res {
+                Ok(q) => q,
+                Err(_) => {
+                    if let Some(sink) = &mut self.stats_sink {
+                        sink.factory().print_progress(&mut stderr());
+                    }
+                    continue;
+                },
+            };
+            if let Some(sink) = &mut self.stats_sink {
+                sink.sink_verdict(queue_verdict.ts.clone(), queue_verdict.verdict.clone())
+                    .unwrap();
+            }
+            self.verdict_sink
+                .sink_verdict(queue_verdict.ts, queue_verdict.verdict.verdict)
+                .unwrap();
         }
-    }
-}
-
-/// This tracer provides the time given as a duration the evaluation cycle took.
-#[derive(Debug, Clone, Copy, Default)]
-pub(crate) struct EvalTimeTracer {
-    parse_start: Option<Instant>,
-    parse_end: Option<Instant>,
-
-    eval_start: Option<Instant>,
-    eval_end: Option<Instant>,
-}
-
-impl EvalTimeTracer {
-    /// Returns the duration the traced evaluation cycle took.
-    pub fn eval_duration(&self) -> Duration {
-        self.eval_end.unwrap().duration_since(self.eval_start.unwrap())
-    }
-
-    /// Returns the duration the traced evaluation cycle took.
-    pub fn parse_duration(&self) -> Option<Duration> {
-        self.parse_end
-            .and_then(|end| self.parse_start.map(|start| end.duration_since(start)))
-    }
-}
-
-impl Tracer for EvalTimeTracer {
-    fn parse_start(&mut self) {
-        self.parse_start.replace(Instant::now());
-    }
-
-    fn parse_end(&mut self) {
-        self.parse_end.replace(Instant::now());
-    }
-
-    fn eval_start(&mut self) {
-        self.eval_start.replace(Instant::now());
-    }
-
-    fn eval_end(&mut self) {
-        self.eval_end.replace(Instant::now());
     }
 }

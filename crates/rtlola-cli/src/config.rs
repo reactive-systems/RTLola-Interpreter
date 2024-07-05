@@ -1,6 +1,7 @@
 //! This module contains all configuration related structures.
 
 use std::error::Error;
+use std::io::Write;
 use std::marker::PhantomData;
 use std::thread;
 use std::time::SystemTime;
@@ -16,11 +17,13 @@ use rtlola_io_plugins::inputs::csv_plugin::CsvInputSourceKind;
 use rtlola_io_plugins::inputs::EventSource;
 use rtlola_io_plugins::outputs::csv_plugin::CsvVerbosity;
 use rtlola_io_plugins::outputs::json_plugin::JsonVerbosity;
+use rtlola_io_plugins::outputs::statistics_plugin::EvalTimeTracer;
 use rtlola_io_plugins::outputs::{log_printer, VerdictsSink};
 #[cfg(feature = "pcap_interface")]
 use rtlola_io_plugins::pcap_plugin::PcapInputSource;
 
-use crate::output::{EvalTimeTracer, OutputHandler};
+use crate::output::OutputHandler;
+use crate::StatsSink;
 
 /**
 `Config` combines an RTLola specification in [RtLolaMir] form with various configuration parameters for the interpreter.
@@ -33,21 +36,21 @@ pub(crate) struct Config<
     Mode: ExecutionMode<SourceTime = InputTime>,
     InputTime: TimeRepresentation,
     OutputTime: OutputTimeRepresentation,
-    Sink: VerdictsSink<TotalIncremental, OutputTime>,
+    VerdictSink: VerdictsSink<TotalIncremental, OutputTime>,
+    W: Write,
 > {
     /// The representation of the specification
     pub(crate) ir: RtLolaMir,
     /// The source of events
     pub(crate) source: Source,
-    /// A statistics module
-    pub(crate) statistics: Statistics,
     /// In which mode the evaluator is executed
     pub(crate) mode: Mode,
     /// Which format to use to output time
     pub(crate) output_time_representation: PhantomData<OutputTime>,
     /// The start time to assume
     pub(crate) start_time: Option<SystemTime>,
-    pub(crate) sink: Sink,
+    pub(crate) verdict_sink: VerdictSink,
+    pub(crate) stats_sink: Option<StatsSink<W, OutputTime>>,
 }
 
 /// Used to define the level of statistics that should be computed.
@@ -139,9 +142,9 @@ impl<
         Source: EventSource<InputTime> + 'static,
         InputTime: TimeRepresentation,
         OutputTime: OutputTimeRepresentation,
-        Sink: VerdictsSink<TotalIncremental, OutputTime, Return = (), Error = SinkError> + Send + 'static,
-        SinkError: Error + 'static,
-    > Config<Source, OfflineMode<InputTime>, InputTime, OutputTime, Sink>
+        VerdictSink: VerdictsSink<TotalIncremental, OutputTime, Return = (), Error: Error + 'static> + Send + 'static,
+        W: Write + Send + 'static,
+    > Config<Source, OfflineMode<InputTime>, InputTime, OutputTime, VerdictSink, W>
 where
     Source::Factory:
         InputMap<CreationData = <<Source::Factory as AssociatedFactory>::Factory as EventFactory>::CreationData>,
@@ -152,14 +155,14 @@ where
         let Config {
             ir,
             mut source,
-            statistics,
             mode,
             output_time_representation,
             start_time,
-            sink,
+            verdict_sink,
+            stats_sink,
         } = self;
 
-        let output: OutputHandler<_, _, _> = OutputHandler::new(statistics, sink);
+        let output: OutputHandler<_, _, _> = OutputHandler::new(verdict_sink, stats_sink);
 
         let cfg = InterpreterConfig {
             ir,
@@ -200,9 +203,9 @@ where
 impl<
         Source: EventSource<RealTime> + 'static,
         OutputTime: OutputTimeRepresentation,
-        Sink: VerdictsSink<TotalIncremental, OutputTime, Return = (), Error = SinkError> + Send + 'static,
-        SinkError: Error + 'static,
-    > Config<Source, OnlineMode, RealTime, OutputTime, Sink>
+        VerdictSink: VerdictsSink<TotalIncremental, OutputTime, Return = (), Error: Error + 'static> + Send + 'static,
+        W: Write + Send + 'static,
+    > Config<Source, OnlineMode, RealTime, OutputTime, VerdictSink, W>
 where
     Source::Factory:
         InputMap<CreationData = <<Source::Factory as AssociatedFactory>::Factory as EventFactory>::CreationData>,
@@ -213,14 +216,14 @@ where
         let Config {
             ir,
             mut source,
-            statistics,
             mode,
             output_time_representation,
             start_time,
-            sink,
+            verdict_sink,
+            stats_sink,
         } = self;
 
-        let output: OutputHandler<_, _, _> = OutputHandler::new(statistics, sink);
+        let output: OutputHandler<_, _, _> = OutputHandler::new(verdict_sink, stats_sink);
 
         let cfg = InterpreterConfig {
             ir,

@@ -11,6 +11,7 @@ use clap_complete::shells::*;
 #[cfg(feature = "public")]
 use human_panic::setup_panic;
 use rtlola_interpreter::config::{ExecutionMode, OfflineMode, OnlineMode};
+use rtlola_interpreter::monitor::{TotalIncremental, TracingVerdict};
 use rtlola_interpreter::rtlola_frontend;
 use rtlola_interpreter::time::{
     parse_float_time, AbsoluteFloat, AbsoluteRfc, DelayTime, OffsetFloat, OffsetNanos, RealTime, RelativeFloat,
@@ -20,6 +21,8 @@ use rtlola_io_plugins::inputs::csv_plugin::{CsvEventSource, CsvInputSourceKind};
 use rtlola_io_plugins::outputs::csv_plugin::CsvVerdictSink;
 use rtlola_io_plugins::outputs::json_plugin::JsonFactory;
 use rtlola_io_plugins::outputs::log_printer::LogPrinter;
+use rtlola_io_plugins::outputs::statistics_plugin::{EvalTimeTracer, StatisticsFactory};
+use rtlola_io_plugins::outputs::{CloneableWrite, StringSink};
 #[cfg(feature = "pcap_interface")]
 use rtlola_io_plugins::pcap_plugin::{PcapEventSource, PcapInputSource};
 
@@ -28,6 +31,9 @@ use crate::output::OutputChannel;
 
 mod config;
 mod output;
+
+type StatsSink<W, OutputTime> =
+    StringSink<W, StatisticsFactory, TracingVerdict<EvalTimeTracer, TotalIncremental>, OutputTime>;
 
 #[derive(Parser, Debug, Clone)]
 #[command(
@@ -591,38 +597,43 @@ macro_rules! run_config_it_ot_src {
 }
 
 macro_rules! run_config_it_ot_src2 {
-    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr) => {
+    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr) => {{
+        let output = CloneableWrite::new($output);
         match $of {
             CliOutputFormat::Default => {
-                let sink = LogPrinter::new($verbosity.try_into().unwrap(), &$ir).sink($output);
-                run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $output, $mode, $start_time, sink)
+                let sink = LogPrinter::new($verbosity.try_into().unwrap(), &$ir).sink(output.clone());
+                run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, output, $mode, $start_time, sink)
             },
             CliOutputFormat::Json => {
-                let sink = JsonFactory::new(&$ir, $verbosity.try_into().unwrap()).sink($output);
-                run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $output, $mode, $start_time, sink)
+                let sink = JsonFactory::new(&$ir, $verbosity.try_into().unwrap()).sink(output.clone());
+                run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, output, $mode, $start_time, sink)
             },
             CliOutputFormat::Csv => {
-                let sink = CsvVerdictSink::for_verbosity(&$ir, $output, $verbosity.try_into().unwrap());
-                run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $output, $mode, $start_time, sink)
+                let sink = CsvVerdictSink::for_verbosity(&$ir, output.clone(), $verbosity.try_into().unwrap());
+                run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, output, $mode, $start_time, sink)
             },
         }
-    };
+    }};
 }
 
 macro_rules! run_config_it_ot_src_of {
-    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr) => {
+    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr) => {{
+        let stats_sink = match $statistics {
+            Statistics::All => Some(StatisticsFactory::new($ir.triggers.len(), 40).sink($output)),
+            Statistics::None => None,
+        };
         Config {
             ir: $ir,
             source: $source,
-            statistics: $statistics,
             mode: <$mode as ExecutionMode>::new($it),
             output_time_representation: PhantomData::<$ot>::default(),
             start_time: $start_time,
-            sink: $of,
+            verdict_sink: $of,
+            stats_sink,
         }
         .run()
         .map(|_| ())
-    };
+    }};
 }
 
 fn main() -> Result<(), Box<dyn Error>> {

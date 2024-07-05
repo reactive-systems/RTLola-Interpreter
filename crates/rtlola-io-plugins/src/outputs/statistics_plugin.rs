@@ -1,15 +1,19 @@
+//! Module that implements [VerdictsSink] to print statistics about the monitoring run
 use std::convert::Infallible;
 use std::io::Write;
 use std::time::{Duration, Instant};
 
+use crossterm::cursor::MoveToPreviousLine;
+use crossterm::execute;
+use crossterm::terminal::{Clear, ClearType};
 use rtlola_interpreter::monitor::{TotalIncremental, Tracer, TracingVerdict};
 use rtlola_interpreter::time::OutputTimeRepresentation;
 
-use super::VerdictFactory;
+use super::{StringSink, VerdictFactory};
 
 /// This tracer provides the time given as a duration the evaluation cycle took.
 #[derive(Debug, Clone, Copy, Default)]
-pub(crate) struct EvalTimeTracer {
+pub struct EvalTimeTracer {
     parse_start: Option<Instant>,
     parse_end: Option<Instant>,
 
@@ -48,8 +52,9 @@ impl Tracer for EvalTimeTracer {
     }
 }
 
+/// VerdictFactory that produces statistical output about the monitoring run
 #[derive(Debug, Clone)]
-pub(crate) struct StatisticsFactory {
+pub struct StatisticsFactory {
     num_cycles: u64,
     num_events: u64,
     elapsed_eval: Duration,
@@ -71,10 +76,14 @@ impl<OutputTime: OutputTimeRepresentation> VerdictFactory<TracingVerdict<EvalTim
     fn get_verdict(
         &mut self,
         res: TracingVerdict<EvalTimeTracer, TotalIncremental>,
-        ts: OutputTime::InnerTime,
+        _ts: OutputTime::InnerTime,
     ) -> Result<Self::Verdict, Self::Error> {
         let TracingVerdict { tracer, verdict } = res;
         self.new_cycle(tracer);
+        for trigger in verdict.trigger {
+            self.trigger(trigger);
+        }
+
         let mut output = Vec::new();
         self.print_progress(&mut output);
         Ok(String::from_utf8(output).unwrap())
@@ -82,7 +91,8 @@ impl<OutputTime: OutputTimeRepresentation> VerdictFactory<TracingVerdict<EvalTim
 }
 
 impl StatisticsFactory {
-    pub(crate) fn new(num_trigger: usize, term_width: u16) -> Self {
+    /// Create a new StatisticsFactory
+    pub fn new(num_trigger: usize, term_width: u16) -> Self {
         Self {
             num_cycles: 0,
             num_events: 0,
@@ -93,6 +103,14 @@ impl StatisticsFactory {
             current_char: 0,
             term_width,
         }
+    }
+
+    /// Turn the StatisticsFactory into a sink writing into the provided writer
+    pub fn sink<W: Write, OutputTime: OutputTimeRepresentation>(
+        self,
+        writer: W,
+    ) -> StringSink<W, Self, TracingVerdict<EvalTimeTracer, TotalIncremental>, OutputTime> {
+        StringSink::new(writer, self)
     }
 
     fn next_spinner_char(&mut self) -> char {
@@ -113,14 +131,16 @@ impl StatisticsFactory {
         self.num_triggers[trigger_idx] += 1;
     }
 
-    pub(crate) fn print_progress(&mut self, out: &mut impl Write) {
+    /// print the current statistics
+    pub fn print_progress(&mut self, out: &mut impl Write) {
         let spinner_char = self.next_spinner_char();
         writeln!(out, "{}", "=".repeat(self.term_width as usize)).unwrap_or_else(|_| {});
         self.cycle_stats(out, spinner_char);
         self.trigger_stats(out, true);
     }
 
-    pub(crate) fn print_final(&self, out: &mut impl Write) {
+    /// print additional statistics at the end of the monitoring
+    pub fn print_final(&self, out: &mut impl Write) {
         self.clear_progress(out);
         writeln!(out, "{}", "=".repeat(self.term_width as usize)).unwrap_or_else(|_| {});
         self.cycle_stats(out, ' ');
@@ -173,10 +193,9 @@ impl StatisticsFactory {
     }
 
     /// clear screen as much as written in `progress`
-    pub(crate) fn clear_progress(&self, out: &mut impl Write) {
-        todo!()
-        // if self.num_cycles > 0 {
-        //     execute!(out, MoveToPreviousLine(3u16), Clear(ClearType::FromCursorDown)).unwrap_or_else(|_| {});
-        // }
+    pub fn clear_progress(&self, out: &mut impl Write) {
+        if self.num_cycles > 0 {
+            execute!(out, MoveToPreviousLine(3u16), Clear(ClearType::FromCursorDown)).unwrap_or_else(|_| {});
+        }
     }
 }

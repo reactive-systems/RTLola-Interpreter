@@ -1,3 +1,5 @@
+//! An output plugin that produces output in csv format
+
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::io::Write;

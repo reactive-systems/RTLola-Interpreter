@@ -7,6 +7,7 @@ use std::convert::Infallible;
 use std::error::Error;
 use std::io::Write;
 use std::marker::PhantomData;
+use std::sync::{Arc, Mutex};
 
 use rtlola_interpreter::monitor::{VerdictRepresentation, Verdicts};
 use rtlola_interpreter::time::{OutputTimeRepresentation, TimeRepresentation};
@@ -166,5 +167,57 @@ impl<
 
     fn factory(&mut self) -> &mut Self::Factory {
         &mut self.factory
+    }
+}
+
+// /// A wrapper for a `Write` implementing type that is cloneable
+// #[derive(Debug)]
+// pub struct CloneableWrite<W: Write>(Rc<RefCell<W>>);
+
+// impl<W: Write> CloneableWrite<W> {
+//     pub fn new(write: W) -> Self {
+//         Self(Rc::new(RefCell::new(write)))
+//     }
+// }
+
+// impl<W: Write> Clone for CloneableWrite<W> {
+//     fn clone(&self) -> Self {
+//         Self(self.0.clone())
+//     }
+// }
+
+// impl<W: Write> Write for CloneableWrite<W> {
+//     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+//         self.0.borrow_mut().write(buf)
+//     }
+
+//     fn flush(&mut self) -> std::io::Result<()> {
+//         self.0.borrow_mut().flush()
+//     }
+// }
+
+/// A wrapper for a `Write` implementing type that is cloneable
+#[derive(Debug)]
+pub struct CloneableWrite<W: Write>(Arc<Mutex<W>>);
+
+impl<W: Write> CloneableWrite<W> {
+    pub fn new(write: W) -> Self {
+        Self(Arc::new(Mutex::new(write)))
+    }
+}
+
+impl<W: Write> Clone for CloneableWrite<W> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<W: Write> Write for CloneableWrite<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.lock().unwrap().flush()
     }
 }

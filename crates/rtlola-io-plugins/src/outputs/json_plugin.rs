@@ -216,13 +216,13 @@ impl<O: OutputTimeRepresentation> VerdictFactory<TotalIncremental, O> for JsonFa
                     };
                     let entry = instances.entry(instance).or_insert_with_key(InstanceUpdate::new);
                     match &change {
-                        rtlola_interpreter::monitor::Change::Spawn(_) => {
+                        Change::Spawn(_) => {
                             entry.spawn = true;
                         },
-                        rtlola_interpreter::monitor::Change::Value(_, v) => {
+                        Change::Value(_, v) => {
                             entry.eval = Some(v.to_string());
                         },
-                        rtlola_interpreter::monitor::Change::Close(_) => {
+                        Change::Close(_) => {
                             entry.close = true;
                         },
                     }
