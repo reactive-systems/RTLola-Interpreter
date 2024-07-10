@@ -22,8 +22,7 @@ use rtlola_io_plugins::outputs::json_plugin::JsonVerbosity;
 use rtlola_io_plugins::outputs::statistics_plugin::EvalTimeTracer;
 use rtlola_io_plugins::outputs::{log_printer, VerdictsSink};
 
-use crate::output::OutputHandler;
-use crate::StatsSink;
+use crate::output::{OutputHandler, StatisticsVerdictSink};
 
 /**
 `Config` combines an RTLola specification in [RtLolaMir] form with various configuration parameters for the interpreter.
@@ -50,7 +49,7 @@ pub(crate) struct Config<
     /// The start time to assume
     pub(crate) start_time: Option<SystemTime>,
     pub(crate) verdict_sink: VerdictSink,
-    pub(crate) stats_sink: Option<StatsSink<W, OutputTime>>,
+    pub(crate) stats_sink: Option<StatisticsVerdictSink<W, OutputTime>>,
 }
 
 /// Used to define the level of statistics that should be computed.

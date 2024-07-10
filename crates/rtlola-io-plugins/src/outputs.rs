@@ -1,3 +1,5 @@
+#[cfg(feature = "byte_plugin")]
+pub mod byte_plugin;
 #[cfg(feature = "csv_plugin")]
 pub mod csv_plugin;
 #[cfg(feature = "json_plugin")]
@@ -13,20 +15,8 @@ use std::io::Write;
 use std::marker::PhantomData;
 
 use rtlola_interpreter::monitor::{VerdictRepresentation, Verdicts};
+use rtlola_interpreter::output::VerdictFactory;
 use rtlola_interpreter::time::{OutputTimeRepresentation, TimeRepresentation};
-
-/// This trait provides the functionally to convert the monitor output.
-/// You can either implement this trait for your own datatype or use one of the predefined output methods.
-/// See [VerdictRepresentationFactory]
-pub trait VerdictFactory<MonitorOutput: VerdictRepresentation, OutputTime: OutputTimeRepresentation> {
-    /// Type of the expected Output representation
-    type Verdict;
-    /// Error when converting the monitor output to the verdict
-    type Error: Error + 'static;
-
-    /// This function converts a monitor to a verdict.
-    fn get_verdict(&mut self, rec: MonitorOutput, ts: OutputTime::InnerTime) -> Result<Self::Verdict, Self::Error>;
-}
 
 /// Struct for a generic factory returning the monitor output
 #[derive(Debug)]
@@ -123,9 +113,9 @@ impl<SinkError: Error, FactoryError: Error> Error for VerdictSinkError<SinkError
     }
 }
 
-/// Generic VerdictSink that accepts verdicts as strings and writes them to a Writer.
+/// Generic VerdictSink that accepts verdicts as bytes and writes them to a Writer.
 #[derive(Debug)]
-pub struct StringSink<
+pub struct ByteSink<
     W: Write,
     Factory: VerdictFactory<MonitorOutput, OutputTime>,
     MonitorOutput: VerdictRepresentation,
@@ -138,12 +128,12 @@ pub struct StringSink<
 }
 impl<
         W: Write,
-        Factory: VerdictFactory<MonitorOutput, OutputTime, Verdict = String>,
+        Factory: VerdictFactory<MonitorOutput, OutputTime, Verdict = Vec<u8>>,
         MonitorOutput: VerdictRepresentation,
         OutputTime: OutputTimeRepresentation,
-    > StringSink<W, Factory, MonitorOutput, OutputTime>
+    > ByteSink<W, Factory, MonitorOutput, OutputTime>
 {
-    /// Create a new StringSink that receives strings and forwards them to a writer
+    /// Create a new [ByteSink] that receives bytes and forwards them to a writer
     pub fn new(writer: W, factory: Factory) -> Self {
         Self {
             factory,
@@ -156,17 +146,19 @@ impl<
 
 impl<
         W: Write,
-        Factory: VerdictFactory<MonitorOutput, OutputTime, Verdict = String>,
+        Factory: VerdictFactory<MonitorOutput, OutputTime, Verdict = Vec<u8>>,
         MonitorOutput: VerdictRepresentation,
         OutputTime: OutputTimeRepresentation,
-    > VerdictsSink<MonitorOutput, OutputTime> for StringSink<W, Factory, MonitorOutput, OutputTime>
+    > VerdictsSink<MonitorOutput, OutputTime> for ByteSink<W, Factory, MonitorOutput, OutputTime>
 {
     type Error = std::io::Error;
     type Factory = Factory;
     type Return = ();
 
-    fn sink(&mut self, verdict: String) -> Result<Self::Return, Self::Error> {
-        write!(self.writer, "{}", verdict)
+    fn sink(&mut self, verdict: Vec<u8>) -> Result<Self::Return, Self::Error> {
+        self.writer.write_all(&verdict[..])?;
+        self.writer.flush()?;
+        Ok(())
     }
 
     fn factory(&mut self) -> &mut Self::Factory {

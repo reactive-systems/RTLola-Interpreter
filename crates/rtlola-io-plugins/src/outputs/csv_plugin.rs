@@ -68,10 +68,13 @@ impl<O: OutputTimeRepresentation, W: Write> CsvVerdictSink<O, W> {
     /// Construct a new sink for the given specification that writes to the supplied writer
     fn new(ir: &RtLolaMir, writer: W, stream_map: HashMap<StreamReference, usize>) -> Result<Self, String> {
         for &stream in stream_map.keys() {
-            if ir.stream(stream).is_parameterized() {
-                return Err("csv output format only supported for unparameterized specifications".into());
+            let stream = ir.stream(stream);
+            if stream.is_parameterized() {
+                return Err(format!("Trying to output parameterized stream \"{}\", but CSV output format only supported for unparameterized specifications.", stream.name()));
             }
         }
+
+        debug_assert!((0..stream_map.len()).all(|col| stream_map.values().any(|v| *v == col)));
 
         let factory = CsvVerdictFactory {
             output_time: O::default(),

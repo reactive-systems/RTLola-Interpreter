@@ -1,4 +1,5 @@
 //! Module that contains the implementation of the default [VerdictsSink] used by the CLI for printing log messages
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::fmt::{Display, Formatter};
 use std::io::Write;
@@ -6,10 +7,10 @@ use std::io::Write;
 use crossterm::execute;
 use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
 use rtlola_interpreter::monitor::{Change, Parameters, TotalIncremental};
-use rtlola_interpreter::rtlola_mir::{OutputKind, RtLolaMir};
+use rtlola_interpreter::rtlola_mir::{OutputReference, RtLolaMir, StreamReference, TriggerReference};
 use rtlola_interpreter::time::OutputTimeRepresentation;
 
-use super::{StringSink, VerdictFactory};
+use super::{ByteSink, VerdictFactory};
 
 #[derive(PartialEq, Ord, PartialOrd, Eq, Debug, Clone, Copy)]
 /// The verbosity of the log printer output
@@ -51,24 +52,32 @@ impl From<Verbosity> for Color {
 pub struct LogPrinter<OutputTime: OutputTimeRepresentation> {
     output_time: OutputTime,
     verbosity: Verbosity,
-    ir: RtLolaMir,
+    stream_names: HashMap<StreamReference, String>,
+    trigger_ids: HashMap<OutputReference, TriggerReference>,
     colored: bool,
 }
 
 impl<OutputTime: OutputTimeRepresentation> LogPrinter<OutputTime> {
     /// Construct a new LogPrinter based on the given verbosity
     pub fn new(verbosity: Verbosity, ir: &RtLolaMir, colored: bool) -> Self {
+        let stream_names = ir.all_streams().map(|s| (s, ir.stream(s).name().to_owned())).collect();
+        let trigger_ids = ir
+            .triggers
+            .iter()
+            .map(|trigger| (trigger.output_reference.out_ix(), trigger.trigger_reference))
+            .collect();
         Self {
             output_time: OutputTime::default(),
             verbosity,
-            ir: ir.clone(),
+            stream_names,
+            trigger_ids,
             colored,
         }
     }
 
     /// Turn the LogPrinter into a VerdictSink writing the logs into a writer
-    pub fn sink<W: Write>(self, writer: W) -> StringSink<W, Self, TotalIncremental, OutputTime> {
-        StringSink::new(writer, self)
+    pub fn sink<W: Write>(self, writer: W) -> ByteSink<W, Self, TotalIncremental, OutputTime> {
+        ByteSink::new(writer, self)
     }
 
     fn display_parameter(paras: Parameters) -> String {
@@ -85,7 +94,7 @@ impl<OutputTime: OutputTimeRepresentation> LogPrinter<OutputTime> {
 
 impl<OutputTime: OutputTimeRepresentation> VerdictFactory<TotalIncremental, OutputTime> for LogPrinter<OutputTime> {
     type Error = Infallible;
-    type Verdict = String;
+    type Verdict = Vec<u8>;
 
     fn get_verdict(
         &mut self,
@@ -102,15 +111,14 @@ impl<OutputTime: OutputTimeRepresentation> VerdictFactory<TotalIncremental, Outp
         let ts = self.output_time.to_string(ts);
 
         for (idx, val) in inputs {
-            let name = &self.ir.inputs[idx].name;
+            let name = &self.stream_names[&StreamReference::In(idx)];
             self.input(&mut res, move || format!("[Input][{}][Value] = {}", name, val), &ts);
         }
 
         for (out, changes) in outputs {
-            let kind = &self.ir.outputs[out].kind;
-            let name = match kind {
-                OutputKind::NamedOutput(name) => format!("[Output][{name}"),
-                OutputKind::Trigger(idx) => format!("[#{idx}"),
+            let name = match self.trigger_ids.get(&out) {
+                None => format!("[Output][{}", self.stream_names[&StreamReference::Out(out)]),
+                Some(idx) => format!("[#{idx}"),
             };
             let name = &name;
             for change in changes {
@@ -124,7 +132,7 @@ impl<OutputTime: OutputTimeRepresentation> VerdictFactory<TotalIncremental, Outp
                     },
                     Change::Value(parameter, val) => {
                         let msg = move || format!("{}{}][Value] = {}", name, Self::display_parameter(parameter), val);
-                        let is_trigger = matches!(kind, OutputKind::Trigger(_));
+                        let is_trigger = self.trigger_ids.contains_key(&out);
                         self.output(&mut res, msg, &ts, is_trigger);
                     },
                     Change::Close(parameter) => {
@@ -137,7 +145,7 @@ impl<OutputTime: OutputTimeRepresentation> VerdictFactory<TotalIncremental, Outp
                 }
             }
         }
-        Ok(String::from_utf8(res).expect("invalid utf-8 in log output"))
+        Ok(res)
     }
 }
 

@@ -11,7 +11,6 @@ use clap_complete::shells::*;
 #[cfg(feature = "public")]
 use human_panic::setup_panic;
 use rtlola_interpreter::config::{ExecutionMode, OfflineMode, OnlineMode};
-use rtlola_interpreter::monitor::{TotalIncremental, TracingVerdict};
 use rtlola_interpreter::rtlola_frontend;
 use rtlola_interpreter::time::{
     parse_float_time, AbsoluteFloat, AbsoluteRfc, DelayTime, OffsetFloat, OffsetNanos, RealTime, RelativeFloat,
@@ -23,17 +22,13 @@ use rtlola_io_plugins::inputs::pcap_plugin::{PcapEventSource, PcapInputSource};
 use rtlola_io_plugins::outputs::csv_plugin::CsvVerdictSink;
 use rtlola_io_plugins::outputs::json_plugin::JsonFactory;
 use rtlola_io_plugins::outputs::log_printer::LogPrinter;
-use rtlola_io_plugins::outputs::statistics_plugin::{EvalTimeTracer, StatisticsFactory};
-use rtlola_io_plugins::outputs::{DiscardSink, StringSink};
+use rtlola_io_plugins::outputs::DiscardSink;
 
 use crate::config::{Config, EventSourceConfig, Statistics, Verbosity};
-use crate::output::OutputChannel;
+use crate::output::{OutputChannel, StatisticsVerdictSink};
 
 mod config;
 mod output;
-
-type StatsSink<W, OutputTime> =
-    StringSink<W, StatisticsFactory, TracingVerdict<EvalTimeTracer, TotalIncremental>, OutputTime>;
 
 #[derive(Parser, Debug, Clone)]
 #[command(
@@ -115,8 +110,8 @@ enum Cli {
         #[arg(short='f', long, value_enum,
         default_value_t=CliOutputTimeRepresentation::RelativeFloatSecs
         )]
-        /// Set the formatting of the monitor output
         output_time_format: CliOutputTimeRepresentation,
+        /// Set the formatting of the monitor output
         #[arg(long, value_enum, default_value_t)]
         output_format: CliOutputFormat,
     },
@@ -630,7 +625,7 @@ macro_rules! run_config_it_ot_src2 {
 macro_rules! run_config_it_ot_src_of {
     ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $mode: ty, $start_time: expr, $of: expr) => {{
         let stats_sink = match $statistics {
-            Statistics::All => Some(StatisticsFactory::new($ir.triggers.len()).sink(stderr())),
+            Statistics::All => Some(StatisticsVerdictSink::new($ir.triggers.len(), stderr())),
             Statistics::None => None,
         };
         Config {

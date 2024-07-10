@@ -9,7 +9,8 @@ use rtlola_interpreter::monitor::{Change, TotalIncremental, VerdictRepresentatio
 use rtlola_interpreter::rtlola_mir::{OutputReference, RtLolaMir, StreamReference};
 use rtlola_interpreter::time::OutputTimeRepresentation;
 use rtlola_interpreter::Value;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use serde_json::value::Value as JsonValue;
 
 use super::{VerdictFactory, VerdictsSink};
 
@@ -152,7 +153,7 @@ impl<O: OutputTimeRepresentation> JsonFactory<O> {
 }
 
 /// The JSON representation of a single verdict
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct JsonVerdict {
     time: String,
     #[serde(flatten)]
@@ -160,14 +161,14 @@ pub struct JsonVerdict {
 }
 
 /// The structured representation of the verdict
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct InstanceUpdate {
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    instance: Vec<String>,
+    instance: Vec<JsonValue>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     spawn: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    eval: Option<String>,
+    eval: Option<JsonValue>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     close: bool,
 }
@@ -176,7 +177,7 @@ impl InstanceUpdate {
     fn new(instance: &Option<&Vec<Value>>) -> Self {
         Self {
             instance: instance
-                .map(|instances| instances.iter().map(|v| v.to_string()).collect())
+                .map(|instances| instances.iter().map(json_value).collect())
                 .unwrap_or_default(),
             spawn: Default::default(),
             eval: Default::default(),
@@ -188,9 +189,22 @@ impl InstanceUpdate {
         Self {
             instance: Vec::new(),
             spawn: Default::default(),
-            eval: Some(value.to_string()),
+            eval: Some(json_value(value)),
             close: Default::default(),
         }
+    }
+}
+
+fn json_value(value: &Value) -> JsonValue {
+    match value {
+        Value::None => JsonValue::Null,
+        &Value::Bool(b) => b.into(),
+        &Value::Unsigned(n) => n.into(),
+        &Value::Signed(n) => n.into(),
+        &Value::Float(n) => f64::from(n).into(),
+        Value::Tuple(tup) => tup.iter().map(json_value).collect::<JsonValue>(),
+        Value::Str(s) => s.to_string().into(),
+        Value::Bytes(s) => s.iter().copied().collect::<JsonValue>(),
     }
 }
 
@@ -220,7 +234,7 @@ impl<O: OutputTimeRepresentation> VerdictFactory<TotalIncremental, O> for JsonFa
                             entry.spawn = true;
                         },
                         Change::Value(_, v) => {
-                            entry.eval = Some(v.to_string());
+                            entry.eval = Some(json_value(v));
                         },
                         Change::Close(_) => {
                             entry.close = true;
