@@ -3,12 +3,13 @@ use std::net::{TcpStream, UdpSocket};
 
 use rtlola_interpreter::input::AssociatedFactory;
 use rtlola_interpreter::monitor::TriggerMessages;
-use rtlola_interpreter::time::{AbsoluteFloat, RealTime, TimeRepresentation};
+use rtlola_interpreter::time::{AbsoluteFloat, RealTime};
 use rtlola_interpreter::ConfigBuilder;
 use rtlola_interpreter_macros::{CompositFactory, ValueFactory};
-use rtlola_io_plugins::byte_plugin::upd::UdpReader;
-use rtlola_io_plugins::byte_plugin::{ByteEventSource, ByteVerdictSink, SerdeByteSerializer};
-use rtlola_io_plugins::{EventSource, VerdictRepresentationFactory, VerdictsSink};
+use rtlola_io_plugins::inputs::byte_plugin::upd::UdpReader;
+use rtlola_io_plugins::inputs::byte_plugin::{ByteEventSource, ByteVerdictSink, SerdeByteSerializer};
+use rtlola_io_plugins::inputs::EventSource;
+use rtlola_io_plugins::outputs::{VerdictRepresentationFactory, VerdictsSink};
 use serde::{Deserialize, Serialize};
 
 #[derive(ValueFactory, Serialize, Deserialize)]

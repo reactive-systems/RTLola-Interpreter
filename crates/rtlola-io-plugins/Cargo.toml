@@ -12,11 +12,12 @@ keywords = ["verification", "interpreter", "monitoring"]
 authors = [
     "Jan Baumeister <jan.baumeister@cispa.de>",
     "Florian Kohn <kohn@react.uni-saarland.de>",
+    "Frederik Scheerer <frederik.scheerer@cispa.de>",
 ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[dependencies]
+[dependencies ]
 rtlola-interpreter = { path = "../rtlola-interpreter" }
 
 # Csv plugin dependencies

@@ -6,7 +6,7 @@ use rtlola_interpreter::monitor::Incremental;
 use rtlola_interpreter::time::{AbsoluteFloat, TimeRepresentation};
 use rtlola_interpreter::{ConfigBuilder, Monitor};
 use rtlola_interpreter_macros::{CompositFactory, ValueFactory};
-use rtlola_io_plugins::byte_plugin::time_converter::TimeConverter;
+use rtlola_io_plugins::inputs::byte_plugin::time_converter::TimeConverter;
 use serde::{Deserialize, Serialize};
 
 use super::SPEC;

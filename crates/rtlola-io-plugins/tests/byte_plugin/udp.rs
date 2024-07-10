@@ -4,9 +4,9 @@ use std::{thread, vec};
 
 use ntest::timeout;
 use rtlola_interpreter::time::AbsoluteFloat;
-use rtlola_io_plugins::byte_plugin::upd::{CheckUdpError, CheckedUdpSocket, UdpReader};
-use rtlola_io_plugins::byte_plugin::{ByteEventSource, ByteEventSourceError};
-use rtlola_io_plugins::EventSource;
+use rtlola_io_plugins::inputs::byte_plugin::upd::{CheckUdpError, CheckedUdpSocket, UdpReader};
+use rtlola_io_plugins::inputs::byte_plugin::{ByteEventSource, ByteEventSourceError};
+use rtlola_io_plugins::inputs::EventSource;
 
 use crate::byte_plugin::socket_addr;
 use crate::byte_plugin::structs::{check_verdict, create_verdicts};

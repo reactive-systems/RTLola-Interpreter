@@ -118,7 +118,7 @@ impl<OutputTime: OutputTimeRepresentation> VerdictFactory<TotalIncremental, Outp
         for (out, changes) in outputs {
             let name = match self.trigger_ids.get(&out) {
                 None => format!("[Output][{}", self.stream_names[&StreamReference::Out(out)]),
-                Some(idx) => format!("[#{idx}"),
+                Some(idx) => format!("[Trigger][#{idx}"),
             };
             let name = &name;
             for change in changes {
@@ -162,20 +162,14 @@ impl<O: OutputTimeRepresentation> LogPrinter<O> {
                     out,
                     Print(format!("[{}]", ts)),
                     SetForegroundColor(kind.into()),
-                    Print(format!("[{}]", kind)),
                     Print(msg().into()),
                     ResetColor,
                     Print("\n")
                 )
                 .expect("Failed to write to output channel");
             } else {
-                execute!(
-                    out,
-                    Print(format!("[{}]", ts)),
-                    Print(format!("[{}]", kind)),
-                    Print(format!("{}\n", msg().into()))
-                )
-                .expect("Failed to write to output channel")
+                execute!(out, Print(format!("[{}]", ts)), Print(format!("{}\n", msg().into())))
+                    .expect("Failed to write to output channel")
             }
         }
     }

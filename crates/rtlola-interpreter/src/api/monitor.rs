@@ -24,7 +24,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use itertools::Itertools;
-use rtlola_frontend::mir::{InputReference, OutputReference, RtLolaMir, Type};
+use rtlola_frontend::mir::{InputReference, OutputReference, RtLolaMir, TriggerReference, Type};
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
@@ -63,7 +63,7 @@ pub trait VerdictRepresentation: Clone + Debug + Send + CondSerialize + 'static 
 Provides the functionality to collect additional tracing data during evaluation.
 The 'start' methods are guaranteed to be called before the 'end' method, while either both or none of them are called.
  */
-pub trait Tracer: Default + Clone + Debug + Send + CondSerialize + 'static {
+pub trait Tracer: Default + Clone + Debug + Send + 'static {
     /// This method is invoked at the start of event parsing
     fn parse_start(&mut self) {}
     /// This method is invoked at the end of event parsing
@@ -101,6 +101,7 @@ impl Tracer for NoTracer {}
 #[derive(Debug, Clone)]
 pub struct TracingVerdict<T: Tracer, V: VerdictRepresentation> {
     /// The contained tracing information.
+    #[cfg_attr(feature = "serde", serde(skip))]
     pub tracer: T,
     /// The verdict given in the chosen VerdictRepresentation
     pub verdict: V,
@@ -184,7 +185,7 @@ impl VerdictRepresentation for Incremental {
 Represents the changes of the monitor state divided into inputs, outputs and trigger.
 Changes of output streams are represented by a set of [Change]s.
 A change of an input is represented by its new [Value].
-A change of a trigger is represented by its formatted message.
+A change of a trigger is represented by its [TriggerReference].
 
 Note: Only streams that actually changed are included in the collections.
  */
@@ -196,7 +197,7 @@ pub struct TotalIncremental {
     /// The set of changed outputs.
     pub outputs: Vec<(OutputReference, Vec<Change>)>,
     /// The set of changed triggers. I.e. all triggers that were activated.
-    pub trigger: Vec<OutputReference>,
+    pub trigger: Vec<TriggerReference>,
 }
 
 impl VerdictRepresentation for TotalIncremental {
@@ -572,6 +573,7 @@ where
 }
 
 #[cfg(test)]
+#[cfg(not(feature = "serde"))]
 mod tests {
     use std::convert::Infallible;
     use std::time::{Duration, Instant};

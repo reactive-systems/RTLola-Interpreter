@@ -546,13 +546,15 @@ impl<Source: EventFactory, Verdict: VerdictRepresentation, VerdictTime: OutputTi
             let verdict = match item {
                 Ok(WorkItem::Event(e, ts)) => {
                     // Received Event before deadline
+                    let mut tracer = Verdict::Tracing::default();
+                    tracer.parse_start();
                     let e = self
                         .source
                         .get_event(e)
                         .map_err(|e| QueueError::SourceError(Box::new(e)))?;
+                    tracer.parse_end();
                     let ts = self.source_time.convert_from(ts);
 
-                    let mut tracer = Verdict::Tracing::default();
                     tracer.eval_start();
                     self.evaluator.eval_event(&e, ts, &mut tracer);
                     tracer.eval_end();
@@ -704,6 +706,7 @@ impl<
 }
 
 #[cfg(test)]
+#[cfg(not(feature = "serde"))]
 mod tests {
     use std::convert::Infallible;
     use std::thread::sleep;

@@ -6,12 +6,13 @@ use std::marker::PhantomData;
 
 use rtlola_interpreter::input::{AssociatedFactory, EventFactory};
 use rtlola_interpreter::monitor::VerdictRepresentation;
+use rtlola_interpreter::output::VerdictFactory;
 use rtlola_interpreter::time::{OutputTimeRepresentation, TimeRepresentation};
 use serde::{Deserialize, Serialize};
 use time_converter::TimeConverter;
 
 use super::{EventResult, EventSource};
-use crate::outputs::{VerdictFactory, VerdictsSink};
+use crate::outputs::VerdictsSink;
 
 pub mod time_converter;
 pub mod upd;
