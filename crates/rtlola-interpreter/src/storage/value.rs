@@ -74,7 +74,7 @@ impl Display for Value {
                 }
                 write!(f, ")")
             },
-            Str(str) => write!(f, "\"{}\"", *str),
+            Str(str) => write!(f, "{}", *str),
             Bytes(b) => {
                 let hex = hex::encode_upper(b);
                 write!(f, "{}", hex)

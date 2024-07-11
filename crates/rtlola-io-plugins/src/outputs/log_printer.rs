@@ -9,6 +9,7 @@ use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
 use rtlola_interpreter::monitor::{Change, Parameters, TotalIncremental};
 use rtlola_interpreter::rtlola_mir::{OutputReference, RtLolaMir, StreamReference, TriggerReference};
 use rtlola_interpreter::time::OutputTimeRepresentation;
+use rtlola_interpreter::Value;
 
 use super::{ByteSink, VerdictFactory};
 
@@ -90,6 +91,13 @@ impl<OutputTime: OutputTimeRepresentation> LogPrinter<OutputTime> {
             String::new()
         }
     }
+
+    fn display_value(value: Value) -> String {
+        match value {
+            Value::Str(s) => format!("\"{s}\""),
+            other => other.to_string(),
+        }
+    }
 }
 
 impl<OutputTime: OutputTimeRepresentation> VerdictFactory<TotalIncremental, OutputTime> for LogPrinter<OutputTime> {
@@ -112,7 +120,11 @@ impl<OutputTime: OutputTimeRepresentation> VerdictFactory<TotalIncremental, Outp
 
         for (idx, val) in inputs {
             let name = &self.stream_names[&StreamReference::In(idx)];
-            self.input(&mut res, move || format!("[Input][{}][Value] = {}", name, val), &ts);
+            self.input(
+                &mut res,
+                move || format!("[Input][{}][Value] = {}", name, Self::display_value(val)),
+                &ts,
+            );
         }
 
         for (out, changes) in outputs {
@@ -131,7 +143,14 @@ impl<OutputTime: OutputTimeRepresentation> VerdictFactory<TotalIncremental, Outp
                         );
                     },
                     Change::Value(parameter, val) => {
-                        let msg = move || format!("{}{}][Value] = {}", name, Self::display_parameter(parameter), val);
+                        let msg = move || {
+                            format!(
+                                "{}{}][Value] = {}",
+                                name,
+                                Self::display_parameter(parameter),
+                                Self::display_value(val)
+                            )
+                        };
                         let is_trigger = self.trigger_ids.contains_key(&out);
                         self.output(&mut res, msg, &ts, is_trigger);
                     },
