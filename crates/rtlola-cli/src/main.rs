@@ -1,4 +1,6 @@
 use std::error::Error;
+use std::fs::File;
+use std::io::{stderr, stdout, BufWriter};
 use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -14,12 +16,16 @@ use rtlola_interpreter::time::{
     parse_float_time, AbsoluteFloat, AbsoluteRfc, DelayTime, OffsetFloat, OffsetNanos, RealTime, RelativeFloat,
     RelativeNanos,
 };
-use rtlola_io_plugins::csv_plugin::{CsvEventSource, CsvInputSourceKind};
+use rtlola_io_plugins::inputs::csv_plugin::{CsvEventSource, CsvInputSourceKind};
 #[cfg(feature = "pcap_interface")]
-use rtlola_io_plugins::pcap_plugin::{PcapEventSource, PcapInputSource};
+use rtlola_io_plugins::inputs::pcap_plugin::{PcapEventSource, PcapInputSource};
+use rtlola_io_plugins::outputs::csv_plugin::CsvVerdictSink;
+use rtlola_io_plugins::outputs::json_plugin::JsonFactory;
+use rtlola_io_plugins::outputs::log_printer::LogPrinter;
+use rtlola_io_plugins::outputs::DiscardSink;
 
 use crate::config::{Config, EventSourceConfig, Statistics, Verbosity};
-use crate::output::OutputChannel;
+use crate::output::{OutputChannel, StatisticsVerdictSink};
 
 mod config;
 mod output;
@@ -70,6 +76,9 @@ enum Cli {
         default_value_t=CliOutputTimeRepresentation::RelativeFloatSecs
         )]
         output_time_format: CliOutputTimeRepresentation,
+        /// Set the formatting of the monitor output
+        #[arg(long, value_enum, default_value_t)]
+        output_format: CliOutputFormat,
     },
 
     /// Start the monitor using the given specification
@@ -102,6 +111,9 @@ enum Cli {
         default_value_t=CliOutputTimeRepresentation::RelativeFloatSecs
         )]
         output_time_format: CliOutputTimeRepresentation,
+        /// Set the formatting of the monitor output
+        #[arg(long, value_enum, default_value_t)]
+        output_format: CliOutputFormat,
     },
 
     /// Generate a SHELL completion script and print it to stdout
@@ -273,6 +285,14 @@ enum CliOutputTimeRepresentation {
     AbsoluteRfc3339,
 }
 
+#[derive(Clone, Copy, Debug, ValueEnum, Default)]
+enum CliOutputFormat {
+    #[default]
+    Logger,
+    Json,
+    Csv,
+}
+
 impl From<MonitorInput> for EventSourceConfig {
     fn from(input: MonitorInput) -> Self {
         if input.stdin {
@@ -327,7 +347,7 @@ impl From<CliStartTime> for Option<SystemTime> {
 }
 
 macro_rules! run_config {
-    ($it:expr, $ot: expr, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr) => {
+    ($it:expr, $ot: expr, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr) => {
         match $it {
             CliInputTimeRepresentation::RelativeNanos | CliInputTimeRepresentation::RelativeUintNanos => {
                 run_config_it!(
@@ -339,7 +359,8 @@ macro_rules! run_config {
                     $verbosity,
                     $output,
                     $mode,
-                    $start_time
+                    $start_time,
+                    $of
                 )
             },
             CliInputTimeRepresentation::Relative
@@ -354,7 +375,8 @@ macro_rules! run_config {
                     $verbosity,
                     $output,
                     $mode,
-                    $start_time
+                    $start_time,
+                    $of
                 )
             },
             CliInputTimeRepresentation::OffsetNanos | CliInputTimeRepresentation::OffsetUintNanos => {
@@ -367,7 +389,8 @@ macro_rules! run_config {
                     $verbosity,
                     $output,
                     $mode,
-                    $start_time
+                    $start_time,
+                    $of
                 )
             },
             CliInputTimeRepresentation::Offset
@@ -382,7 +405,8 @@ macro_rules! run_config {
                     $verbosity,
                     $output,
                     $mode,
-                    $start_time
+                    $start_time,
+                    $of
                 )
             },
             CliInputTimeRepresentation::Absolute | CliInputTimeRepresentation::AbsoluteUnix => {
@@ -395,7 +419,8 @@ macro_rules! run_config {
                     $verbosity,
                     $output,
                     $mode,
-                    $start_time
+                    $start_time,
+                    $of
                 )
             },
             CliInputTimeRepresentation::AbsoluteRfc | CliInputTimeRepresentation::AbsoluteRfc3339 => {
@@ -408,7 +433,8 @@ macro_rules! run_config {
                     $verbosity,
                     $output,
                     $mode,
-                    $start_time
+                    $start_time,
+                    $of
                 )
             },
         }
@@ -416,7 +442,7 @@ macro_rules! run_config {
 }
 
 macro_rules! run_config_it {
-    ($it:expr, $ot: expr, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr) => {
+    ($it:expr, $ot: expr, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr) => {
         match $ot {
             CliOutputTimeRepresentation::RelativeNanos | CliOutputTimeRepresentation::RelativeUintNanos => {
                 run_config_it_ot!(
@@ -428,7 +454,8 @@ macro_rules! run_config_it {
                     $verbosity,
                     $output,
                     $mode,
-                    $start_time
+                    $start_time,
+                    $of
                 )
             },
             CliOutputTimeRepresentation::Relative
@@ -443,7 +470,8 @@ macro_rules! run_config_it {
                     $verbosity,
                     $output,
                     $mode,
-                    $start_time
+                    $start_time,
+                    $of
                 )
             },
             CliOutputTimeRepresentation::Absolute | CliOutputTimeRepresentation::AbsoluteUnix => {
@@ -456,7 +484,8 @@ macro_rules! run_config_it {
                     $verbosity,
                     $output,
                     $mode,
-                    $start_time
+                    $start_time,
+                    $of
                 )
             },
             CliOutputTimeRepresentation::AbsoluteRfc | CliOutputTimeRepresentation::AbsoluteRfc3339 => {
@@ -469,7 +498,8 @@ macro_rules! run_config_it {
                     $verbosity,
                     $output,
                     $mode,
-                    $start_time
+                    $start_time,
+                    $of
                 )
             },
         }
@@ -477,36 +507,139 @@ macro_rules! run_config_it {
 }
 
 macro_rules! run_config_it_ot {
-    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr) => {
+    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr) => {
         match $source {
             EventSourceConfig::Csv { time_col, kind } => {
                 let src: CsvEventSource<_> = CsvEventSource::setup(time_col, kind, &$ir)?;
-                run_config_it_ot_src!($it, $ot, $ir, src, $statistics, $verbosity, $output, $mode, $start_time)
+                run_config_it_ot_src!(
+                    $it,
+                    $ot,
+                    $ir,
+                    src,
+                    $statistics,
+                    $verbosity,
+                    $output,
+                    $mode,
+                    $start_time,
+                    $of
+                )
             },
             #[cfg(feature = "pcap_interface")]
             EventSourceConfig::Pcap(cfg) => {
                 let src: PcapEventSource<_> = PcapEventSource::setup(&cfg)?;
-                run_config_it_ot_src!($it, $ot, $ir, src, $statistics, $verbosity, $output, $mode, $start_time)
+                run_config_it_ot_src!(
+                    $it,
+                    $ot,
+                    $ir,
+                    src,
+                    $statistics,
+                    $verbosity,
+                    $output,
+                    $mode,
+                    $start_time,
+                    $of
+                )
             },
         }
     };
 }
 
 macro_rules! run_config_it_ot_src {
-    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr) => {
+    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr) => {
+        match $output {
+            OutputChannel::StdOut => {
+                run_config_it_ot_src2!(
+                    $it,
+                    $ot,
+                    $ir,
+                    $source,
+                    $statistics,
+                    $verbosity,
+                    stdout(),
+                    $mode,
+                    $start_time,
+                    $of,
+                    atty::is(atty::Stream::Stdout)
+                )
+            },
+            OutputChannel::StdErr => {
+                run_config_it_ot_src2!(
+                    $it,
+                    $ot,
+                    $ir,
+                    $source,
+                    $statistics,
+                    $verbosity,
+                    stderr(),
+                    $mode,
+                    $start_time,
+                    $of,
+                    atty::is(atty::Stream::Stderr)
+                )
+            },
+            OutputChannel::File(f) => {
+                let file = File::create(f.as_path()).expect("Could not open output file");
+                let writer = BufWriter::new(file);
+                run_config_it_ot_src2!(
+                    $it,
+                    $ot,
+                    $ir,
+                    $source,
+                    $statistics,
+                    $verbosity,
+                    writer,
+                    $mode,
+                    $start_time,
+                    $of,
+                    false
+                )
+            },
+        }
+    };
+}
+
+macro_rules! run_config_it_ot_src2 {
+    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr, $colored: expr) => {{
+        if $verbosity == Verbosity::Silent {
+            let sink = DiscardSink::default();
+            run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
+        } else {
+            match $of {
+                CliOutputFormat::Logger => {
+                    let sink = LogPrinter::new($verbosity.try_into()?, &$ir, $colored).sink($output);
+                    run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
+                },
+                CliOutputFormat::Json => {
+                    let sink = JsonFactory::new(&$ir, $verbosity.try_into()?).sink($output);
+                    run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
+                },
+                CliOutputFormat::Csv => {
+                    let sink = CsvVerdictSink::for_verbosity(&$ir, $output, $verbosity.try_into()?)?;
+                    run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
+                },
+            }
+        }
+    }};
+}
+
+macro_rules! run_config_it_ot_src_of {
+    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $mode: ty, $start_time: expr, $of: expr) => {{
+        let stats_sink = match $statistics {
+            Statistics::All => Some(StatisticsVerdictSink::new($ir.triggers.len(), stderr())),
+            Statistics::None => None,
+        };
         Config {
             ir: $ir,
             source: $source,
-            statistics: $statistics,
-            verbosity: $verbosity,
-            output_channel: $output,
             mode: <$mode as ExecutionMode>::new($it),
             output_time_representation: PhantomData::<$ot>::default(),
             start_time: $start_time,
+            verdict_sink: $of,
+            stats_sink,
         }
         .run()
         .map(|_| ())
-    };
+    }};
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -546,6 +679,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             statistics,
             verbosity,
             output_time_format,
+            output_format,
         } => {
             let config = rtlola_frontend::ParserConfig::from_path(spec).unwrap_or_else(|e| {
                 eprintln!("{}", e);
@@ -569,7 +703,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                         verbosity,
                         output.into(),
                         OnlineMode,
-                        start_time.into()
+                        start_time.into(),
+                        output_format
                     )?;
                 },
                 CliExecutionMode { offline: Some(it), .. } => {
@@ -583,7 +718,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                             verbosity,
                             output.into(),
                             OfflineMode<_>,
-                            start_time.into()
+                            start_time.into(),
+                            output_format
                         )?;
                     } else {
                         run_config!(
@@ -595,7 +731,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                             verbosity,
                             output.into(),
                             OfflineMode<_>,
-                            start_time.into()
+                            start_time.into(),
+                            output_format
                         )?;
                     }
                 },
@@ -613,6 +750,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             statistics,
             verbosity,
             output_time_format,
+            output_format,
         } => {
             let config = rtlola_frontend::ParserConfig::from_path(spec).unwrap_or_else(|e| {
                 eprintln!("{}", e);
@@ -636,7 +774,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                     verbosity,
                     output.into(),
                     OnlineMode,
-                    start_time.into()
+                    start_time.into(),
+                    output_format
                 )?;
             } else if let Some(d) = input.input_delay {
                 run_config_it!(
@@ -648,7 +787,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                     verbosity,
                     output.into(),
                     OfflineMode<_>,
-                    start_time.into()
+                    start_time.into(),
+                    output_format
                 )?;
             } else {
                 run_config_it!(
@@ -660,7 +800,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                     verbosity,
                     output.into(),
                     OfflineMode<_>,
-                    start_time.into()
+                    start_time.into(),
+                    output_format
                 )?;
             }
         },

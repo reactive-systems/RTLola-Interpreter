@@ -15,7 +15,7 @@ use rtlola_interpreter::rtlola_mir::{RtLolaMir, Type};
 use rtlola_interpreter::time::TimeRepresentation;
 use rtlola_interpreter::Value;
 
-use crate::EventSource;
+use super::EventSource;
 
 const TIME_COLUMN_NAMES: [&str; 3] = ["time", "ts", "timestamp"];
 

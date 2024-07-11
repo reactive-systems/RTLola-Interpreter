@@ -25,7 +25,7 @@ authors = [
 [dependencies]
 rtlola-interpreter = { path = "../rtlola-interpreter" }
 rtlola-io-plugins = { path = "../rtlola-io-plugins", default-features = false, features = [
-    "csv_plugin",
+    "csv_plugin", "json_plugin", "statistics_plugin", "log_printer"
 ] }
 clap = { version = "4.0.9", features = [
     "derive",
@@ -33,9 +33,10 @@ clap = { version = "4.0.9", features = [
     "wrap_help",
 ] } # command line parsing
 clap_complete = "4.0.2"
-crossterm = "0.25.0" # terminal output
 human-panic = { version = "1.0.1", optional = true }
 humantime = "2.0"
+atty = "0.2.14"
+crossterm = "0.27.0"
 
 [features]
 public = ["human-panic"]

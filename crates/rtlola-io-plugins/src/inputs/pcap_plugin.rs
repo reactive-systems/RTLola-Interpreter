@@ -18,7 +18,7 @@ use rtlola_interpreter::input::{EventFactoryError, InputMap, ValueGetter};
 use rtlola_interpreter::time::TimeRepresentation;
 use rtlola_interpreter::Value;
 
-use crate::EventSource;
+use super::EventSource;
 
 // ################################
 // Packet parsing functions
