@@ -6,7 +6,8 @@ use syn::spanned::Spanned;
 use syn::{Data, DeriveInput, Fields, Type, Variant};
 
 use crate::helper::new_snake_ident;
-use crate::{ComposingDeriver, FactoryAttr};
+use crate::{FactoryAttr};
+use crate::composit_factory::ComposingDeriver;
 
 pub(crate) struct EnumComposer {
     name: Ident,

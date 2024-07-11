@@ -54,6 +54,36 @@ use serde::{Deserialize, Serialize};
 
 use crate::{CondDeserialize, CondSerialize, Time};
 
+macro_rules! time_conversion_string {
+    ($otr: ty) => {
+        impl TimeConversion<String> for $otr {
+            fn into(from: <Self as TimeRepresentation>::InnerTime) -> String {
+                <$otr>::default().to_string(from)
+            }
+        }
+    };
+}
+
+macro_rules! time_conversion_unit {
+    ($otr: ty) => {
+        impl TimeConversion<()> for $otr {
+            fn into(_from: <Self as TimeRepresentation>::InnerTime) -> () {
+                ()
+            }
+        }
+    };
+}
+
+macro_rules! time_conversion_duration {
+    ($otr: ty) => {
+        impl TimeConversion<Duration> for $otr {
+            fn into(from: <Self as TimeRepresentation>::InnerTime) -> Duration {
+                <$otr>::default().convert_from(from)
+            }
+        }
+    };
+}
+
 const NANOS_IN_SECOND: u64 = 1_000_000_000;
 
 pub(crate) type StartTime = Arc<RwLock<Option<SystemTime>>>;
@@ -97,6 +127,16 @@ pub trait TimeRepresentation: TimeMode + Clone + Send + Default + CondSerialize 
     fn set_start_time(&mut self, _start_time: StartTime) {}
 }
 
+pub trait TimeConversion<T>: OutputTimeRepresentation {
+    fn into(from: <Self as TimeRepresentation>::InnerTime) -> T;
+}
+
+impl<O: OutputTimeRepresentation> TimeConversion<O::InnerTime> for O {
+    fn into(from: <Self as TimeRepresentation>::InnerTime) -> O::InnerTime {
+        from
+    }
+}
+
 /// This trait captures whether the time is given explicitly through a timestamp or is indirectly obtained through measurements.
 pub trait TimeMode {
     /// Returns whether the time [TimeRepresentation] require an explicit timestamp
@@ -135,6 +175,15 @@ impl TimeRepresentation for RelativeNanos {
 impl OutputTimeRepresentation for RelativeNanos {}
 impl TimeMode for RelativeNanos {}
 
+impl TimeConversion<f64> for RelativeNanos {
+    fn into(from: <Self as TimeRepresentation>::InnerTime) -> f64 {
+        from as f64
+    }
+}
+time_conversion_string!(RelativeNanos);
+time_conversion_duration!(RelativeNanos);
+time_conversion_unit!(RelativeNanos);
+
 /// Time represented as a positive real number representing seconds and sub-seconds relative to a fixed start time.
 /// ie. 5.2
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -162,6 +211,14 @@ impl TimeRepresentation for RelativeFloat {
 }
 impl OutputTimeRepresentation for RelativeFloat {}
 impl TimeMode for RelativeFloat {}
+
+time_conversion_string!(RelativeFloat);
+time_conversion_unit!(RelativeFloat);
+impl TimeConversion<f64> for RelativeFloat {
+    fn into(from: <Self as TimeRepresentation>::InnerTime) -> f64 {
+        from.as_secs_f64()
+    }
+}
 
 /// Time represented as the unsigned number in nanoseconds as the offset to the preceding event.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -277,6 +334,14 @@ impl TimeRepresentation for AbsoluteFloat {
 impl OutputTimeRepresentation for AbsoluteFloat {}
 impl TimeMode for AbsoluteFloat {}
 
+time_conversion_string!(AbsoluteFloat);
+time_conversion_unit!(AbsoluteFloat);
+impl TimeConversion<f64> for AbsoluteFloat {
+    fn into(from: <Self as TimeRepresentation>::InnerTime) -> f64 {
+        from.as_secs_f64()
+    }
+}
+
 /// Time represented as wall clock time in RFC3339 format.
 #[cfg(not(feature = "serde"))]
 #[derive(Debug, Clone, Default)]
@@ -330,6 +395,22 @@ impl TimeRepresentation for AbsoluteRfc {
 impl OutputTimeRepresentation for AbsoluteRfc {}
 #[cfg(not(feature = "serde"))]
 impl TimeMode for AbsoluteRfc {}
+
+#[cfg(not(feature = "serde"))]
+time_conversion_string!(AbsoluteRfc);
+
+#[cfg(not(feature = "serde"))]
+time_conversion_unit!(AbsoluteRfc);
+
+#[cfg(not(feature = "serde"))]
+impl TimeConversion<f64> for AbsoluteRfc {
+    fn into(from: <Self as TimeRepresentation>::InnerTime) -> f64 {
+        from.get_ref()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64()
+    }
+}
 
 /// Time is set to be a fixed delay between input events.
 /// The time given is ignored, and the fixed delay is applied.

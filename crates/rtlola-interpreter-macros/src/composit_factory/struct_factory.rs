@@ -3,7 +3,8 @@ use quote::{format_ident, quote, ToTokens};
 use syn::spanned::Spanned;
 use syn::{Data, DeriveInput, Fields};
 
-use crate::{ComposingDeriver, FactoryAttr};
+use crate::{FactoryAttr};
+use crate::composit_factory::ComposingDeriver;
 
 pub(crate) struct StructDeriver {
     name: Ident,
