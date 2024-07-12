@@ -2,7 +2,8 @@ mod expand_named_struct;
 
 use proc_macro::TokenStream;
 use proc_macro_error::abort;
-use syn::{Data, DeriveInput, Fields, parse_macro_input};
+use syn::{parse_macro_input, Data, DeriveInput, Fields};
+
 use crate::struct_verdict::expand_named_struct::expand_named_struct;
 
 pub(crate) fn expand(input: TokenStream) -> TokenStream {
@@ -13,12 +14,15 @@ pub(crate) fn expand(input: TokenStream) -> TokenStream {
         Data::Struct(s) => {
             match s.fields {
                 Fields::Named(_) => expand_named_struct(&input),
-                Fields::Unnamed(_) |
-                Fields::Unit => abort!(input, "LinearVerdict can only be derived for Structs with named fields!")
+                Fields::Unnamed(_) | Fields::Unit => {
+                    abort!(
+                        input,
+                        "LinearVerdict can only be derived for Structs with named fields!"
+                    )
+                },
             }
         },
-        Data::Enum(_) |
-        Data::Union(_) => abort!(input, "LinearVerdict can only be derived for Structs!"),
+        Data::Enum(_) | Data::Union(_) => abort!(input, "LinearVerdict can only be derived for Structs!"),
     };
 
     proc_macro::TokenStream::from(res)

@@ -9,7 +9,7 @@ pub(crate) fn new_snake_ident(base: &Ident, suffix: &str) -> Ident {
 }
 
 pub(crate) fn option_inner_type(ty: &Type) -> Option<&GenericArgument> {
-    if let Type::Path(path) =  ty {
+    if let Type::Path(path) = ty {
         let segment = path.path.segments.last()?;
         if &segment.ident.to_string() == "Option" {
             if let PathArguments::AngleBracketed(args) = &segment.arguments {
@@ -21,7 +21,7 @@ pub(crate) fn option_inner_type(ty: &Type) -> Option<&GenericArgument> {
 }
 
 pub(crate) fn hashmap_types(ty: &Type) -> Option<(Vec<&Type>, &GenericArgument)> {
-    if let Type::Path(path) =  ty {
+    if let Type::Path(path) = ty {
         let segment = path.path.segments.last()?;
         if &segment.ident.to_string() == "HashMap" {
             if let PathArguments::AngleBracketed(args) = &segment.arguments {
@@ -30,11 +30,11 @@ pub(crate) fn hashmap_types(ty: &Type) -> Option<(Vec<&Type>, &GenericArgument)>
                 let args: Vec<&Type> = if let GenericArgument::Type(Type::Tuple(args)) = &instance {
                     args.elems.iter().collect()
                 } else if let GenericArgument::Type(t) = instance {
-                     vec![t]
+                    vec![t]
                 } else {
                     vec![]
                 };
-                return Some((args, value_ty))
+                return Some((args, value_ty));
             }
         }
     };

@@ -1,15 +1,15 @@
-mod struct_factory;
 pub mod enum_composer;
+mod struct_factory;
 
 use proc_macro::TokenStream;
 use proc_macro2::Ident;
 use proc_macro_error::abort;
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, Data, DeriveInput};
 use syn::__private::TokenStream2;
+use syn::{parse_macro_input, Data, DeriveInput};
 
-use crate::composit_factory::struct_factory::StructDeriver;
 use crate::composit_factory::enum_composer::EnumComposer;
+use crate::composit_factory::struct_factory::StructDeriver;
 
 pub(crate) trait ComposingDeriver {
     fn struct_field_names(&self) -> Vec<Ident>;

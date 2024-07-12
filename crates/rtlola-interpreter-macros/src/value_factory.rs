@@ -6,8 +6,8 @@ use quote::quote;
 use syn::{parse_macro_input, Data, DeriveInput, Fields};
 
 use crate::composit_factory::enum_composer::EnumComposer;
-use crate::value_factory::struct_factory::{expand_named_struct, expand_unit_struct, expand_unnamed_struct};
 use crate::composit_factory::ComposingDeriver;
+use crate::value_factory::struct_factory::{expand_named_struct, expand_unit_struct, expand_unnamed_struct};
 
 pub(crate) fn expand(input: TokenStream) -> TokenStream {
     // Parse the input tokens into a syntax tree

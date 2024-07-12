@@ -1,30 +1,13 @@
-use proc_macro2::{Ident, TokenStream};
-use quote::quote;
-use syn::{Data, DeriveInput, Field, Fields, Type, TypeTuple};
-use crate::FactoryAttr;
 use std::default::Default;
-use crate::helper::hashmap_types;
+
+use proc_macro2::{Ident, TokenStream};
+use quote::{format_ident, quote};
+use syn::{Data, DeriveInput, Field, Fields, Type, TypeTuple};
+
+use crate::helper::{hashmap_types, new_snake_ident, option_inner_type};
+use crate::FactoryAttr;
 
 const TIME_NAMES: [&'static str; 3] = ["time", "ts", "timestamp"];
-
-macro_rules! init_field {
-    ($(std::option::)?Option<$ftype: ty>, $ident: ident) => {
-        $ident.map(<Value as TryInto<$ftype>>::try_into).transpose()?
-    };
-    ($(std::collections::)?HashMap<$params: tt, $targetType: ty>, $count: expr, $ident: ident) => {
-        seq!(N in 1..=$count {
-            $ident.into_iter().map(|(params, val)|{
-                let [#(p~N,)*]: [Value; $count] = params.try_into().expect("A correct HashMap spec");
-                Ok(
-                    ((#(p~N.try_into()?,)*), val.try_into()?)
-                )
-            }).collect::<Result<_,_>>()?
-        })
-    };
-    ($ftype: ty, $ident: ident) => {
-        <Value as TryInto<$ftype>>::try_into($ident.unwrap())?
-    };
-}
 
 pub(crate) fn expand_named_struct(input: &DeriveInput) -> TokenStream {
     let mut attr: FactoryAttr = match deluxe::parse_attributes(input) {
@@ -70,7 +53,7 @@ pub(crate) fn expand_named_struct(input: &DeriveInput) -> TokenStream {
     };
 
     let mut time_field: Option<Field> = None;
-    let (field_idents, stream_names): (Vec<Ident>, Vec<String>) = fields
+    let (stream_names, (deconstructor, field_init)): (Vec<String>, (Vec<TokenStream>,Vec<TokenStream>)) = fields
         .into_iter()
         .filter_map(|(f, attr)| {
             let name = f.ident.as_ref().unwrap().to_string();
@@ -78,22 +61,54 @@ pub(crate) fn expand_named_struct(input: &DeriveInput) -> TokenStream {
                 time_field.replace(f.clone());
                 None
             } else if !attr.ignore {
-                let name = attr
+                let stream_name = attr
                     .custom_name
                     .map(|id| id.to_string())
                     .unwrap_or_else(|| format!("{prefix}{}", f.ident.as_ref().unwrap()));
-                dbg!(hashmap_types(&f.ty));
-                Some((f.ident.clone().unwrap(), name))
+                let val_ident = new_snake_ident(f.ident.as_ref().unwrap(), "val");
+                let ident = f.ident.as_ref().unwrap();
+                let (decon, field_init) = if let Some((params, val)) = hashmap_types(&f.ty) {
+                    let decon = quote! {rtlola_interpreter::output::StreamValue::Instances(#val_ident)};
+                    let params_count = params.len();
+                    let params_idents: Vec<Ident> = (1..=params_count).map(|idx| format_ident!("p{}", idx)).collect();
+                    let field_init = quote! {
+                        #ident: #val_ident.into_iter().map(|(params, val)|{
+                        let [#(#params_idents),*]: [Value; #params_count] = params.try_into().expect("A correct HashMap spec");
+                        Ok(
+                            ((#(<rtlola_interpreter::Value as TryInto<#params>>::try_into(#params_idents)?),*), <rtlola_interpreter::Value as TryInto<#val>>::try_into(val)?)
+                        )
+                    }).collect::<Result<_,_>>()?
+                    };
+                    (decon, field_init)
+                } else if let Some(inner) = option_inner_type(&f.ty) {
+                    let decon = quote! {rtlola_interpreter::output::StreamValue::Stream(#val_ident)};
+                    let field_init = quote! {#ident: #val_ident.map(<rtlola_interpreter::Value as TryInto<#inner>>::try_into).transpose()?};
+                    (decon, field_init)
+                } else {
+                    let decon = quote! {rtlola_interpreter::output::StreamValue::Stream(#val_ident)};
+                    let ty = &f.ty;
+                    let field_init = quote! {#ident: <rtlola_interpreter::Value as TryInto<#ty>>::try_into(#val_ident.unwrap())?};
+                    (decon, field_init)
+                };
+                Some((stream_name, (decon, field_init)))
             } else {
                 None
             }
         })
         .unzip();
 
-    let time_type = time_field.map(|tf| tf.ty).unwrap_or_else(|| Type::Tuple(TypeTuple{
-        paren_token: Default::default(),
-        elems: Default::default(),
-    }));
+    let time_type = time_field.as_ref().map(|tf| tf.ty.clone()).unwrap_or_else(|| {
+        Type::Tuple(TypeTuple {
+            paren_token: Default::default(),
+            elems: Default::default(),
+        })
+    });
+    let time_init = time_field
+        .as_ref()
+        .and_then(|f| f.ident.as_ref())
+        .map(|id| quote! {#id: ts});
+    let num_streams = stream_names.len();
+
     quote! {
         impl #impl_generics rtlola_interpreter::output::FromValues for #name #ty_generics #where_clause {
             type OutputTime = #time_type;
@@ -102,22 +117,19 @@ pub(crate) fn expand_named_struct(input: &DeriveInput) -> TokenStream {
                 vec![#(#stream_names.to_string()),*]
             }
 
-            fn construct(ts: Self::OutputTime, data: Vec<StreamValue>) -> Result<Self, ValueConvertError> {
-                let [StreamValue::Stream(a), StreamValue::Stream(b), StreamValue::Stream(c), StreamValue::Instances(d)]: [StreamValue; 4] =
+            fn construct(ts: Self::OutputTime, data: Vec<rtlola_interpreter::output::StreamValue>) -> Result<Self, rtlola_interpreter::ValueConvertError> {
+                let [#(#deconstructor),*]: [rtlola_interpreter::output::StreamValue; #num_streams] =
                     data.try_into().expect("Mapping to work!")
                 else {
                     panic!("Mapping did not work");
                 };
+                Ok(
+                    Self{
+                        #time_init,
+                        #(#field_init),*
+                    }
+                )
             }
-
-            // fn func_for_input(name: &str, data: Self::CreationData) -> Result<rtlola_interpreter::input::ValueGetter<Self, Self::Error>, Self::Error>{
-            //     match name {
-            //         #(
-            //             #field_names => Ok(Box::new(|data| Ok(data.#field_idents.clone().try_into()?))),
-            //         )*
-            //         _ => Err(rtlola_interpreter::input::EventFactoryError::InputStreamUnknown(vec![name.to_string()]))
-            //     }
-            // }
         }
     }
 }

@@ -4,11 +4,11 @@ use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 
 use rtlola_interpreter::monitor::Total;
+use rtlola_interpreter::output::{FromValues, StreamValue, VerdictFactory};
 use rtlola_interpreter::rtlola_frontend::RtLolaMir;
 use rtlola_interpreter::rtlola_mir::{OutputReference, Stream, StreamReference};
 use rtlola_interpreter::time::{OutputTimeRepresentation, TimeConversion};
 use rtlola_interpreter::{Value, ValueConvertError};
-use rtlola_interpreter::output::{FromValues, StreamValue, VerdictFactory};
 use rtlola_interpreter_macros::FromStreamValues;
 
 #[derive(FromStreamValues)]
@@ -49,7 +49,5 @@ struct MyOutputs {
 //         todo!()
 //     }
 // }
-
-
 
 fn main() {}

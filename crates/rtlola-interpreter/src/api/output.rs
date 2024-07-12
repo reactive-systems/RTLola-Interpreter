@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
+
 use rtlola_frontend::mir::{OutputReference, Stream, StreamReference};
 use rtlola_frontend::RtLolaMir;
 
@@ -24,7 +25,6 @@ pub trait VerdictFactory<MonitorOutput: VerdictRepresentation, OutputTime: Outpu
     /// This function converts a monitor to a verdict.
     fn get_verdict(&mut self, rec: MonitorOutput, ts: OutputTime::InnerTime) -> Result<Self::Verdict, Self::Error>;
 }
-
 
 #[derive(Debug, Clone)]
 pub enum StreamValue {
@@ -109,12 +109,12 @@ impl<V: FromValues> StructVerdictFactory<V> {
 }
 
 impl<O, I, V> VerdictFactory<Total, O> for StructVerdictFactory<V>
-    where
-        V: FromValues<OutputTime = I>,
-        O: OutputTimeRepresentation + TimeConversion<I>,
+where
+    V: FromValues<OutputTime = I>,
+    O: OutputTimeRepresentation + TimeConversion<I>,
 {
-    type Verdict = V;
     type Error = StructVerdictError;
+    type Verdict = V;
 
     fn get_verdict(&mut self, rec: Total, ts: O::InnerTime) -> Result<Self::Verdict, Self::Error> {
         let values: Vec<StreamValue> = self

@@ -1,17 +1,18 @@
 pub(crate) mod helper;
 
 mod composit_factory;
-mod value_factory;
 mod struct_verdict;
+mod value_factory;
 
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
-use proc_macro2::{Ident};
+use proc_macro2::Ident;
 use proc_macro_error::proc_macro_error;
+
 use crate::composit_factory::expand as composit_expand;
-use crate::value_factory::expand as value_expand;
 use crate::struct_verdict::expand as struct_verdict_expand;
+use crate::value_factory::expand as value_expand;
 
 #[derive(deluxe::ParseAttributes, Debug, Clone)]
 #[deluxe(attributes(factory))]

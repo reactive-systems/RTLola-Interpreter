@@ -5,9 +5,9 @@ use quote::{format_ident, quote, ToTokens};
 use syn::spanned::Spanned;
 use syn::{Data, DeriveInput, Fields, Type, Variant};
 
-use crate::helper::new_snake_ident;
-use crate::{FactoryAttr};
 use crate::composit_factory::ComposingDeriver;
+use crate::helper::new_snake_ident;
+use crate::FactoryAttr;
 
 pub(crate) struct EnumComposer {
     name: Ident,
