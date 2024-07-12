@@ -47,9 +47,9 @@ impl<MonitorOutput: VerdictRepresentation, OutputTime: OutputTimeRepresentation>
 
 /// The main trait that has to be implemented by an output plugin
 pub trait VerdictsSink<V: VerdictRepresentation, T: OutputTimeRepresentation> {
-    /// Error Type of an [VerdictsSink] implementation
+    /// Error Type of a [VerdictsSink] implementation
     type Error: Error + 'static;
-    /// Return Type of an [VerdictsSink] implementation
+    /// Return Type of a [VerdictsSink] implementation
     type Return;
     /// Factory Type to convert the monitor output to the required representation
     type Factory: VerdictFactory<V, T>;
