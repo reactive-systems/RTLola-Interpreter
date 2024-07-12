@@ -1,6 +1,5 @@
 //! Module that contains the implementation of the default [VerdictsSink] used by the CLI for printing log messages
 use std::collections::HashMap;
-use std::convert::Infallible;
 use std::fmt::{Display, Formatter};
 use std::io::Write;
 
@@ -54,12 +53,12 @@ pub struct LogPrinter<OutputTime: OutputTimeRepresentation> {
     verbosity: Verbosity,
     stream_names: HashMap<StreamReference, String>,
     trigger_ids: HashMap<OutputReference, TriggerReference>,
-    empty_buffer: Buffer,
+    colored: bool,
 }
 
 impl<OutputTime: OutputTimeRepresentation> LogPrinter<OutputTime> {
     /// Construct a new LogPrinter based on the given verbosity
-    pub fn new(verbosity: Verbosity, ir: &RtLolaMir, buffer: Buffer) -> Self {
+    pub fn new(verbosity: Verbosity, ir: &RtLolaMir, colored: bool) -> Self {
         let stream_names = ir.all_streams().map(|s| (s, ir.stream(s).name().to_owned())).collect();
         let trigger_ids = ir
             .triggers
@@ -71,7 +70,7 @@ impl<OutputTime: OutputTimeRepresentation> LogPrinter<OutputTime> {
             verbosity,
             stream_names,
             trigger_ids,
-            empty_buffer: buffer,
+            colored,
         }
     }
 
@@ -101,7 +100,7 @@ impl<OutputTime: OutputTimeRepresentation> LogPrinter<OutputTime> {
 
 impl<OutputTime: OutputTimeRepresentation> VerdictFactory<TotalIncremental, OutputTime> for LogPrinter<OutputTime> {
     type Error = std::io::Error;
-    type Verdict = Buffer;
+    type Verdict = Vec<u8>;
 
     fn get_verdict(
         &mut self,
@@ -114,7 +113,11 @@ impl<OutputTime: OutputTimeRepresentation> VerdictFactory<TotalIncremental, Outp
             trigger: _,
         } = verdict;
 
-        let mut res = self.empty_buffer.clone();
+        let mut res = if self.colored {
+            Buffer::ansi()
+        } else {
+            Buffer::no_color()
+        };
         let ts = self.output_time.to_string(ts);
 
         for (idx, val) in inputs {
@@ -163,7 +166,7 @@ impl<OutputTime: OutputTimeRepresentation> VerdictFactory<TotalIncremental, Outp
                 }
             }
         }
-        Ok(res)
+        Ok(res.into_inner())
     }
 }
 
