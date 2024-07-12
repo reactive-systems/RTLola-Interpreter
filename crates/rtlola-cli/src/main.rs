@@ -605,8 +605,12 @@ macro_rules! run_config_it_ot_src2 {
             run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
         } else {
             match $of {
+                CliOutputFormat::Logger if $colored => {
+                    let sink = LogPrinter::new($verbosity.try_into()?, &$ir, termcolor::Ansi::new($output)).sink();
+                    run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
+                },
                 CliOutputFormat::Logger => {
-                    let sink = LogPrinter::new($verbosity.try_into()?, &$ir, $colored).sink($output);
+                    let sink = LogPrinter::new($verbosity.try_into()?, &$ir, termcolor::NoColor::new($output)).sink();
                     run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
                 },
                 CliOutputFormat::Json => {

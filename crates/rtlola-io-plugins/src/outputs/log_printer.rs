@@ -1,15 +1,14 @@
 //! Module that contains the implementation of the default [VerdictsSink] used by the CLI for printing log messages
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::io::Write;
 
 use rtlola_interpreter::monitor::{Change, Parameters, TotalIncremental};
 use rtlola_interpreter::rtlola_mir::{OutputReference, RtLolaMir, StreamReference, TriggerReference};
 use rtlola_interpreter::time::OutputTimeRepresentation;
 use rtlola_interpreter::Value;
-use termcolor::{Buffer, Color, ColorSpec, WriteColor};
+use termcolor::{Color, ColorSpec, WriteColor};
 
-use super::{ByteSink, VerdictFactory};
+use super::{DiscardSink, VerdictFactory};
 
 #[derive(PartialEq, Ord, PartialOrd, Eq, Debug, Clone, Copy)]
 /// The verbosity of the log printer output
@@ -48,17 +47,17 @@ impl From<Verbosity> for Color {
 
 /// A VerdictFactory turning the verdict into a line-based logging format
 #[derive(Debug)]
-pub struct LogPrinter<OutputTime: OutputTimeRepresentation> {
+pub struct LogPrinter<OutputTime: OutputTimeRepresentation, W: WriteColor> {
     output_time: OutputTime,
     verbosity: Verbosity,
     stream_names: HashMap<StreamReference, String>,
     trigger_ids: HashMap<OutputReference, TriggerReference>,
-    colored: bool,
+    writer: W,
 }
 
-impl<OutputTime: OutputTimeRepresentation> LogPrinter<OutputTime> {
+impl<OutputTime: OutputTimeRepresentation, W: WriteColor> LogPrinter<OutputTime, W> {
     /// Construct a new LogPrinter based on the given verbosity
-    pub fn new(verbosity: Verbosity, ir: &RtLolaMir, colored: bool) -> Self {
+    pub fn new(verbosity: Verbosity, ir: &RtLolaMir, writer: W) -> Self {
         let stream_names = ir.all_streams().map(|s| (s, ir.stream(s).name().to_owned())).collect();
         let trigger_ids = ir
             .triggers
@@ -70,13 +69,13 @@ impl<OutputTime: OutputTimeRepresentation> LogPrinter<OutputTime> {
             verbosity,
             stream_names,
             trigger_ids,
-            colored,
+            writer,
         }
     }
 
     /// Turn the LogPrinter into a VerdictSink writing the logs into a writer
-    pub fn sink<W: Write>(self, writer: W) -> ByteSink<W, Self, TotalIncremental, OutputTime> {
-        ByteSink::new(writer, self)
+    pub fn sink(self) -> DiscardSink<OutputTime, TotalIncremental, Self> {
+        DiscardSink::new(self)
     }
 
     fn display_parameter(paras: Parameters) -> String {
@@ -98,9 +97,11 @@ impl<OutputTime: OutputTimeRepresentation> LogPrinter<OutputTime> {
     }
 }
 
-impl<OutputTime: OutputTimeRepresentation> VerdictFactory<TotalIncremental, OutputTime> for LogPrinter<OutputTime> {
+impl<OutputTime: OutputTimeRepresentation, W: WriteColor> VerdictFactory<TotalIncremental, OutputTime>
+    for LogPrinter<OutputTime, W>
+{
     type Error = std::io::Error;
-    type Verdict = Vec<u8>;
+    type Verdict = ();
 
     fn get_verdict(
         &mut self,
@@ -113,17 +114,11 @@ impl<OutputTime: OutputTimeRepresentation> VerdictFactory<TotalIncremental, Outp
             trigger: _,
         } = verdict;
 
-        let mut res = if self.colored {
-            Buffer::ansi()
-        } else {
-            Buffer::no_color()
-        };
         let ts = self.output_time.to_string(ts);
 
         for (idx, val) in inputs {
-            let name = &self.stream_names[&StreamReference::In(idx)];
+            let name = self.stream_names[&StreamReference::In(idx)].clone();
             self.input(
-                &mut res,
                 move || format!("[Input][{}][Value] = {}", name, Self::display_value(val)),
                 &ts,
             )?;
@@ -139,7 +134,6 @@ impl<OutputTime: OutputTimeRepresentation> VerdictFactory<TotalIncremental, Outp
                 match change {
                     Change::Spawn(parameter) => {
                         self.debug(
-                            &mut res,
                             || format!("{}][Spawn] = {}", name, Self::display_parameter(Some(parameter))),
                             &ts,
                         )?;
@@ -154,11 +148,10 @@ impl<OutputTime: OutputTimeRepresentation> VerdictFactory<TotalIncremental, Outp
                             )
                         };
                         let is_trigger = self.trigger_ids.contains_key(&out);
-                        self.output(&mut res, msg, &ts, is_trigger)?;
+                        self.output(msg, &ts, is_trigger)?;
                     },
                     Change::Close(parameter) => {
                         self.debug(
-                            &mut res,
                             move || format!("{}][Close] = {}", name, Self::display_parameter(Some(parameter))),
                             &ts,
                         )?;
@@ -166,61 +159,49 @@ impl<OutputTime: OutputTimeRepresentation> VerdictFactory<TotalIncremental, Outp
                 }
             }
         }
-        Ok(res.into_inner())
+        Ok(())
     }
 }
 
-impl<O: OutputTimeRepresentation> LogPrinter<O> {
+impl<O: OutputTimeRepresentation, W: WriteColor> LogPrinter<O, W> {
     /// Accepts a message and forwards it to the appropriate output channel.
     /// If the configuration prohibits printing the message, `msg` is never called.
-    fn emit<F, T: Into<String>>(
-        &self,
-        out: &mut impl WriteColor,
-        kind: Verbosity,
-        msg: F,
-        ts: &str,
-    ) -> std::io::Result<()>
+    fn emit<F, T: Into<String>>(&mut self, kind: Verbosity, msg: F, ts: &str) -> std::io::Result<()>
     where
         F: FnOnce() -> T,
     {
         if kind <= self.verbosity {
-            write!(out, "[{}]", ts)?;
-            out.set_color(ColorSpec::default().set_fg(Some(kind.into())))?;
-            writeln!(out, "{}", msg().into())?;
-            out.reset()
+            write!(&mut self.writer, "[{}]", ts)?;
+            self.writer.set_color(ColorSpec::default().set_fg(Some(kind.into())))?;
+            writeln!(&mut self.writer, "{}", msg().into())?;
+            self.writer.reset()
         } else {
             Ok(())
         }
     }
 
-    fn debug<F, T: Into<String>>(&self, out: &mut impl WriteColor, msg: F, ts: &str) -> std::io::Result<()>
+    fn debug<F, T: Into<String>>(&mut self, msg: F, ts: &str) -> std::io::Result<()>
     where
         F: FnOnce() -> T,
     {
-        self.emit(out, Verbosity::Debug, msg, ts)
+        self.emit(Verbosity::Debug, msg, ts)
     }
 
-    fn input<F, T: Into<String>>(&self, out: &mut impl WriteColor, msg: F, ts: &str) -> std::io::Result<()>
+    fn input<F, T: Into<String>>(&mut self, msg: F, ts: &str) -> std::io::Result<()>
     where
         F: FnOnce() -> T,
     {
-        self.emit(out, Verbosity::Streams, msg, ts)
+        self.emit(Verbosity::Streams, msg, ts)
     }
 
-    fn output<F, T: Into<String>>(
-        &self,
-        out: &mut impl WriteColor,
-        msg: F,
-        ts: &str,
-        is_trigger: bool,
-    ) -> std::io::Result<()>
+    fn output<F, T: Into<String>>(&mut self, msg: F, ts: &str, is_trigger: bool) -> std::io::Result<()>
     where
         F: FnOnce() -> T,
     {
         if is_trigger {
-            self.emit(out, Verbosity::Trigger, msg, ts)
+            self.emit(Verbosity::Trigger, msg, ts)
         } else {
-            self.emit(out, Verbosity::Outputs, msg, ts)
+            self.emit(Verbosity::Outputs, msg, ts)
         }
     }
 }
