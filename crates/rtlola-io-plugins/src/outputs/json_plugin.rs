@@ -168,18 +168,22 @@ pub struct InstanceUpdate {
     /// The instance which is updated.
     /// Won't be serialized for streams that are not parameterized.
     #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub instance: Vec<JsonValue>,
     /// Whether the instance was spawned during the cycle.
     /// Is only serialized when true.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[serde(default)]
     pub spawn: bool,
     /// The new value of that instance.
     /// Is only serialized when the instance was evaluated.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub eval: Option<JsonValue>,
     /// Whether the instance was closed during the cycle.
     /// Is only serialized when true.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[serde(default)]
     pub close: bool,
 }
 
