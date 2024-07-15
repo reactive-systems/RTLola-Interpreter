@@ -159,6 +159,8 @@ impl<OutputTime: OutputTimeRepresentation, W: WriteColor> VerdictFactory<TotalIn
                 }
             }
         }
+
+        self.writer.flush()?;
         Ok(())
     }
 }
