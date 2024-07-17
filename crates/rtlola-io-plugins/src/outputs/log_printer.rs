@@ -212,6 +212,7 @@ impl<O: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> LogPrinter<O, 
             write!(out, "[{}]", ts)?;
             out.set_color(ColorSpec::default().set_fg(Some(kind.into())))?;
             msg(out)?;
+            writeln!(out)?;
             out.reset()
         } else {
             Ok(())
