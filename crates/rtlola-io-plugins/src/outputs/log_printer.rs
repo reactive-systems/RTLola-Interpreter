@@ -152,7 +152,7 @@ impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> Verdi
             let name = &self.stream_names[&StreamReference::In(idx)];
             self.input(
                 &mut writer,
-                move || format!("[Input][{}][Value] = {}", name, Self::display_value(val)),
+                move |w| write!(w, "[Input][{}][Value] = {}", name, Self::display_value(val)),
                 &ts,
             )?;
         }
@@ -168,13 +168,14 @@ impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> Verdi
                     Change::Spawn(parameter) => {
                         self.debug(
                             &mut writer,
-                            || format!("{}][Spawn] = {}", name, Self::display_parameter(Some(parameter))),
+                            |w| write!(w, "{}][Spawn] = {}", name, Self::display_parameter(Some(parameter))),
                             &ts,
                         )?;
                     },
                     Change::Value(parameter, val) => {
-                        let msg = move || {
-                            format!(
+                        let msg = move |w: &mut W| {
+                            write!(
+                                w,
                                 "{}{}][Value] = {}",
                                 name,
                                 Self::display_parameter(parameter),
@@ -187,7 +188,7 @@ impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> Verdi
                     Change::Close(parameter) => {
                         self.debug(
                             &mut writer,
-                            move || format!("{}][Close] = {}", name, Self::display_parameter(Some(parameter))),
+                            move |w| write!(w, "{}][Close] = {}", name, Self::display_parameter(Some(parameter))),
                             &ts,
                         )?;
                     },
@@ -203,37 +204,37 @@ impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> Verdi
 impl<O: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> LogPrinter<O, W> {
     /// Accepts a message and forwards it to the appropriate output channel.
     /// If the configuration prohibits printing the message, `msg` is never called.
-    fn emit<F, T: Into<String>>(&self, out: &mut W, kind: Verbosity, msg: F, ts: &str) -> std::io::Result<()>
+    fn emit<F>(&self, out: &mut W, kind: Verbosity, msg: F, ts: &str) -> std::io::Result<()>
     where
-        F: FnOnce() -> T,
+        F: FnOnce(&mut W) -> std::io::Result<()>,
     {
         if kind <= self.verbosity {
             write!(out, "[{}]", ts)?;
             out.set_color(ColorSpec::default().set_fg(Some(kind.into())))?;
-            writeln!(out, "{}", msg().into())?;
+            msg(out)?;
             out.reset()
         } else {
             Ok(())
         }
     }
 
-    fn debug<F, T: Into<String>>(&self, out: &mut W, msg: F, ts: &str) -> std::io::Result<()>
+    fn debug<F>(&self, out: &mut W, msg: F, ts: &str) -> std::io::Result<()>
     where
-        F: FnOnce() -> T,
+        F: FnOnce(&mut W) -> std::io::Result<()>,
     {
         self.emit(out, Verbosity::Debug, msg, ts)
     }
 
-    fn input<F, T: Into<String>>(&self, out: &mut W, msg: F, ts: &str) -> std::io::Result<()>
+    fn input<F>(&self, out: &mut W, msg: F, ts: &str) -> std::io::Result<()>
     where
-        F: FnOnce() -> T,
+        F: FnOnce(&mut W) -> std::io::Result<()>,
     {
         self.emit(out, Verbosity::Streams, msg, ts)
     }
 
-    fn output<F, T: Into<String>>(&self, out: &mut W, msg: F, ts: &str, is_trigger: bool) -> std::io::Result<()>
+    fn output<F>(&self, out: &mut W, msg: F, ts: &str, is_trigger: bool) -> std::io::Result<()>
     where
-        F: FnOnce() -> T,
+        F: FnOnce(&mut W) -> std::io::Result<()>,
     {
         if is_trigger {
             self.emit(out, Verbosity::Trigger, msg, ts)
