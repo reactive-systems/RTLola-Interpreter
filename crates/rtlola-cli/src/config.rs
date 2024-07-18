@@ -68,6 +68,7 @@ pub enum Verbosity {
     /// Suppresses any kind of logging.
     Silent,
     /// Only print trigger violations.
+    #[clap(alias = "trigger")]
     Violation,
     /// Print trigger violations and warning trigger.
     Warning,

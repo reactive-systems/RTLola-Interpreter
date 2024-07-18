@@ -288,9 +288,12 @@ enum CliOutputTimeRepresentation {
 
 #[derive(Clone, Copy, Debug, ValueEnum, Default)]
 enum CliOutputFormat {
+    /// Print the output in a line based logging format.
     #[default]
     Logger,
+    /// Print each verdict as a JSON object.
     Json,
+    /// Print each verdict as a row in CSV format.
     Csv,
 }
 
