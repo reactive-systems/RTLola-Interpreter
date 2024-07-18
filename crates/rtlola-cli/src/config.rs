@@ -67,9 +67,13 @@ pub(crate) enum Statistics {
 pub enum Verbosity {
     /// Suppresses any kind of logging.
     Silent,
-    /// Prints only triggers and runtime warnings.
+    /// Only print trigger violations.
+    Violation,
+    /// Print trigger violations and warning trigger.
+    Warning,
     #[default]
-    Trigger,
+    /// Print new stream values for public output streams.
+    Public,
     /// Prints new stream values for outputs (and triggers).
     Outputs,
     /// Prints new stream values for every stream.
@@ -84,7 +88,9 @@ impl TryFrom<Verbosity> for CsvVerbosity {
     fn try_from(value: Verbosity) -> Result<Self, Self::Error> {
         match value {
             Verbosity::Silent => Err("Silent verbosity not supported with csv output format.".into()),
-            Verbosity::Trigger => Ok(CsvVerbosity::Trigger),
+            Verbosity::Warning => Ok(CsvVerbosity::Warnings),
+            Verbosity::Violation => Ok(CsvVerbosity::Violations),
+            Verbosity::Public => Ok(CsvVerbosity::Public),
             Verbosity::Outputs => Ok(CsvVerbosity::Outputs),
             Verbosity::Streams => Ok(CsvVerbosity::Streams),
             Verbosity::Debug => Err("Debug verbosity not supported with csv output format. Use json instead.".into()),
@@ -98,7 +104,9 @@ impl TryFrom<Verbosity> for JsonVerbosity {
     fn try_from(value: Verbosity) -> Result<Self, Self::Error> {
         match value {
             Verbosity::Silent => Err("Silent verbosity not supported with json output format.".into()),
-            Verbosity::Trigger => Ok(JsonVerbosity::Trigger),
+            Verbosity::Warning => Ok(JsonVerbosity::Warnings),
+            Verbosity::Violation => Ok(JsonVerbosity::Violations),
+            Verbosity::Public => Ok(JsonVerbosity::Public),
             Verbosity::Outputs => Ok(JsonVerbosity::Outputs),
             Verbosity::Streams => Ok(JsonVerbosity::Streams),
             Verbosity::Debug => Ok(JsonVerbosity::Debug),
@@ -112,7 +120,9 @@ impl TryFrom<Verbosity> for log_printer::Verbosity {
     fn try_from(value: Verbosity) -> Result<Self, Self::Error> {
         match value {
             Verbosity::Silent => Err("Silent verbosity not supported with log printer".into()),
-            Verbosity::Trigger => Ok(log_printer::Verbosity::Trigger),
+            Verbosity::Warning => Ok(log_printer::Verbosity::Warnings),
+            Verbosity::Violation => Ok(log_printer::Verbosity::Violations),
+            Verbosity::Public => Ok(log_printer::Verbosity::Public),
             Verbosity::Outputs => Ok(log_printer::Verbosity::Outputs),
             Verbosity::Streams => Ok(log_printer::Verbosity::Streams),
             Verbosity::Debug => Ok(log_printer::Verbosity::Debug),

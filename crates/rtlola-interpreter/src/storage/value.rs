@@ -727,6 +727,8 @@ impl Error for ValueConvertError {}
 #[cfg(test)]
 mod tests {
 
+    use std::mem::size_of;
+
     use super::*;
 
     #[test]

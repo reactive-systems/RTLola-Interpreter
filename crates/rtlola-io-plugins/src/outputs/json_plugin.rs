@@ -1,5 +1,5 @@
 //! Module that implements [VerdictsSink] to represent the verdicts in JSONL format.
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::io::Write;
 use std::marker::PhantomData;
@@ -7,7 +7,8 @@ use std::marker::PhantomData;
 use jsonl::WriteError;
 use rtlola_interpreter::monitor::{Change, TotalIncremental, VerdictRepresentation};
 use rtlola_interpreter::output::NewVerdictFactory;
-use rtlola_interpreter::rtlola_mir::{OutputReference, RtLolaMir, StreamReference};
+use rtlola_interpreter::rtlola_frontend::tag_parser::verbosity_parser::StreamVerbosity;
+use rtlola_interpreter::rtlola_mir::{RtLolaMir, StreamReference};
 use rtlola_interpreter::time::OutputTimeRepresentation;
 use rtlola_interpreter::Value;
 use rust_decimal::prelude::ToPrimitive;
@@ -76,8 +77,12 @@ impl<
 #[derive(PartialEq, Ord, PartialOrd, Eq, Debug, Clone, Copy)]
 /// The verbosity of the JSON output
 pub enum JsonVerbosity {
-    /// only print the values of the trigger
-    Trigger,
+    /// only print trigger violations and warnings
+    Warnings,
+    /// only print trigger violations
+    Violations,
+    /// print public output streams
+    Public,
     /// print the values of the outputs (including trigger)
     Outputs,
     /// print the values of all streams (including inputs)
@@ -86,21 +91,15 @@ pub enum JsonVerbosity {
     Debug,
 }
 
-impl JsonVerbosity {
-    fn include_inputs(&self) -> bool {
-        self >= &JsonVerbosity::Streams
-    }
-
-    fn include_non_trigger_outputs(&self) -> bool {
-        self >= &JsonVerbosity::Outputs
-    }
-
-    fn include_triggers(&self) -> bool {
-        true
-    }
-
-    fn include_spawn_and_close(&self) -> bool {
-        self >= &JsonVerbosity::Debug
+impl From<StreamVerbosity> for JsonVerbosity {
+    fn from(value: StreamVerbosity) -> Self {
+        match value {
+            StreamVerbosity::Streams => JsonVerbosity::Streams,
+            StreamVerbosity::Outputs => JsonVerbosity::Outputs,
+            StreamVerbosity::Public => JsonVerbosity::Public,
+            StreamVerbosity::Warnings => JsonVerbosity::Warnings,
+            StreamVerbosity::Violations => JsonVerbosity::Violations,
+        }
     }
 }
 
@@ -109,8 +108,8 @@ impl JsonVerbosity {
 pub struct JsonFactory<OutputTime: OutputTimeRepresentation> {
     stream_names: HashMap<StreamReference, String>,
     output_time: OutputTime,
-    triggers: HashSet<OutputReference>,
     verbosity: JsonVerbosity,
+    stream_verbosity: HashMap<StreamReference, StreamVerbosity>,
 }
 
 impl<O: OutputTimeRepresentation> JsonFactory<O> {
@@ -120,16 +119,16 @@ impl<O: OutputTimeRepresentation> JsonFactory<O> {
             .all_streams()
             .map(|stream| (stream, ir.stream(stream).name().to_owned()))
             .collect();
-        let triggers = ir
-            .triggers
+        let stream_verbosity = ir
+            .outputs
             .iter()
-            .map(|trigger| trigger.output_reference.out_ix())
+            .map(|output| (output.reference, output.verbosity))
             .collect();
         Self {
             stream_names,
             output_time: Default::default(),
-            triggers,
             verbosity,
+            stream_verbosity,
         }
     }
 
@@ -140,15 +139,18 @@ impl<O: OutputTimeRepresentation> JsonFactory<O> {
 
     fn include_stream(&self, stream: StreamReference) -> bool {
         match stream {
-            StreamReference::In(_) => self.verbosity.include_inputs(),
-            StreamReference::Out(o) if self.triggers.contains(&o) => self.verbosity.include_triggers(),
-            StreamReference::Out(_) => self.verbosity.include_non_trigger_outputs(),
+            StreamReference::In(_) => self.verbosity >= JsonVerbosity::Streams,
+            sr @ StreamReference::Out(_) => self.verbosity >= JsonVerbosity::from(self.stream_verbosity[&sr]),
         }
+    }
+
+    fn include_inputs(&self) -> bool {
+        self.verbosity >= JsonVerbosity::Streams
     }
 
     fn include_change(&self, change: &Change) -> bool {
         match change {
-            Change::Spawn(_) | Change::Close(_) => self.verbosity.include_spawn_and_close(),
+            Change::Spawn(_) | Change::Close(_) => self.verbosity >= JsonVerbosity::Debug,
             Change::Value(_, _) => true,
         }
     }
@@ -261,7 +263,7 @@ impl<O: OutputTimeRepresentation> VerdictFactory<TotalIncremental, O> for JsonFa
                 (!instances.is_empty()).then(|| (stream_name.clone(), instances.into_values().collect::<Vec<_>>()))
             })
             .chain(
-                (self.verbosity.include_inputs())
+                (self.include_inputs())
                     .then(|| {
                         rec.inputs.iter().map(|(stream, value)| {
                             let stream_name = &self.stream_names[&StreamReference::In(*stream)];

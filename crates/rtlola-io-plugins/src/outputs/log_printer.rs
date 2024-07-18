@@ -6,6 +6,7 @@ use std::marker::PhantomData;
 
 use rtlola_interpreter::monitor::{Change, Parameters, TotalIncremental};
 use rtlola_interpreter::output::NewVerdictFactory;
+use rtlola_interpreter::rtlola_frontend::tag_parser::verbosity_parser::StreamVerbosity;
 use rtlola_interpreter::rtlola_mir::{OutputReference, RtLolaMir, StreamReference, TriggerReference};
 use rtlola_interpreter::time::OutputTimeRepresentation;
 use rtlola_interpreter::Value;
@@ -45,8 +46,12 @@ impl<W: Write> IndirectWriteColor<W> for NoColor<W> {
 #[derive(PartialEq, Ord, PartialOrd, Eq, Debug, Clone, Copy)]
 /// The verbosity of the log printer output
 pub enum Verbosity {
-    /// only print the values of the trigger
-    Trigger,
+    /// only print trigger violations
+    Violations,
+    /// only print trigger violations and warnings
+    Warnings,
+    /// print public output streams
+    Public,
     /// print the values of the outputs (including trigger)
     Outputs,
     /// print the values of all streams (including inputs)
@@ -55,10 +60,24 @@ pub enum Verbosity {
     Debug,
 }
 
+impl From<StreamVerbosity> for Verbosity {
+    fn from(value: StreamVerbosity) -> Self {
+        match value {
+            StreamVerbosity::Streams => Verbosity::Streams,
+            StreamVerbosity::Outputs => Verbosity::Outputs,
+            StreamVerbosity::Public => Verbosity::Public,
+            StreamVerbosity::Warnings => Verbosity::Warnings,
+            StreamVerbosity::Violations => Verbosity::Violations,
+        }
+    }
+}
+
 impl Display for Verbosity {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Verbosity::Trigger => write!(f, "Trigger"),
+            Verbosity::Violations => write!(f, "Violation"),
+            Verbosity::Warnings => write!(f, "Warning"),
+            Verbosity::Public => write!(f, "Public"),
             Verbosity::Outputs => write!(f, "Outputs"),
             Verbosity::Streams => write!(f, "Stream"),
             Verbosity::Debug => write!(f, "Debug"),
@@ -69,10 +88,12 @@ impl Display for Verbosity {
 impl From<Verbosity> for Color {
     fn from(v: Verbosity) -> Self {
         match v {
-            Verbosity::Trigger => Color::Ansi256(1), //Dark Red
-            Verbosity::Outputs => Color::Ansi256(4), //Dark Blue
-            Verbosity::Streams => Color::Ansi256(5), //Dark Magenta
-            Verbosity::Debug => Color::Ansi256(8),   //Dark Grey
+            Verbosity::Violations => Color::Ansi256(1), //Dark Red
+            Verbosity::Warnings => Color::Ansi256(3),   //Dark Yellow
+            Verbosity::Public => Color::Ansi256(4),     //Dark Blue
+            Verbosity::Outputs => Color::Ansi256(4),    //Dark Blue
+            Verbosity::Streams => Color::Ansi256(5),    //Dark Magenta
+            Verbosity::Debug => Color::Ansi256(8),      //Dark Grey
         }
     }
 }
@@ -84,6 +105,7 @@ pub struct LogPrinter<OutputTime: OutputTimeRepresentation, W: IndirectWriteColo
     verbosity: Verbosity,
     stream_names: HashMap<StreamReference, String>,
     trigger_ids: HashMap<OutputReference, TriggerReference>,
+    output_verbosity: HashMap<OutputReference, Verbosity>,
     writer: PhantomData<W>,
 }
 
@@ -96,11 +118,17 @@ impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> LogPr
             .iter()
             .map(|trigger| (trigger.output_reference.out_ix(), trigger.trigger_reference))
             .collect();
+        let output_verbosity = ir
+            .outputs
+            .iter()
+            .map(|output| (output.reference.out_ix(), Verbosity::from(output.verbosity)))
+            .collect();
         Self {
             output_time: OutputTime::default(),
             verbosity,
             stream_names,
             trigger_ids,
+            output_verbosity,
             writer: PhantomData,
         }
     }
@@ -183,8 +211,7 @@ impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> Verdi
                                 Self::display_value(val)
                             )
                         };
-                        let is_trigger = self.trigger_ids.contains_key(&out);
-                        self.output(&mut writer, msg, &ts, is_trigger)?;
+                        self.emit(&mut writer, self.output_verbosity[&out], msg, &ts)?;
                     },
                     Change::Close(parameter) => {
                         self.debug(
@@ -242,16 +269,5 @@ impl<O: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> LogPrinter<O, 
         F: FnOnce(&mut W) -> std::io::Result<()>,
     {
         self.emit(out, Verbosity::Streams, msg, ts)
-    }
-
-    fn output<F>(&self, out: &mut W, msg: F, ts: &str, is_trigger: bool) -> std::io::Result<()>
-    where
-        F: FnOnce(&mut W) -> std::io::Result<()>,
-    {
-        if is_trigger {
-            self.emit(out, Verbosity::Trigger, msg, ts)
-        } else {
-            self.emit(out, Verbosity::Outputs, msg, ts)
-        }
     }
 }

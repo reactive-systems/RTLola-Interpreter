@@ -7,6 +7,7 @@ use std::iter;
 
 use rtlola_interpreter::monitor::TotalIncremental;
 use rtlola_interpreter::output::NewVerdictFactory;
+use rtlola_interpreter::rtlola_frontend::tag_parser::verbosity_parser::StreamVerbosity;
 use rtlola_interpreter::rtlola_mir::{RtLolaMir, StreamReference};
 use rtlola_interpreter::time::OutputTimeRepresentation;
 
@@ -24,12 +25,28 @@ pub struct CsvVerdictSink<O: OutputTimeRepresentation, W: Write> {
 #[derive(PartialEq, Ord, PartialOrd, Eq, Debug, Clone, Copy)]
 /// The verbosity of the CSV output
 pub enum CsvVerbosity {
-    /// only print the values of the trigger
-    Trigger,
+    /// only print trigger violations
+    Violations,
+    /// only print trigger violations and warnings
+    Warnings,
+    /// print public output streams
+    Public,
     /// print the values of the outputs (including trigger)
     Outputs,
     /// print the values of all streams (including inputs)
     Streams,
+}
+
+impl From<StreamVerbosity> for CsvVerbosity {
+    fn from(value: StreamVerbosity) -> Self {
+        match value {
+            StreamVerbosity::Streams => CsvVerbosity::Streams,
+            StreamVerbosity::Outputs => CsvVerbosity::Outputs,
+            StreamVerbosity::Public => CsvVerbosity::Public,
+            StreamVerbosity::Warnings => CsvVerbosity::Warnings,
+            StreamVerbosity::Violations => CsvVerbosity::Violations,
+        }
+    }
 }
 
 impl<O: OutputTimeRepresentation, W: Write> CsvVerdictSink<O, W> {
@@ -37,7 +54,9 @@ impl<O: OutputTimeRepresentation, W: Write> CsvVerdictSink<O, W> {
     pub fn for_verbosity(ir: &RtLolaMir, writer: W, verbosity: CsvVerbosity) -> Result<Self, String> {
         let verbosity_map = ir
             .all_streams()
-            .filter_map(|s| Self::verbosity_index(s, ir, verbosity).map(|i| (s, i)))
+            .filter(|s| Self::include_stream(ir, *s, verbosity))
+            .enumerate()
+            .map(|(i, sr)| (sr, i))
             .collect();
 
         Self::new(ir, writer, verbosity_map)
@@ -50,18 +69,12 @@ impl<O: OutputTimeRepresentation, W: Write> CsvVerdictSink<O, W> {
         Self::new(ir, writer, stream_map)
     }
 
-    /// Maps the given `stream` to the index of the corresponding column in the CSV file.
-    fn verbosity_index(stream: StreamReference, ir: &RtLolaMir, verbosity: CsvVerbosity) -> Option<usize> {
-        match stream {
-            StreamReference::In(i) if verbosity >= CsvVerbosity::Streams => Some(i),
-            StreamReference::In(_) => None,
-            StreamReference::Out(o) if verbosity >= CsvVerbosity::Streams => Some(ir.inputs.len() + o),
-            StreamReference::Out(o) if verbosity >= CsvVerbosity::Outputs => Some(o),
-            StreamReference::Out(o) => {
-                match ir.outputs[o].kind {
-                    rtlola_interpreter::rtlola_mir::OutputKind::NamedOutput(_) => None,
-                    rtlola_interpreter::rtlola_mir::OutputKind::Trigger(t) => Some(t),
-                }
+    fn include_stream(ir: &RtLolaMir, sr: StreamReference, verbosity: CsvVerbosity) -> bool {
+        match sr {
+            StreamReference::In(_) => verbosity >= CsvVerbosity::Streams,
+            StreamReference::Out(_) => {
+                let output = ir.output(sr);
+                verbosity >= CsvVerbosity::from(output.verbosity)
             },
         }
     }
