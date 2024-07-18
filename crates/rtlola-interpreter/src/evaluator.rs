@@ -3508,7 +3508,6 @@ mod tests {
                 ",
         );
         let mut eval = eval.into_evaluator();
-        let a_ref = StreamReference::In(0);
         let b_ref = StreamReference::Out(0);
         let c_ref = StreamReference::Out(1);
         let mut tracer = NoTracer::default();

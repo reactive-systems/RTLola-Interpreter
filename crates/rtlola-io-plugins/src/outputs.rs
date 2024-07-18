@@ -47,9 +47,9 @@ impl<MonitorOutput: VerdictRepresentation, OutputTime: OutputTimeRepresentation>
 
 /// The main trait that has to be implemented by an output plugin
 pub trait VerdictsSink<V: VerdictRepresentation, T: OutputTimeRepresentation> {
-    /// Error Type of an [VerdictsSink] implementation
+    /// Error Type of a [VerdictsSink] implementation
     type Error: Error + 'static;
-    /// Return Type of an [VerdictsSink] implementation
+    /// Return Type of a [VerdictsSink] implementation
     type Return;
     /// Factory Type to convert the monitor output to the required representation
     type Factory: VerdictFactory<V, T>;
@@ -167,12 +167,35 @@ impl<
 }
 
 /// A sink implementation that is completely discarding the verdicts
-#[derive(Default, Copy, Clone, Debug)]
-pub struct DiscardSink(EmptyFactory);
+#[derive(Copy, Clone, Debug)]
+pub struct DiscardSink<O: OutputTimeRepresentation, V: VerdictRepresentation, F: VerdictFactory<V, O, Verdict = ()>> {
+    factory: F,
+    verdict: PhantomData<(O, V)>,
+}
 
-impl<O: OutputTimeRepresentation, V: VerdictRepresentation> VerdictsSink<V, O> for DiscardSink {
+impl<O: OutputTimeRepresentation, V: VerdictRepresentation, F: VerdictFactory<V, O, Verdict = ()>>
+    DiscardSink<O, V, F>
+{
+    /// Creates a new [DiscardSink] for a factory that returns `()` as a verdict.
+    pub fn new(factory: F) -> Self {
+        Self {
+            factory,
+            verdict: Default::default(),
+        }
+    }
+}
+
+impl<O: OutputTimeRepresentation, V: VerdictRepresentation> Default for DiscardSink<O, V, EmptyFactory> {
+    fn default() -> Self {
+        Self::new(EmptyFactory)
+    }
+}
+
+impl<O: OutputTimeRepresentation, V: VerdictRepresentation, F: VerdictFactory<V, O, Verdict = ()>> VerdictsSink<V, O>
+    for DiscardSink<O, V, F>
+{
     type Error = Infallible;
-    type Factory = EmptyFactory;
+    type Factory = F;
     type Return = ();
 
     fn sink(
@@ -183,7 +206,7 @@ impl<O: OutputTimeRepresentation, V: VerdictRepresentation> VerdictsSink<V, O> f
     }
 
     fn factory(&mut self) -> &mut Self::Factory {
-        &mut self.0
+        &mut self.factory
     }
 }
 

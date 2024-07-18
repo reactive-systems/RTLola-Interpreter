@@ -23,6 +23,7 @@ use rtlola_io_plugins::outputs::csv_plugin::CsvVerdictSink;
 use rtlola_io_plugins::outputs::json_plugin::JsonFactory;
 use rtlola_io_plugins::outputs::log_printer::LogPrinter;
 use rtlola_io_plugins::outputs::DiscardSink;
+use termcolor::{Ansi, NoColor};
 
 use crate::config::{Config, EventSourceConfig, Statistics, Verbosity};
 use crate::output::{OutputChannel, StatisticsVerdictSink};
@@ -605,8 +606,12 @@ macro_rules! run_config_it_ot_src2 {
             run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
         } else {
             match $of {
+                CliOutputFormat::Logger if $colored => {
+                    let sink = LogPrinter::<_, Ansi<_>>::new($verbosity.try_into()?, &$ir).sink($output);
+                    run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
+                },
                 CliOutputFormat::Logger => {
-                    let sink = LogPrinter::new($verbosity.try_into()?, &$ir, $colored).sink($output);
+                    let sink = LogPrinter::<_, NoColor<_>>::new($verbosity.try_into()?, &$ir).sink($output);
                     run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
                 },
                 CliOutputFormat::Json => {
