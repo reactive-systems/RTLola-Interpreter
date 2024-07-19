@@ -114,7 +114,7 @@ pub struct JsonFactory<OutputTime: OutputTimeRepresentation> {
 
 impl<O: OutputTimeRepresentation> JsonFactory<O> {
     /// Construct a new factory for the given specification that writes to the supplied writer
-    pub fn new(ir: &RtLolaMir, verbosity: JsonVerbosity) -> Self {
+    pub fn new(ir: &RtLolaMir, verbosity: JsonVerbosity) -> Result<Self, String> {
         let stream_names = ir
             .all_streams()
             .map(|stream| (stream, ir.stream(stream).name().to_owned()))
@@ -122,14 +122,14 @@ impl<O: OutputTimeRepresentation> JsonFactory<O> {
         let stream_verbosity = ir
             .outputs
             .iter()
-            .map(|output| (output.reference, output.verbosity))
-            .collect();
-        Self {
+            .map(|output| Ok((output.reference, StreamVerbosity::for_output(output)?)))
+            .collect::<Result<_, String>>()?;
+        Ok(Self {
             stream_names,
             output_time: Default::default(),
             verbosity,
             stream_verbosity,
-        }
+        })
     }
 
     /// Turn the json factory into a sink writing to a writer

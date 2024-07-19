@@ -610,15 +610,15 @@ macro_rules! run_config_it_ot_src2 {
         } else {
             match $of {
                 CliOutputFormat::Logger if $colored => {
-                    let sink = LogPrinter::<_, Ansi<_>>::new($verbosity.try_into()?, &$ir).sink($output);
+                    let sink = LogPrinter::<_, Ansi<_>>::new($verbosity.try_into()?, &$ir)?.sink($output);
                     run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
                 },
                 CliOutputFormat::Logger => {
-                    let sink = LogPrinter::<_, NoColor<_>>::new($verbosity.try_into()?, &$ir).sink($output);
+                    let sink = LogPrinter::<_, NoColor<_>>::new($verbosity.try_into()?, &$ir)?.sink($output);
                     run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
                 },
                 CliOutputFormat::Json => {
-                    let sink = JsonFactory::new(&$ir, $verbosity.try_into()?).sink($output);
+                    let sink = JsonFactory::new(&$ir, $verbosity.try_into()?)?.sink($output);
                     run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
                 },
                 CliOutputFormat::Csv => {

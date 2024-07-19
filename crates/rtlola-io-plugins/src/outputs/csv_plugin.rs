@@ -54,10 +54,16 @@ impl<O: OutputTimeRepresentation, W: Write> CsvVerdictSink<O, W> {
     pub fn for_verbosity(ir: &RtLolaMir, writer: W, verbosity: CsvVerbosity) -> Result<Self, String> {
         let verbosity_map = ir
             .all_streams()
-            .filter(|s| Self::include_stream(ir, *s, verbosity))
+            .filter_map(|s| {
+                match Self::include_stream(ir, s, verbosity) {
+                    Ok(true) => Some(Ok(s)),
+                    Ok(false) => None,
+                    Err(e) => Some(Err(e)),
+                }
+            })
             .enumerate()
-            .map(|(i, sr)| (sr, i))
-            .collect();
+            .map(|(i, sr)| Ok((sr?, i)))
+            .collect::<Result<_, String>>()?;
 
         Self::new(ir, writer, verbosity_map)
     }
@@ -69,14 +75,15 @@ impl<O: OutputTimeRepresentation, W: Write> CsvVerdictSink<O, W> {
         Self::new(ir, writer, stream_map)
     }
 
-    fn include_stream(ir: &RtLolaMir, sr: StreamReference, verbosity: CsvVerbosity) -> bool {
-        match sr {
+    fn include_stream(ir: &RtLolaMir, sr: StreamReference, verbosity: CsvVerbosity) -> Result<bool, String> {
+        let include = match sr {
             StreamReference::In(_) => verbosity >= CsvVerbosity::Streams,
             StreamReference::Out(_) => {
                 let output = ir.output(sr);
-                verbosity >= CsvVerbosity::from(output.verbosity)
+                verbosity >= CsvVerbosity::from(StreamVerbosity::for_output(output)?)
             },
-        }
+        };
+        Ok(include)
     }
 
     /// Construct a new sink for the given specification that writes to the supplied writer

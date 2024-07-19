@@ -12,7 +12,7 @@ use rtlola_interpreter::time::OutputTimeRepresentation;
 use rtlola_interpreter::Value;
 use termcolor::{Ansi, Color, ColorSpec, NoColor, WriteColor};
 
-use super::{ByteSink, VerdictFactory};
+use super::{ByteSink, StreamVerbosity, VerdictFactory};
 
 /// A trait that captures color writers that can forward the result to a regular `std::io::write` implementor.
 pub trait IndirectWriteColor<W: Write>: WriteColor {
@@ -111,7 +111,7 @@ pub struct LogPrinter<OutputTime: OutputTimeRepresentation, W: IndirectWriteColo
 
 impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> LogPrinter<OutputTime, W> {
     /// Construct a new LogPrinter based on the given verbosity
-    pub fn new(verbosity: Verbosity, ir: &RtLolaMir) -> Self {
+    pub fn new(verbosity: Verbosity, ir: &RtLolaMir) -> Result<Self, String> {
         let stream_names = ir.all_streams().map(|s| (s, ir.stream(s).name().to_owned())).collect();
         let trigger_ids = ir
             .triggers
@@ -121,16 +121,21 @@ impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> LogPr
         let output_verbosity = ir
             .outputs
             .iter()
-            .map(|output| (output.reference.out_ix(), Verbosity::from(output.verbosity)))
-            .collect();
-        Self {
+            .map(|output| {
+                Ok((
+                    output.reference.out_ix(),
+                    Verbosity::from(StreamVerbosity::for_output(output)?),
+                ))
+            })
+            .collect::<Result<_, String>>()?;
+        Ok(Self {
             output_time: OutputTime::default(),
             verbosity,
             stream_names,
             trigger_ids,
             output_verbosity,
             writer: PhantomData,
-        }
+        })
     }
 
     /// Turn the LogPrinter into a VerdictSink writing the logs into a writer
