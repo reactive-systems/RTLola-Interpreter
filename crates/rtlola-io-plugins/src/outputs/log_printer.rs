@@ -12,7 +12,7 @@ use rtlola_interpreter::time::OutputTimeRepresentation;
 use rtlola_interpreter::Value;
 use termcolor::{Ansi, Color, ColorSpec, NoColor, WriteColor};
 
-use super::{ByteSink, StreamVerbosity, VerdictFactory};
+use super::{ByteSink, VerdictFactory};
 
 /// A trait that captures color writers that can forward the result to a regular `std::io::write` implementor.
 pub trait IndirectWriteColor<W: Write>: WriteColor {
@@ -105,7 +105,7 @@ pub struct LogPrinter<OutputTime: OutputTimeRepresentation, W: IndirectWriteColo
     verbosity: Verbosity,
     stream_names: HashMap<StreamReference, String>,
     trigger_ids: HashMap<OutputReference, TriggerReference>,
-    output_verbosity: HashMap<OutputReference, Verbosity>,
+    stream_verbosity: HashMap<StreamReference, Verbosity>,
     writer: PhantomData<W>,
 }
 
@@ -118,22 +118,16 @@ impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> LogPr
             .iter()
             .map(|trigger| (trigger.output_reference.out_ix(), trigger.trigger_reference))
             .collect();
-        let output_verbosity = ir
-            .outputs
-            .iter()
-            .map(|output| {
-                Ok((
-                    output.reference.out_ix(),
-                    Verbosity::from(StreamVerbosity::for_output(output)?),
-                ))
-            })
+        let stream_verbosity = ir
+            .all_streams()
+            .map(|stream| Ok((stream, Verbosity::from(StreamVerbosity::for_stream(stream, ir)?))))
             .collect::<Result<_, String>>()?;
         Ok(Self {
             output_time: OutputTime::default(),
             verbosity,
             stream_names,
             trigger_ids,
-            output_verbosity,
+            stream_verbosity,
             writer: PhantomData,
         })
     }
@@ -184,8 +178,9 @@ impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> Verdi
 
         for (idx, val) in inputs {
             let name = &self.stream_names[&StreamReference::In(idx)];
-            self.input(
+            self.emit(
                 &mut writer,
+                self.stream_verbosity[&StreamReference::Out(idx)],
                 move |w| write!(w, "[Input][{}][Value] = {}", name, Self::display_value(val)),
                 &ts,
             )?;
@@ -216,7 +211,7 @@ impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> Verdi
                                 Self::display_value(val)
                             )
                         };
-                        self.emit(&mut writer, self.output_verbosity[&out], msg, &ts)?;
+                        self.emit(&mut writer, self.stream_verbosity[&StreamReference::Out(out)], msg, &ts)?;
                     },
                     Change::Close(parameter) => {
                         self.debug(
@@ -267,12 +262,5 @@ impl<O: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> LogPrinter<O, 
         F: FnOnce(&mut W) -> std::io::Result<()>,
     {
         self.emit(out, Verbosity::Debug, msg, ts)
-    }
-
-    fn input<F>(&self, out: &mut W, msg: F, ts: &str) -> std::io::Result<()>
-    where
-        F: FnOnce(&mut W) -> std::io::Result<()>,
-    {
-        self.emit(out, Verbosity::Streams, msg, ts)
     }
 }

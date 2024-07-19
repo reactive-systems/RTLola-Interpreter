@@ -76,13 +76,7 @@ impl<O: OutputTimeRepresentation, W: Write> CsvVerdictSink<O, W> {
     }
 
     fn include_stream(ir: &RtLolaMir, sr: StreamReference, verbosity: CsvVerbosity) -> Result<bool, String> {
-        let include = match sr {
-            StreamReference::In(_) => verbosity >= CsvVerbosity::Streams,
-            StreamReference::Out(_) => {
-                let output = ir.output(sr);
-                verbosity >= CsvVerbosity::from(StreamVerbosity::for_output(output)?)
-            },
-        };
+        let include = verbosity >= CsvVerbosity::from(StreamVerbosity::for_stream(sr, ir)?);
         Ok(include)
     }
 

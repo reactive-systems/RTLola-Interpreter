@@ -243,3 +243,25 @@ impl<V: VerdictRepresentation, O: OutputTimeRepresentation> NewVerdictFactory<V,
         Ok(Self)
     }
 }
+
+/// A validation function only accepting verbosity tags supported by the output plugins
+///
+/// Can be use with `ParserConfig::with_tag_validator()`.
+pub fn validate_verbosity_tags(key: &str, value: Option<&str>) -> Result<(), String> {
+    match key {
+        "verbosity" => {
+            match value {
+                Some("streams") | Some("outputs") | Some("public") | Some("warnings") | Some("violations") => Ok(()),
+                Some(other) => Err(format!("\"{other}\" verbosity annotation not supported.")),
+                None => Err("\"verbosity\" tag must have a corresponding value.".into()),
+            }
+        },
+        "warning" | "violation" => {
+            match value {
+                None => Ok(()),
+                Some(value) => Err(format!("\"{key}\" does not expect value, but received \"{value}\".")),
+            }
+        },
+        _ => Err(format!("Unsupported tag \"{key}\".")),
+    }
+}

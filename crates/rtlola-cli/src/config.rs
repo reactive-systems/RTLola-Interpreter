@@ -69,9 +69,9 @@ pub enum Verbosity {
     Silent,
     /// Only print trigger violations.
     #[clap(alias = "trigger")]
-    Violation,
+    Violations,
     /// Print trigger violations and warning trigger.
-    Warning,
+    Warnings,
     #[default]
     /// Print new stream values for public output streams.
     Public,
@@ -89,8 +89,8 @@ impl TryFrom<Verbosity> for CsvVerbosity {
     fn try_from(value: Verbosity) -> Result<Self, Self::Error> {
         match value {
             Verbosity::Silent => Err("Silent verbosity not supported with csv output format.".into()),
-            Verbosity::Warning => Ok(CsvVerbosity::Warnings),
-            Verbosity::Violation => Ok(CsvVerbosity::Violations),
+            Verbosity::Warnings => Ok(CsvVerbosity::Warnings),
+            Verbosity::Violations => Ok(CsvVerbosity::Violations),
             Verbosity::Public => Ok(CsvVerbosity::Public),
             Verbosity::Outputs => Ok(CsvVerbosity::Outputs),
             Verbosity::Streams => Ok(CsvVerbosity::Streams),
@@ -105,8 +105,8 @@ impl TryFrom<Verbosity> for JsonVerbosity {
     fn try_from(value: Verbosity) -> Result<Self, Self::Error> {
         match value {
             Verbosity::Silent => Err("Silent verbosity not supported with json output format.".into()),
-            Verbosity::Warning => Ok(JsonVerbosity::Warnings),
-            Verbosity::Violation => Ok(JsonVerbosity::Violations),
+            Verbosity::Warnings => Ok(JsonVerbosity::Warnings),
+            Verbosity::Violations => Ok(JsonVerbosity::Violations),
             Verbosity::Public => Ok(JsonVerbosity::Public),
             Verbosity::Outputs => Ok(JsonVerbosity::Outputs),
             Verbosity::Streams => Ok(JsonVerbosity::Streams),
@@ -121,8 +121,8 @@ impl TryFrom<Verbosity> for log_printer::Verbosity {
     fn try_from(value: Verbosity) -> Result<Self, Self::Error> {
         match value {
             Verbosity::Silent => Err("Silent verbosity not supported with log printer".into()),
-            Verbosity::Warning => Ok(log_printer::Verbosity::Warnings),
-            Verbosity::Violation => Ok(log_printer::Verbosity::Violations),
+            Verbosity::Warnings => Ok(log_printer::Verbosity::Warnings),
+            Verbosity::Violations => Ok(log_printer::Verbosity::Violations),
             Verbosity::Public => Ok(log_printer::Verbosity::Public),
             Verbosity::Outputs => Ok(log_printer::Verbosity::Outputs),
             Verbosity::Streams => Ok(log_printer::Verbosity::Streams),

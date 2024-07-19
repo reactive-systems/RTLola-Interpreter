@@ -120,9 +120,8 @@ impl<O: OutputTimeRepresentation> JsonFactory<O> {
             .map(|stream| (stream, ir.stream(stream).name().to_owned()))
             .collect();
         let stream_verbosity = ir
-            .outputs
-            .iter()
-            .map(|output| Ok((output.reference, StreamVerbosity::for_output(output)?)))
+            .all_streams()
+            .map(|stream| Ok((stream, StreamVerbosity::for_stream(stream, ir)?)))
             .collect::<Result<_, String>>()?;
         Ok(Self {
             stream_names,
@@ -138,14 +137,7 @@ impl<O: OutputTimeRepresentation> JsonFactory<O> {
     }
 
     fn include_stream(&self, stream: StreamReference) -> bool {
-        match stream {
-            StreamReference::In(_) => self.verbosity >= JsonVerbosity::Streams,
-            sr @ StreamReference::Out(_) => self.verbosity >= JsonVerbosity::from(self.stream_verbosity[&sr]),
-        }
-    }
-
-    fn include_inputs(&self) -> bool {
-        self.verbosity >= JsonVerbosity::Streams
+        self.verbosity >= JsonVerbosity::from(self.stream_verbosity[&stream])
     }
 
     fn include_change(&self, change: &Change) -> bool {
@@ -263,15 +255,13 @@ impl<O: OutputTimeRepresentation> VerdictFactory<TotalIncremental, O> for JsonFa
                 (!instances.is_empty()).then(|| (stream_name.clone(), instances.into_values().collect::<Vec<_>>()))
             })
             .chain(
-                (self.include_inputs())
-                    .then(|| {
-                        rec.inputs.iter().map(|(stream, value)| {
-                            let stream_name = &self.stream_names[&StreamReference::In(*stream)];
-                            (stream_name.clone(), vec![InstanceUpdate::input(value)])
-                        })
-                    })
-                    .into_iter()
-                    .flatten(),
+                rec.inputs
+                    .iter()
+                    .filter(|(i, _)| self.include_stream(StreamReference::In(*i)))
+                    .map(|(stream, value)| {
+                        let stream_name = &self.stream_names[&StreamReference::In(*stream)];
+                        (stream_name.clone(), vec![InstanceUpdate::input(value)])
+                    }),
             )
             .collect();
         Ok((!updates.is_empty()).then_some(JsonVerdict {

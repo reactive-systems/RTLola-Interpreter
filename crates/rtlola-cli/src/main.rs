@@ -22,7 +22,7 @@ use rtlola_io_plugins::inputs::pcap_plugin::{PcapEventSource, PcapInputSource};
 use rtlola_io_plugins::outputs::csv_plugin::CsvVerdictSink;
 use rtlola_io_plugins::outputs::json_plugin::JsonFactory;
 use rtlola_io_plugins::outputs::log_printer::LogPrinter;
-use rtlola_io_plugins::outputs::DiscardSink;
+use rtlola_io_plugins::outputs::{validate_verbosity_tags, DiscardSink};
 use termcolor::{Ansi, NoColor};
 
 use crate::config::{Config, EventSourceConfig, Statistics, Verbosity};
@@ -665,10 +665,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     match cli {
         Cli::Analyze { spec } => {
-            let config = rtlola_frontend::ParserConfig::from_path(spec).unwrap_or_else(|e| {
-                eprintln!("{}", e);
-                std::process::exit(1)
-            });
+            let config = rtlola_frontend::ParserConfig::from_path(spec)
+                .unwrap_or_else(|e| {
+                    eprintln!("{}", e);
+                    std::process::exit(1)
+                })
+                .with_tag_validator(|_, _| Ok(()));
             let handler = rtlola_frontend::Handler::from(&config);
             match rtlola_frontend::parse(&config) {
                 Ok(_) => std::process::exit(0),
@@ -689,10 +691,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             output_time_format,
             output_format,
         } => {
-            let config = rtlola_frontend::ParserConfig::from_path(spec).unwrap_or_else(|e| {
-                eprintln!("{}", e);
-                std::process::exit(1)
-            });
+            let config = rtlola_frontend::ParserConfig::from_path(spec)
+                .unwrap_or_else(|e| {
+                    eprintln!("{}", e);
+                    std::process::exit(1)
+                })
+                .with_tag_validator(validate_verbosity_tags);
             let handler = rtlola_frontend::Handler::from(&config);
             let ir = rtlola_frontend::parse(&config).unwrap_or_else(|e| {
                 handler.emit_error(&e);
