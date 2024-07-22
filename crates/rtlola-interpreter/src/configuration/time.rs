@@ -67,9 +67,7 @@ macro_rules! time_conversion_string {
 macro_rules! time_conversion_unit {
     ($otr: ty) => {
         impl TimeConversion<()> for $otr {
-            fn into(_from: <Self as TimeRepresentation>::InnerTime) -> () {
-                ()
-            }
+            fn into(_from: <Self as TimeRepresentation>::InnerTime) -> () {}
         }
     };
 }
@@ -127,7 +125,9 @@ pub trait TimeRepresentation: TimeMode + Clone + Send + Default + CondSerialize 
     fn set_start_time(&mut self, _start_time: StartTime) {}
 }
 
+/// Convert the InnerTime of an [OutputTimeRepresentation] to a generic type T.
 pub trait TimeConversion<T>: OutputTimeRepresentation {
+    /// Converts an InnerTime to `T`
     fn into(from: <Self as TimeRepresentation>::InnerTime) -> T;
 }
 

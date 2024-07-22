@@ -21,6 +21,8 @@ pub(crate) struct FactoryAttr {
     ignore: bool,
     #[deluxe(default)]
     prefix: bool,
+    #[deluxe(default)]
+    is_time: bool,
     custom_prefix: Option<Ident>,
     custom_name: Option<Ident>,
 }

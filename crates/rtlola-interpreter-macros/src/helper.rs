@@ -40,3 +40,43 @@ pub(crate) fn hashmap_types(ty: &Type) -> Option<(Vec<&Type>, &GenericArgument)>
     };
     None
 }
+
+pub(crate) fn hashset_types(ty: &Type) -> Option<Vec<&Type>> {
+    if let Type::Path(path) = ty {
+        let segment = path.path.segments.last()?;
+        if &segment.ident.to_string() == "HashSet" {
+            if let PathArguments::AngleBracketed(args) = &segment.arguments {
+                let instance = args.args.first()?;
+                let args: Vec<&Type> = if let GenericArgument::Type(Type::Tuple(args)) = &instance {
+                    args.elems.iter().collect()
+                } else if let GenericArgument::Type(t) = instance {
+                    vec![t]
+                } else {
+                    vec![]
+                };
+                return Some(args);
+            }
+        }
+    };
+    None
+}
+
+pub(crate) fn is_bool(ty: &Type) -> bool {
+    if let Type::Path(path) = ty {
+        path.path
+            .segments
+            .last()
+            .map(|segment| segment.ident.to_string() == "bool")
+            .unwrap_or(false)
+    } else {
+        false
+    }
+}
+
+pub(crate) fn is_bool_generic(ty: &GenericArgument) -> bool {
+    if let GenericArgument::Type(ty) = ty {
+        is_bool(ty)
+    } else {
+        false
+    }
+}

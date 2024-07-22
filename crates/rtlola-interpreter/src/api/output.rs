@@ -9,7 +9,7 @@ use std::marker::PhantomData;
 use rtlola_frontend::mir::{OutputReference, Stream, StreamReference};
 use rtlola_frontend::RtLolaMir;
 
-use crate::monitor::{Total, VerdictRepresentation};
+use crate::monitor::{Change, Total, TotalIncremental, VerdictRepresentation};
 use crate::time::{OutputTimeRepresentation, TimeConversion};
 use crate::{Value, ValueConvertError};
 
@@ -26,22 +26,108 @@ pub trait VerdictFactory<MonitorOutput: VerdictRepresentation, OutputTime: Outpu
     fn get_verdict(&mut self, rec: MonitorOutput, ts: OutputTime::InnerTime) -> Result<Self::Verdict, Self::Error>;
 }
 
+/// Represents the state of a stream in a Verdict.
+/// Used by the [FromValues] Trait.
 #[derive(Debug, Clone)]
 pub enum StreamValue {
+    /// The state of an unparametrized stream.
     Stream(Option<Value>),
+    /// The state of a parametrized stream.
     Instances(HashMap<Vec<Value>, Value>),
 }
+
+/// Represents the capability of a type to be constructed from a vector of [StreamValue]s.
 pub trait FromValues: Sized {
+    /// The type representing the timestamp of teh values.
     type OutputTime;
+
+    /// Returns a vector of stream names that are required for constructing `Self`.
     fn streams() -> Vec<String>;
 
-    fn construct(ts: Self::OutputTime, data: Vec<StreamValue>) -> Result<Self, ValueConvertError>;
+    /// Tries to construct `Self` from a vector of [StreamValue]s and a timestamp.
+    /// The stream values are in the same order as the names returned by `Self::streams()`.
+    fn construct(ts: Self::OutputTime, data: Vec<StreamValue>) -> Result<Self, FromValuesError>;
 }
 
+/// Represents the errors that can occur when constructing an arbitraty type from a vector of [StreamValue]s.
+#[derive(Debug)]
+pub enum FromValuesError {
+    /// The StreamValue can not be converted to desired Rust type.
+    ValueConversion(ValueConvertError),
+    /// A Non-Optional value was expected but None was given as a [StreamValue].
+    ExpectedValue {
+        /// The name of the stream for which a value was expected.
+        stream_name: String,
+    },
+    /// The stream instance hashmap can not be converted to the desired Rust HashMap.
+    InvalidHashMap {
+        /// The name of the stream for which the parameters did not match.
+        stream_name: String,
+        /// The number of parameters expected by the implementation.
+        expected_num_params: usize,
+        /// The number of parameters as defined in the specification.
+        got_number_params: usize,
+    },
+    /// A parameterized stream was expected but a non-parametrized value was received, or vice versa.
+    StreamKindMismatch,
+}
+
+impl Display for FromValuesError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FromValuesError::ValueConversion(v) => write!(f, "{}", v),
+            FromValuesError::ExpectedValue { stream_name } => {
+                write!(
+                    f,
+                    "The value for stream {} was expected to exist but was not present in the monitor verdict.",
+                    stream_name
+                )
+            },
+            FromValuesError::InvalidHashMap {
+                stream_name,
+                expected_num_params,
+                got_number_params,
+            } => {
+                write!(
+                    f,
+                    "Mismatch in the number of parameters of stream {}\nExpected {} parameters, but got {}",
+                    stream_name, expected_num_params, got_number_params
+                )
+            },
+            FromValuesError::StreamKindMismatch => {
+                write!(
+                    f,
+                    "Expected a parameterized stream but got a non-parameterized stream or vice-versa."
+                )
+            },
+        }
+    }
+}
+
+impl Error for FromValuesError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            FromValuesError::ValueConversion(e) => Some(e),
+            FromValuesError::ExpectedValue { .. } => None,
+            FromValuesError::InvalidHashMap { .. } => None,
+            FromValuesError::StreamKindMismatch => None,
+        }
+    }
+}
+
+impl From<ValueConvertError> for FromValuesError {
+    fn from(value: ValueConvertError) -> Self {
+        Self::ValueConversion(value)
+    }
+}
+
+/// Captures the errors that might occure when constructing a struct that implements [FromValues].
 #[derive(Debug)]
 pub enum StructVerdictError {
+    /// The `FromValues::streams()` method returned a stream that does not exist in the specification.
     UnknownField(String),
-    ValueError(ValueConvertError),
+    /// An error occurred when converting the stream state to a rust datatype.
+    ValueError(FromValuesError),
 }
 impl Display for StructVerdictError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -61,22 +147,27 @@ impl Error for StructVerdictError {
     }
 }
 
-impl From<ValueConvertError> for StructVerdictError {
-    fn from(value: ValueConvertError) -> Self {
+impl From<FromValuesError> for StructVerdictError {
+    fn from(value: FromValuesError) -> Self {
         Self::ValueError(value)
     }
 }
 
+/// A [VerdictFactory] to construct types that implement `FromValues` from a [Total] or [TotalIncremental] monitor verdict.
 #[derive(Debug, Clone)]
 pub struct StructVerdictFactory<V: FromValues> {
+    // 'maps' a vector position to a stream reference.
     map: Vec<StreamReference>,
+    // Maps a stream reference to a vector position.
+    map_inv: HashMap<StreamReference, usize>,
     parameterized_streams: HashSet<OutputReference>,
     inner: PhantomData<V>,
 }
 
 impl<V: FromValues> StructVerdictFactory<V> {
+    /// Creates a new [StructVerdictFactory] given an [RtLolaMir].
     pub fn new(ir: &RtLolaMir) -> Result<Self, StructVerdictError> {
-        let map = V::streams()
+        let map: Vec<StreamReference> = V::streams()
             .iter()
             .map(|name| {
                 ir.inputs
@@ -94,6 +185,7 @@ impl<V: FromValues> StructVerdictFactory<V> {
                     .ok_or_else(|| StructVerdictError::UnknownField(name.to_string()))
             })
             .collect::<Result<_, _>>()?;
+        let map_inv = map.iter().enumerate().map(|(idx, sr)| (*sr, idx)).collect();
         let parameterized_streams = ir
             .outputs
             .iter()
@@ -102,6 +194,7 @@ impl<V: FromValues> StructVerdictFactory<V> {
             .collect();
         Ok(Self {
             map,
+            map_inv,
             parameterized_streams,
             inner: Default::default(),
         })
@@ -138,6 +231,60 @@ where
                 }
             })
             .collect();
+        let time = O::into(ts);
+        Ok(V::construct(time, values)?)
+    }
+}
+
+impl<O, I, V> VerdictFactory<TotalIncremental, O> for StructVerdictFactory<V>
+where
+    V: FromValues<OutputTime = I>,
+    O: OutputTimeRepresentation + TimeConversion<I>,
+{
+    type Error = StructVerdictError;
+    type Verdict = V;
+
+    fn get_verdict(&mut self, rec: TotalIncremental, ts: O::InnerTime) -> Result<Self::Verdict, Self::Error> {
+        let mut values: Vec<StreamValue> = self
+            .map
+            .iter()
+            .map(|sr| {
+                if sr.is_output() && self.parameterized_streams.contains(&sr.out_ix()) {
+                    StreamValue::Instances(HashMap::new())
+                } else {
+                    StreamValue::Stream(None)
+                }
+            })
+            .collect();
+
+        for (ir, v) in rec.inputs {
+            if let Some(idx) = self.map_inv.get(&StreamReference::In(ir)) {
+                values[*idx] = StreamValue::Stream(Some(v));
+            }
+        }
+        for (or, changes) in rec.outputs {
+            if let Some(idx) = self.map_inv.get(&StreamReference::Out(or)) {
+                if self.parameterized_streams.contains(&or) {
+                    let StreamValue::Instances(res) = &mut values[*idx] else {
+                        unreachable!("Mapping did not work!");
+                    };
+                    for change in changes {
+                        if let Change::Value(p, v) = change {
+                            res.insert(p.unwrap(), v);
+                        }
+                    }
+                } else {
+                    let value = changes.into_iter().find_map(|change| {
+                        if let Change::Value(_, v) = change {
+                            Some(v)
+                        } else {
+                            None
+                        }
+                    });
+                    values[*idx] = StreamValue::Stream(value);
+                }
+            }
+        }
         let time = O::into(ts);
         Ok(V::construct(time, values)?)
     }
