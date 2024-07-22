@@ -256,7 +256,7 @@ pub fn validate_verbosity_tags(key: &str, value: Option<&str>) -> Result<(), Str
                 None => Err("\"verbosity\" tag must have a corresponding value.".into()),
             }
         },
-        "warning" | "violation" => {
+        "warning" | "violation" | "debug" => {
             match value {
                 None => Ok(()),
                 Some(value) => Err(format!("\"{key}\" does not expect value, but received \"{value}\".")),

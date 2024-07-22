@@ -8,6 +8,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use clap::{ArgGroup, Args, CommandFactory, Parser, ValueEnum};
 use clap_complete::generate;
 use clap_complete::shells::*;
+use config::annotate_debug_streams;
 #[cfg(feature = "public")]
 use human_panic::setup_panic;
 use rtlola_interpreter::config::{ExecutionMode, OfflineMode, OnlineMode};
@@ -22,7 +23,7 @@ use rtlola_io_plugins::inputs::pcap_plugin::{PcapEventSource, PcapInputSource};
 use rtlola_io_plugins::outputs::csv_plugin::CsvVerdictSink;
 use rtlola_io_plugins::outputs::json_plugin::JsonFactory;
 use rtlola_io_plugins::outputs::log_printer::LogPrinter;
-use rtlola_io_plugins::outputs::{validate_verbosity_tags, DiscardSink};
+use rtlola_io_plugins::outputs::validate_verbosity_tags;
 use termcolor::{Ansi, NoColor};
 
 use crate::config::{Config, EventSourceConfig, Statistics, Verbosity};
@@ -115,6 +116,9 @@ enum Cli {
         /// Set the formatting of the monitor output
         #[arg(long, value_enum, default_value_t)]
         output_format: CliOutputFormat,
+        /// Print debugging information for the given streams
+        #[arg(long)]
+        debug_streams: Vec<String>,
     },
 
     /// Generate a SHELL completion script and print it to stdout
@@ -604,28 +608,23 @@ macro_rules! run_config_it_ot_src {
 
 macro_rules! run_config_it_ot_src2 {
     ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr, $colored: expr) => {{
-        if $verbosity == Verbosity::Silent {
-            let sink = DiscardSink::default();
-            run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
-        } else {
-            match $of {
-                CliOutputFormat::Logger if $colored => {
-                    let sink = LogPrinter::<_, Ansi<_>>::new($verbosity.try_into()?, &$ir)?.sink($output);
-                    run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
-                },
-                CliOutputFormat::Logger => {
-                    let sink = LogPrinter::<_, NoColor<_>>::new($verbosity.try_into()?, &$ir)?.sink($output);
-                    run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
-                },
-                CliOutputFormat::Json => {
-                    let sink = JsonFactory::new(&$ir, $verbosity.try_into()?)?.sink($output);
-                    run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
-                },
-                CliOutputFormat::Csv => {
-                    let sink = CsvVerdictSink::for_verbosity(&$ir, $output, $verbosity.try_into()?)?;
-                    run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
-                },
-            }
+        match $of {
+            CliOutputFormat::Logger if $colored => {
+                let sink = LogPrinter::<_, Ansi<_>>::new($verbosity.try_into()?, &$ir)?.sink($output);
+                run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
+            },
+            CliOutputFormat::Logger => {
+                let sink = LogPrinter::<_, NoColor<_>>::new($verbosity.try_into()?, &$ir)?.sink($output);
+                run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
+            },
+            CliOutputFormat::Json => {
+                let sink = JsonFactory::new(&$ir, $verbosity.try_into()?)?.sink($output);
+                run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
+            },
+            CliOutputFormat::Csv => {
+                let sink = CsvVerdictSink::for_verbosity(&$ir, $output, $verbosity.try_into()?)?;
+                run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
+            },
         }
     }};
 }
@@ -690,6 +689,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             verbosity,
             output_time_format,
             output_format,
+            debug_streams,
         } => {
             let config = rtlola_frontend::ParserConfig::from_path(spec)
                 .unwrap_or_else(|e| {
@@ -702,6 +702,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                 handler.emit_error(&e);
                 std::process::exit(1);
             });
+
+            let ir = annotate_debug_streams(ir, debug_streams)?;
+
             let source = EventSourceConfig::from(input.clone());
 
             match mode {
