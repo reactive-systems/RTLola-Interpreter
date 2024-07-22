@@ -1,5 +1,5 @@
 //! Module that implements [VerdictsSink] to represent the verdicts in JSONL format.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::io::Write;
 use std::marker::PhantomData;
@@ -15,7 +15,7 @@ use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
 use serde_json::value::Value as JsonValue;
 
-use super::{VerdictFactory, VerdictsSink};
+use super::{CliAnnotations, VerdictFactory, VerdictsSink};
 
 /// Print the verdicts in JSONL format to the writer
 #[derive(Debug)]
@@ -109,25 +109,28 @@ pub struct JsonFactory<OutputTime: OutputTimeRepresentation> {
     stream_names: HashMap<StreamReference, String>,
     output_time: OutputTime,
     verbosity: JsonVerbosity,
-    stream_verbosity: HashMap<StreamReference, StreamVerbosity>,
+    stream_verbosity: HashMap<StreamReference, JsonVerbosity>,
+    debug_streams: HashSet<StreamReference>,
 }
 
 impl<O: OutputTimeRepresentation> JsonFactory<O> {
     /// Construct a new factory for the given specification that writes to the supplied writer
-    pub fn new(ir: &RtLolaMir, verbosity: JsonVerbosity) -> Result<Self, String> {
+    pub fn new(ir: &RtLolaMir, verbosity: JsonVerbosity, annotations: CliAnnotations) -> Result<Self, String> {
         let stream_names = ir
             .all_streams()
             .map(|stream| (stream, ir.stream(stream).name().to_owned()))
             .collect();
         let stream_verbosity = ir
             .all_streams()
-            .map(|stream| Ok((stream, StreamVerbosity::for_stream(stream, ir)?)))
+            .map(|stream| Ok((stream, JsonVerbosity::from(annotations.verbosity(stream)))))
             .collect::<Result<_, String>>()?;
+        let debug_streams = ir.all_streams().filter(|sr| annotations.debug(*sr)).collect();
         Ok(Self {
             stream_names,
             output_time: Default::default(),
             verbosity,
             stream_verbosity,
+            debug_streams,
         })
     }
 
@@ -137,12 +140,14 @@ impl<O: OutputTimeRepresentation> JsonFactory<O> {
     }
 
     fn include_stream(&self, stream: StreamReference) -> bool {
-        self.verbosity >= JsonVerbosity::from(self.stream_verbosity[&stream])
+        self.verbosity >= *self.stream_verbosity.get(&stream).unwrap() || self.debug_streams.contains(&stream)
     }
 
-    fn include_change(&self, change: &Change) -> bool {
+    fn include_change(&self, change: &Change, sr: StreamReference) -> bool {
         match change {
-            Change::Spawn(_) | Change::Close(_) => self.verbosity >= JsonVerbosity::Debug,
+            Change::Spawn(_) | Change::Close(_) => {
+                self.verbosity >= JsonVerbosity::Debug || self.debug_streams.contains(&sr)
+            },
             Change::Value(_, _) => true,
         }
     }
@@ -224,15 +229,20 @@ impl<O: OutputTimeRepresentation> VerdictFactory<TotalIncremental, O> for JsonFa
     type Verdict = Option<JsonVerdict>;
 
     fn get_verdict(&mut self, rec: TotalIncremental, ts: O::InnerTime) -> Result<Self::Verdict, Self::Error> {
+        if self.verbosity == JsonVerbosity::Silent && self.debug_streams.is_empty() {
+            return Ok(None);
+        }
+
         let updates: HashMap<_, _> = rec
             .outputs
             .iter()
             .filter(|(s, _)| self.include_stream(StreamReference::Out(*s)))
             .flat_map(|(stream, changes)| {
-                let stream_name = &self.stream_names[&StreamReference::Out(*stream)];
+                let sr = StreamReference::Out(*stream);
+                let stream_name = &self.stream_names[&sr];
                 let mut instances: HashMap<Option<&Vec<Value>>, InstanceUpdate> = HashMap::new();
                 for change in changes {
-                    if !self.include_change(change) {
+                    if !self.include_change(change, sr) {
                         continue;
                     }
                     let instance = match &change {

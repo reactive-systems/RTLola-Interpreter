@@ -10,7 +10,7 @@ use clap::ValueEnum;
 use rtlola_interpreter::config::{ExecutionMode, OfflineMode, OnlineMode};
 use rtlola_interpreter::input::{AssociatedEventFactory, EventFactory, InputMap, MappedFactory};
 use rtlola_interpreter::monitor::{TotalIncremental, TracingVerdict};
-use rtlola_interpreter::rtlola_mir::{RtLolaMir, StreamReference};
+use rtlola_interpreter::rtlola_mir::RtLolaMir;
 use rtlola_interpreter::time::{OutputTimeRepresentation, RealTime, TimeRepresentation};
 use rtlola_interpreter::QueuedMonitor;
 use rtlola_io_plugins::inputs::csv_plugin::CsvInputSourceKind;
@@ -88,13 +88,13 @@ impl TryFrom<Verbosity> for CsvVerbosity {
 
     fn try_from(value: Verbosity) -> Result<Self, Self::Error> {
         match value {
-            Verbosity::Silent => Err("Silent verbosity not supported with csv output format.".into()),
+            Verbosity::Silent => Ok(CsvVerbosity::Silent),
             Verbosity::Warnings => Ok(CsvVerbosity::Warnings),
             Verbosity::Violations => Ok(CsvVerbosity::Violations),
             Verbosity::Public => Ok(CsvVerbosity::Public),
             Verbosity::Outputs => Ok(CsvVerbosity::Outputs),
             Verbosity::Streams => Ok(CsvVerbosity::Streams),
-            Verbosity::Debug => Err("Debug verbosity not supported with csv output format. Use json instead.".into()),
+            Verbosity::Debug => Err("Debug verbosity not supported with csv output format. Use JSON instead.".into()),
         }
     }
 }
@@ -104,7 +104,7 @@ impl TryFrom<Verbosity> for JsonVerbosity {
 
     fn try_from(value: Verbosity) -> Result<Self, Self::Error> {
         match value {
-            Verbosity::Silent => Err("Silent verbosity not supported with json output format.".into()),
+            Verbosity::Silent => Ok(JsonVerbosity::Silent),
             Verbosity::Warnings => Ok(JsonVerbosity::Warnings),
             Verbosity::Violations => Ok(JsonVerbosity::Violations),
             Verbosity::Public => Ok(JsonVerbosity::Public),
@@ -269,26 +269,4 @@ where
         output_handler.join().expect("Failed to join on output handler");
         Ok(())
     }
-}
-
-/// Adds the `debug` tag to all streams in `debug_streams`
-pub(crate) fn annotate_debug_streams(mut mir: RtLolaMir, debug_streams: Vec<String>) -> Result<RtLolaMir, String> {
-    let debug_streams = debug_streams
-        .iter()
-        .flat_map(|arg| arg.split(",").map(|s| s.trim()))
-        .collect::<Vec<_>>();
-    for stream in debug_streams {
-        let Some(stream) = mir.get_stream_by_name(stream) else {
-            return Err(format!(
-                "The stream \"{}\" was specified to debug, but does not exist in the specification.",
-                stream
-            ));
-        };
-        let tags = match stream.as_stream_ref() {
-            StreamReference::In(idx) => &mut mir.inputs[idx].tags,
-            StreamReference::Out(idx) => &mut mir.outputs[idx].tags,
-        };
-        tags.insert("debug".into(), None);
-    }
-    Ok(mir)
 }

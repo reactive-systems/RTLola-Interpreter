@@ -11,7 +11,7 @@ use rtlola_interpreter::rtlola_frontend::tag_parser::verbosity_parser::StreamVer
 use rtlola_interpreter::rtlola_mir::{RtLolaMir, StreamReference};
 use rtlola_interpreter::time::OutputTimeRepresentation;
 
-use super::{VerdictFactory, VerdictsSink};
+use super::{CliAnnotations, VerdictFactory, VerdictsSink};
 
 /// A verdict sink to write the new values of the output streams in CSV format
 ///
@@ -25,6 +25,8 @@ pub struct CsvVerdictSink<O: OutputTimeRepresentation, W: Write> {
 #[derive(PartialEq, Ord, PartialOrd, Eq, Debug, Clone, Copy)]
 /// The verbosity of the CSV output
 pub enum CsvVerbosity {
+    /// don't print anything (except streams explicitly marked as debug)
+    Silent,
     /// only print trigger violations
     Violations,
     /// only print trigger violations and warnings
@@ -51,11 +53,16 @@ impl From<StreamVerbosity> for CsvVerbosity {
 
 impl<O: OutputTimeRepresentation, W: Write> CsvVerdictSink<O, W> {
     /// Construct a CsvVerdictSink to print the verdicts according to the specified verbosity to CSV
-    pub fn for_verbosity(ir: &RtLolaMir, writer: W, verbosity: CsvVerbosity) -> Result<Self, String> {
+    pub fn for_verbosity(
+        ir: &RtLolaMir,
+        writer: W,
+        verbosity: CsvVerbosity,
+        annotations: CliAnnotations,
+    ) -> Result<Self, String> {
         let verbosity_map = ir
             .all_streams()
             .filter_map(|s| {
-                match Self::include_stream(ir, s, verbosity) {
+                match Self::include_stream(s, verbosity, &annotations) {
                     Ok(true) => Some(Ok(s)),
                     Ok(false) => None,
                     Err(e) => Some(Err(e)),
@@ -75,8 +82,12 @@ impl<O: OutputTimeRepresentation, W: Write> CsvVerdictSink<O, W> {
         Self::new(ir, writer, stream_map)
     }
 
-    fn include_stream(ir: &RtLolaMir, sr: StreamReference, verbosity: CsvVerbosity) -> Result<bool, String> {
-        let include = verbosity >= CsvVerbosity::from(StreamVerbosity::for_stream(sr, ir)?);
+    fn include_stream(
+        sr: StreamReference,
+        verbosity: CsvVerbosity,
+        annotations: &CliAnnotations,
+    ) -> Result<bool, String> {
+        let include = verbosity >= CsvVerbosity::from(annotations.verbosity(sr)) || annotations.debug(sr);
         Ok(include)
     }
 
@@ -93,17 +104,20 @@ impl<O: OutputTimeRepresentation, W: Write> CsvVerdictSink<O, W> {
 
         let factory = CsvVerdictFactory::new(ir, stream_map).unwrap();
         let mut writer = csv::Writer::from_writer(writer);
-        writer
-            .write_record(
-                iter::once("time")
-                    .chain(
-                        ir.all_streams()
-                            .filter(|s| factory.stream_map.contains_key(s))
-                            .map(|s| ir.stream(s).name()),
-                    )
-                    .collect::<Vec<&str>>(),
-            )
-            .unwrap();
+
+        if !factory.stream_map.is_empty() {
+            writer
+                .write_record(
+                    iter::once("time")
+                        .chain(
+                            ir.all_streams()
+                                .filter(|s| factory.stream_map.contains_key(s))
+                                .map(|s| ir.stream(s).name()),
+                        )
+                        .collect::<Vec<&str>>(),
+                )
+                .unwrap();
+        }
         Ok(Self { writer, factory })
     }
 }
@@ -138,6 +152,10 @@ impl<O: OutputTimeRepresentation> VerdictFactory<TotalIncremental, O> for CsvVer
     type Verdict = Option<Vec<String>>;
 
     fn get_verdict(&mut self, rec: TotalIncremental, ts: O::InnerTime) -> Result<Self::Verdict, Self::Error> {
+        if self.stream_map.is_empty() {
+            return Ok(None);
+        }
+
         let mut values = vec![None; self.stream_map.len()];
 
         for (input, value) in rec.inputs {

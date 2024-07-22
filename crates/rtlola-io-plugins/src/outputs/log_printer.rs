@@ -12,7 +12,7 @@ use rtlola_interpreter::time::OutputTimeRepresentation;
 use rtlola_interpreter::Value;
 use termcolor::{Ansi, Color, ColorSpec, NoColor, WriteColor};
 
-use super::{ByteSink, VerdictFactory};
+use super::{ByteSink, CliAnnotations, VerdictFactory};
 
 /// A trait that captures color writers that can forward the result to a regular `std::io::write` implementor.
 pub trait IndirectWriteColor<W: Write>: WriteColor {
@@ -116,7 +116,7 @@ pub struct LogPrinter<OutputTime: OutputTimeRepresentation, W: IndirectWriteColo
 
 impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> LogPrinter<OutputTime, W> {
     /// Construct a new LogPrinter based on the given verbosity
-    pub fn new(verbosity: Verbosity, ir: &RtLolaMir) -> Result<Self, String> {
+    pub fn new(verbosity: Verbosity, ir: &RtLolaMir, annotations: CliAnnotations) -> Result<Self, String> {
         let stream_names = ir.all_streams().map(|s| (s, ir.stream(s).name().to_owned())).collect();
         let trigger_ids = ir
             .triggers
@@ -125,12 +125,9 @@ impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> LogPr
             .collect();
         let stream_verbosity = ir
             .all_streams()
-            .map(|stream| Ok((stream, Verbosity::from(StreamVerbosity::for_stream(stream, ir)?))))
+            .map(|stream| Ok((stream, Verbosity::from(annotations.verbosity(stream)))))
             .collect::<Result<_, String>>()?;
-        let debug_streams = ir
-            .all_streams()
-            .filter(|stream| ir.stream(*stream).tags().contains_key("debug"))
-            .collect();
+        let debug_streams = ir.all_streams().filter(|sr| annotations.debug(*sr)).collect();
         Ok(Self {
             output_time: OutputTime::default(),
             verbosity,
