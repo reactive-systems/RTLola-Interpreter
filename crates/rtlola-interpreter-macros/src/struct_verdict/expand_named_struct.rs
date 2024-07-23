@@ -58,15 +58,16 @@ pub(crate) fn expand_named_struct(input: &DeriveInput) -> TokenStream {
 
     let mut time_field: Option<Field> = None;
     let (stream_names, (deconstructor, field_init)): (Vec<String>, (Vec<TokenStream>,Vec<TokenStream>)) = fields
-        .into_iter()
+        .iter()
         .filter_map(|(f, attr)| {
             let name = f.ident.as_ref().unwrap().to_string();
             if TIME_NAMES.contains(&name.as_str()) || attr.is_time {
-                time_field.replace(f.clone());
+                time_field.replace((*f).clone());
                 None
             } else if !attr.ignore {
                 let stream_name = attr
                     .custom_name
+                    .as_ref()
                     .map(|id| id.to_string())
                     .unwrap_or_else(|| format!("{prefix}{}", f.ident.as_ref().unwrap()));
                 let is_trigger = stream_name.starts_with("trigger_");
@@ -137,6 +138,18 @@ pub(crate) fn expand_named_struct(input: &DeriveInput) -> TokenStream {
         })
         .unzip();
 
+    let ignored_fields: Vec<TokenStream> = fields
+        .iter()
+        .filter_map(|(f, attr)| {
+            if attr.ignore {
+                let ident = f.ident.as_ref().unwrap();
+                Some(quote! {#ident: std::default::Default::default()})
+            } else {
+                None
+            }
+        })
+        .collect();
+
     let time_type = time_field.as_ref().map(|tf| tf.ty.clone()).unwrap_or_else(|| {
         Type::Tuple(TypeTuple {
             paren_token: Default::default(),
@@ -148,6 +161,8 @@ pub(crate) fn expand_named_struct(input: &DeriveInput) -> TokenStream {
         .and_then(|f| f.ident.as_ref())
         .map(|id| quote! {#id: ts});
     let num_streams = stream_names.len();
+
+    let initializers: Vec<TokenStream> = time_init.into_iter().chain(field_init).chain(ignored_fields).collect();
 
     quote! {
         impl #impl_generics rtlola_interpreter::output::FromValues for #name #ty_generics #where_clause {
@@ -165,8 +180,7 @@ pub(crate) fn expand_named_struct(input: &DeriveInput) -> TokenStream {
                 };
                 Ok(
                     Self{
-                        #time_init,
-                        #(#field_init),*
+                        #(#initializers),*
                     }
                 )
             }

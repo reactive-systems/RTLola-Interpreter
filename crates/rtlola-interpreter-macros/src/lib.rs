@@ -45,6 +45,10 @@ pub fn derive_input_impl(input: TokenStream) -> TokenStream {
 
 #[proc_macro_derive(FromStreamValues, attributes(factory))]
 #[proc_macro_error]
+/// A derive macro that implements the [FromValues](rtlola_interpreter::output::FromValues) trait for a struct with named fields.
+/// The types of these fields must implement `TryFrom<Value>`, but are also allowed to be optional.
+/// Parametrized streams are captured by HashMaps.
+/// For an example look at `verdict.rs` in the example folder.
 pub fn derive_struct_verdict(input: TokenStream) -> TokenStream {
     struct_verdict_expand(input)
 }

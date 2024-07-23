@@ -8,7 +8,9 @@ use rtlola_interpreter::time::RelativeFloat;
 use rtlola_interpreter::ConfigBuilder;
 use rtlola_interpreter_macros::{FromStreamValues, ValueFactory};
 
-const SPEC: &str = "input a: Int64\n\
+#[test]
+fn complex_types() {
+    let spec = "input a: Int64\n\
     input i: UInt64\n\
     output some_stream @a&i := \"Some String Value\"\n\
     output c @1Hz := a.hold(or: 5) > 42\n\
@@ -27,38 +29,37 @@ const SPEC: &str = "input a: Int64\n\
         eval when p1 && i < 42 with \"i is between 5 and 42\"\n\
     ";
 
-#[derive(Debug, Clone, PartialEq, Default)]
-struct Test {}
+    #[derive(Debug, Clone, PartialEq, Default)]
+    struct Test {}
 
-#[derive(Debug, Clone, PartialEq, FromStreamValues)]
-struct MyOutputs {
-    // Any field named 'time', 'ts' or 'timestamp' is automatically recognized as the time.
-    #[factory(is_time)]
-    time_field: f64,
-    a: i64,
-    #[factory(custom_name=some_stream)]
-    b: String,
-    // Trigger can be bool to capture their truth value or Option<String> to also get their message.
-    trigger_0: bool,
-    // Parameterized trigger can be captured by a HashSet or a HashMap analogously.
-    trigger_1: HashSet<(bool, u64)>,
-    trigger_2: HashMap<(bool, u64), String>,
-    c: Option<bool>,
-    d: HashMap<(i64, bool), String>,
-    e: HashMap<String, String>,
-    // Ignored field types must implement Default
-    #[factory(ignore)]
-    f: Test,
-}
+    #[derive(Debug, Clone, PartialEq, FromStreamValues)]
+    struct MyOutputs {
+        // Any field named 'time', 'ts' or 'timestamp' is automatically recognized as the time.
+        #[factory(is_time)]
+        time_field: f64,
+        a: i64,
+        #[factory(custom_name=some_stream)]
+        b: String,
+        // Trigger can be bool to capture their truth value or Option<String> to also get their message.
+        trigger_0: bool,
+        // Parameterized trigger can be captured by a HashSet or a HashMap analogously.
+        trigger_1: HashSet<(bool, u64)>,
+        trigger_2: HashMap<(bool, u64), String>,
+        c: Option<bool>,
+        d: HashMap<(i64, bool), String>,
+        e: HashMap<String, String>,
+        // Ignored field types must implement Default
+        #[factory(ignore)]
+        f: Test,
+    }
 
-fn main() {
     #[derive(ValueFactory)]
     struct Inputs {
         a: i64,
         i: u64,
     }
 
-    let ir = rtlola_interpreter::rtlola_frontend::parse(&ParserConfig::for_string(SPEC.to_string())).unwrap();
+    let ir = rtlola_interpreter::rtlola_frontend::parse(&ParserConfig::for_string(spec.to_string())).unwrap();
     let factory: &mut dyn VerdictFactory<
         TotalIncremental,
         RelativeFloat,
