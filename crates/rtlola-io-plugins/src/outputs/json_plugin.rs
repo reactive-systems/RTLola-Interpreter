@@ -155,22 +155,36 @@ impl<O: OutputTimeRepresentation> JsonFactory<O> {
 /// The JSON representation of a single verdict
 #[derive(Serialize, Deserialize, Debug)]
 pub struct JsonVerdict {
-    time: String,
+    /// The timestamp of the verdict (in the output time representation)
+    pub time: String,
     #[serde(flatten)]
-    updates: HashMap<String, Vec<InstanceUpdate>>,
+    /// A mapping of stream name to updates for that stream
+    pub updates: HashMap<String, Vec<InstanceUpdate>>,
 }
 
 /// The structured representation of the verdict
 #[derive(Serialize, Deserialize, Debug)]
 pub struct InstanceUpdate {
+    /// The instance which is updated.
+    /// Won't be serialized for streams that are not parameterized.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    instance: Vec<JsonValue>,
+    #[serde(default)]
+    pub instance: Vec<JsonValue>,
+    /// Whether the instance was spawned during the cycle.
+    /// Is only serialized when true.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
-    spawn: bool,
+    #[serde(default)]
+    pub spawn: bool,
+    /// The new value of that instance.
+    /// Is only serialized when the instance was evaluated.
     #[serde(skip_serializing_if = "Option::is_none")]
-    eval: Option<JsonValue>,
+    #[serde(default)]
+    pub eval: Option<JsonValue>,
+    /// Whether the instance was closed during the cycle.
+    /// Is only serialized when true.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
-    close: bool,
+    #[serde(default)]
+    pub close: bool,
 }
 
 impl InstanceUpdate {
