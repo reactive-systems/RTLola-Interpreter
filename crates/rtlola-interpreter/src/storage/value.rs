@@ -129,7 +129,15 @@ impl Value {
                         .and_then(Value::try_from)
                 },
                 Type::String => Ok(Str(source.into())),
-                Type::Tuple(_) => unimplemented!(),
+                Type::Tuple(inner) => {
+                    if inner.is_empty() {
+                        (source == "()")
+                            .then_some(Tuple(Box::new([])))
+                            .ok_or_else(|| ValueConvertError::ParseError(ty.clone(), source.to_string()))
+                    } else {
+                        unimplemented!()
+                    }
+                },
                 Type::Option(_) | Type::Function { args: _, ret: _ } => unreachable!(),
             }
         } else {
