@@ -1,6 +1,6 @@
 [package]
 name = "rtlola-interpreter-macros"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Derive macros to help with integrating the rtlola interpreter"
 readme = "README.md"
