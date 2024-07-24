@@ -125,14 +125,14 @@ impl From<ValueConvertError> for FromValuesError {
 #[derive(Debug)]
 pub enum StructVerdictError {
     /// The `FromValues::streams()` method returned a stream that does not exist in the specification.
-    UnknownField(String),
+    UnknownStream(String),
     /// An error occurred when converting the stream state to a rust datatype.
     ValueError(FromValuesError),
 }
 impl Display for StructVerdictError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            StructVerdictError::UnknownField(field) => write!(f, "No stream found for struct field: {}", field),
+            StructVerdictError::UnknownStream(field) => write!(f, "No stream found for struct field: {}", field),
             StructVerdictError::ValueError(ve) => write!(f, "{}", ve),
         }
     }
@@ -141,7 +141,7 @@ impl Display for StructVerdictError {
 impl Error for StructVerdictError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            StructVerdictError::UnknownField(_) => None,
+            StructVerdictError::UnknownStream(_) => None,
             StructVerdictError::ValueError(ve) => Some(ve),
         }
     }
@@ -182,7 +182,7 @@ impl<V: FromValues> StructVerdictFactory<V> {
                             .and_then(|(_, trg_idx)| trg_idx.parse::<usize>().ok())
                             .and_then(|trg_idx| ir.triggers.get(trg_idx).map(|trg| trg.output_reference))
                     })
-                    .ok_or_else(|| StructVerdictError::UnknownField(name.to_string()))
+                    .ok_or_else(|| StructVerdictError::UnknownStream(name.to_string()))
             })
             .collect::<Result<_, _>>()?;
         let map_inv = map.iter().enumerate().map(|(idx, sr)| (*sr, idx)).collect();

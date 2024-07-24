@@ -17,6 +17,7 @@ struct B {
 }
 
 #[derive(CompositFactory)]
+#[allow(dead_code)]
 struct C;
 
 #[derive(CompositFactory)]

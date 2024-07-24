@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use rtlola_interpreter::monitor::{TotalIncremental, Verdicts};
-use rtlola_interpreter::output::{StructVerdictError, StructVerdictFactory, VerdictFactory};
+use rtlola_interpreter::output::{FromValuesError, StructVerdictError, StructVerdictFactory, VerdictFactory};
 use rtlola_interpreter::rtlola_frontend::ParserConfig;
 use rtlola_interpreter::time::RelativeFloat;
 use rtlola_interpreter::ConfigBuilder;
@@ -100,4 +100,154 @@ fn complex_types() {
             f: Default::default(),
         }
     );
+}
+
+#[test]
+fn parameter_mismatch() {
+    let spec = "input a: Int64\n\
+    output d (p1, p2)\n\
+        spawn with (a, true)\n\
+        eval with \"Parameter 1 is {{}}; Current a is {{}}\".format(p1, a)\n\
+    ";
+
+    #[derive(Debug, Clone, PartialEq, FromStreamValues)]
+    struct MyOutputs {
+        time: f64,
+        d: HashMap<i64, String>,
+    }
+
+    #[derive(ValueFactory)]
+    struct Inputs {
+        a: i64,
+    }
+
+    let ir = rtlola_interpreter::rtlola_frontend::parse(&ParserConfig::for_string(spec.to_string())).unwrap();
+    let factory: &mut dyn VerdictFactory<
+        TotalIncremental,
+        RelativeFloat,
+        Error = StructVerdictError,
+        Verdict = MyOutputs,
+    > = &mut StructVerdictFactory::<MyOutputs>::new(&ir).unwrap();
+
+    let mut monitor = ConfigBuilder::new()
+        .with_ir(ir)
+        .offline::<RelativeFloat>()
+        .with_mapped_events::<Inputs>()
+        .with_verdict::<TotalIncremental>()
+        .monitor()
+        .unwrap();
+
+    let Verdicts { timed: _, event, ts } = monitor
+        .accept_event(Inputs { a: -13 }, Duration::from_secs_f64(1.2))
+        .unwrap();
+    let output_err = factory.get_verdict(event, ts).unwrap_err();
+    assert!(matches!(
+        output_err,
+        StructVerdictError::ValueError(FromValuesError::InvalidHashMap { .. })
+    ));
+}
+
+#[test]
+fn kind_mismatch() {
+    let spec = "input a: Int64\n\
+    output d (p1, p2)\n\
+        spawn with (a, true)\n\
+        eval with \"Parameter 1 is {{}}; Current a is {{}}\".format(p1, a)\n\
+    ";
+
+    #[derive(Debug, Clone, PartialEq, FromStreamValues)]
+    struct MyOutputs {
+        time: f64,
+        d: String,
+    }
+
+    #[derive(ValueFactory)]
+    struct Inputs {
+        a: i64,
+    }
+
+    let ir = rtlola_interpreter::rtlola_frontend::parse(&ParserConfig::for_string(spec.to_string())).unwrap();
+    let factory: &mut dyn VerdictFactory<
+        TotalIncremental,
+        RelativeFloat,
+        Error = StructVerdictError,
+        Verdict = MyOutputs,
+    > = &mut StructVerdictFactory::<MyOutputs>::new(&ir).unwrap();
+
+    let mut monitor = ConfigBuilder::new()
+        .with_ir(ir)
+        .offline::<RelativeFloat>()
+        .with_mapped_events::<Inputs>()
+        .with_verdict::<TotalIncremental>()
+        .monitor()
+        .unwrap();
+
+    let Verdicts { timed: _, event, ts } = monitor
+        .accept_event(Inputs { a: -13 }, Duration::from_secs_f64(1.2))
+        .unwrap();
+    let output_err = factory.get_verdict(event, ts).unwrap_err();
+    assert!(matches!(
+        output_err,
+        StructVerdictError::ValueError(FromValuesError::StreamKindMismatch)
+    ));
+}
+
+#[test]
+fn expected_value() {
+    let spec = "input a: Int64\n\
+        output b @1Hz := a.hold(or: 42)
+    ";
+
+    #[derive(Debug, Clone, PartialEq, FromStreamValues)]
+    struct MyOutputs {
+        time: f64,
+        b: String,
+    }
+
+    #[derive(ValueFactory)]
+    struct Inputs {
+        a: i64,
+    }
+
+    let ir = rtlola_interpreter::rtlola_frontend::parse(&ParserConfig::for_string(spec.to_string())).unwrap();
+    let factory: &mut dyn VerdictFactory<
+        TotalIncremental,
+        RelativeFloat,
+        Error = StructVerdictError,
+        Verdict = MyOutputs,
+    > = &mut StructVerdictFactory::<MyOutputs>::new(&ir).unwrap();
+
+    let mut monitor = ConfigBuilder::new()
+        .with_ir(ir)
+        .offline::<RelativeFloat>()
+        .with_mapped_events::<Inputs>()
+        .with_verdict::<TotalIncremental>()
+        .monitor()
+        .unwrap();
+
+    let Verdicts { timed: _, event, ts } = monitor
+        .accept_event(Inputs { a: -13 }, Duration::from_secs_f64(1.2))
+        .unwrap();
+    let output_err = factory.get_verdict(event, ts).unwrap_err();
+    assert!(matches!(
+        output_err,
+        StructVerdictError::ValueError(FromValuesError::ExpectedValue { .. })
+    ));
+}
+
+#[test]
+fn unkown_stream() {
+    let spec = "input a: Int64\n\
+        output b @1Hz := a.hold(or: 42)
+    ";
+
+    #[derive(Debug, Clone, PartialEq, FromStreamValues)]
+    struct MyOutputs {
+        time: f64,
+        c: String,
+    }
+
+    let ir = rtlola_interpreter::rtlola_frontend::parse(&ParserConfig::for_string(spec.to_string())).unwrap();
+    let err = StructVerdictFactory::<MyOutputs>::new(&ir).unwrap_err();
+    assert!(matches!(err, StructVerdictError::UnknownStream(_)));
 }

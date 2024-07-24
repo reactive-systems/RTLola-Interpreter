@@ -10,3 +10,9 @@ fn derive_composit_factory() {
     let t = trybuild::TestCases::new();
     t.pass("examples/enum.rs");
 }
+
+#[test]
+fn derive_from_values() {
+    let t = trybuild::TestCases::new();
+    t.pass("examples/verdict.rs");
+}
