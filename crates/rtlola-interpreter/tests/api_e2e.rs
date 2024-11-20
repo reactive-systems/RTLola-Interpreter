@@ -12,7 +12,6 @@ use std::time::{Duration, SystemTime};
 use clap::{Parser, ValueEnum};
 use crossterm::style::Stylize;
 use csv::StringRecord;
-use fixed::types::{I32F32, U32F32};
 use itertools::{Itertools, Position};
 use junit_report::{Duration as JunitDuration, OffsetDateTime, ReportBuilder, TestCase, TestSuiteBuilder};
 use ordered_float::NotNan;

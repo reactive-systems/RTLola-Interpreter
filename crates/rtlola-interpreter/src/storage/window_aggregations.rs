@@ -1,7 +1,6 @@
 use std::marker::PhantomData;
 use std::ops::Add;
 
-use ordered_float::NotNan;
 use rust_decimal::prelude::*;
 
 use crate::storage::window::{WindowGeneric, WindowIv};
@@ -151,6 +150,7 @@ impl<G: WindowGeneric> From<AvgIv<G>> for Value {
             Value::Unsigned(u) => Value::Unsigned(u / iv.num),
             Value::Signed(u) => Value::Signed(u / iv.num as i64),
             Value::Float(u) => Value::Float(u / iv.num as f64),
+            Value::Decimal(u) => Value::Decimal(u / Decimal::from(iv.num)),
             _ => unreachable!("Type error."),
         }
     }
@@ -188,17 +188,18 @@ impl<G: WindowGeneric> From<(Value, Time)> for AvgIv<G> {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct IntegralIv {
+pub(crate) struct IntegralIv<G: WindowGeneric> {
     volume: Decimal,
     end_value: Decimal,
     end_time: Time,
     start_value: Decimal,
     start_time: Time,
     valid: bool,
+    _marker: PhantomData<G>,
 }
 
-impl WindowIv for IntegralIv {
-    fn default(time: Time) -> IntegralIv {
+impl<G: WindowGeneric> WindowIv for IntegralIv<G> {
+    fn default(time: Time) -> IntegralIv<G> {
         IntegralIv {
             volume: Decimal::zero(),
             end_value: Decimal::zero(),
@@ -206,21 +207,22 @@ impl WindowIv for IntegralIv {
             start_value: Decimal::zero(),
             start_time: time,
             valid: false,
+            _marker: PhantomData,
         }
     }
 }
 
-impl From<IntegralIv> for Value {
-    fn from(iv: IntegralIv) -> Value {
-        Value::try_from(iv.volume.to_f64().unwrap()).unwrap()
+impl<G: WindowGeneric> From<IntegralIv<G>> for Value {
+    fn from(iv: IntegralIv<G>) -> Value {
+        G::from_value(Value::try_from(iv.volume).unwrap())
     }
 }
 
 #[allow(clippy::suspicious_arithmetic_impl)]
-impl Add for IntegralIv {
-    type Output = IntegralIv;
+impl<G: WindowGeneric> Add for IntegralIv<G> {
+    type Output = IntegralIv<G>;
 
-    fn add(self, other: IntegralIv) -> IntegralIv {
+    fn add(self, other: IntegralIv<G>) -> IntegralIv<G> {
         match (self.valid, other.valid) {
             (false, false) => return self,
             (false, true) => return other,
@@ -250,16 +252,18 @@ impl Add for IntegralIv {
             start_value,
             start_time,
             valid: true,
+            _marker: PhantomData,
         }
     }
 }
 
-impl From<(Value, Time)> for IntegralIv {
-    fn from(v: (Value, Time)) -> IntegralIv {
+impl<G: WindowGeneric> From<(Value, Time)> for IntegralIv<G> {
+    fn from(v: (Value, Time)) -> IntegralIv<G> {
         let f = match v.0 {
             Value::Signed(i) => Decimal::from(i),
             Value::Unsigned(u) => Decimal::from(u),
             Value::Float(f) => Decimal::from_f64(f.into()).unwrap(),
+            Value::Decimal(f) => f,
             _ => unreachable!("Type error."),
         };
         IntegralIv {
@@ -269,6 +273,7 @@ impl From<(Value, Time)> for IntegralIv {
             start_value: f,
             start_time: v.1,
             valid: true,
+            _marker: PhantomData,
         }
     }
 }
@@ -333,6 +338,7 @@ impl<G: WindowGeneric> Add for MaxIv<G> {
             (Value::Unsigned(lhs), Value::Unsigned(rhs)) => Value::Unsigned(lhs.max(rhs)),
             (Value::Signed(lhs), Value::Signed(rhs)) => Value::Signed(lhs.max(rhs)),
             (Value::Float(lhs), Value::Float(rhs)) => Value::Float(lhs.max(rhs)),
+            (Value::Decimal(lhs), Value::Decimal(rhs)) => Value::Decimal(lhs.max(rhs)),
             _ => unreachable!("mixed types in sliding window aggregation"),
         };
         MaxIv {
@@ -380,6 +386,7 @@ impl<G: WindowGeneric> Add for MinIv<G> {
             (Value::Unsigned(lhs), Value::Unsigned(rhs)) => Value::Unsigned(lhs.min(rhs)),
             (Value::Signed(lhs), Value::Signed(rhs)) => Value::Signed(lhs.min(rhs)),
             (Value::Float(lhs), Value::Float(rhs)) => Value::Float(lhs.min(rhs)),
+            (Value::Decimal(lhs), Value::Decimal(rhs)) => Value::Decimal(lhs.min(rhs)),
             _ => unreachable!("mixed types in sliding window aggregation"),
         };
         MinIv {
@@ -464,6 +471,13 @@ impl<G: WindowGeneric> Add for LastIv<G> {
                     (Value::Float(rhs), r_ts)
                 }
             },
+            (Value::Decimal(lhs), l_ts, Value::Decimal(rhs), r_ts) => {
+                if l_ts > r_ts {
+                    (Value::Decimal(lhs), l_ts)
+                } else {
+                    (Value::Decimal(rhs), r_ts)
+                }
+            },
             _ => unreachable!("mixed types in sliding window aggregation"),
         };
         LastIv {
@@ -512,6 +526,7 @@ impl<G: WindowGeneric> PercentileIv<G> {
                 (Value::Signed(x), Value::Signed(y)) => x.cmp(y),
                 (Value::Unsigned(x), Value::Unsigned(y)) => x.cmp(y),
                 (Value::Float(x), Value::Float(y)) => x.partial_cmp(y).unwrap(),
+                (Value::Decimal(x), Value::Decimal(y)) => x.partial_cmp(y).unwrap(),
                 _ => unimplemented!("only primitive types implemented for percentile"),
             }
         });
@@ -522,6 +537,7 @@ impl<G: WindowGeneric> PercentileIv<G> {
             Value::Unsigned(_) => Value::Unsigned(2),
             Value::Signed(_) => Value::Signed(2),
             Value::Float(_) => Value::try_from(2.0).unwrap(),
+            Value::Decimal(_) => Value::try_from(Decimal::from(2)).unwrap(),
             _ => unreachable!("Type error."),
         };
 
@@ -584,46 +600,49 @@ impl<G: WindowGeneric> Add for PercentileIv<G> {
 ///////////////////////////////////////////////
 
 #[derive(Clone, Debug)]
-pub(crate) struct VarianceIv {
+pub(crate) struct VarianceIv<G: WindowGeneric> {
     count: usize,
     m_2: Decimal,
     sum: Decimal,
+    _marker: PhantomData<G>,
 }
 
-impl WindowIv for VarianceIv {
-    fn default(_ts: Time) -> VarianceIv {
+impl<G: WindowGeneric> WindowIv for VarianceIv<G> {
+    fn default(_ts: Time) -> VarianceIv<G> {
         VarianceIv {
             count: 0,
             m_2: Decimal::zero(),
             sum: Decimal::zero(),
+            _marker: PhantomData,
         }
     }
 }
 
-impl From<VarianceIv> for Value {
-    fn from(iv: VarianceIv) -> Value {
+impl<G: WindowGeneric> From<VarianceIv<G>> for Value {
+    fn from(iv: VarianceIv<G>) -> Value {
         if iv.count == 0 {
-            return Value::Float(NotNan::from(0));
+            return G::from_value(Value::Decimal(0.into()));
         }
-        Value::try_from((iv.m_2 / Decimal::from(iv.count)).to_f64().unwrap()).expect("")
+        G::from_value(Value::try_from(iv.m_2 / Decimal::from(iv.count)).unwrap())
     }
 }
 
-impl From<(Value, Time)> for VarianceIv {
-    fn from(v: (Value, Time)) -> VarianceIv {
+impl<G: WindowGeneric> From<(Value, Time)> for VarianceIv<G> {
+    fn from(v: (Value, Time)) -> VarianceIv<G> {
         VarianceIv {
             count: 1,
             m_2: 0.0.try_into().unwrap(),
             sum: v.0.try_into().unwrap(),
+            _marker: PhantomData,
         }
     }
 }
 
 // This is baded on: https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
-impl Add for VarianceIv {
-    type Output = VarianceIv;
+impl<G: WindowGeneric> Add for VarianceIv<G> {
+    type Output = VarianceIv<G>;
 
-    fn add(self, other: VarianceIv) -> VarianceIv {
+    fn add(self, other: VarianceIv<G>) -> VarianceIv<G> {
         if self.count == 0 {
             return other;
         }
@@ -631,12 +650,18 @@ impl Add for VarianceIv {
             return self;
         }
 
-        let VarianceIv { count, m_2: var, sum } = self;
+        let VarianceIv {
+            count,
+            m_2: var,
+            sum,
+            _marker,
+        } = self;
 
         let VarianceIv {
             count: o_count,
             m_2: o_var,
             sum: o_sum,
+            _marker,
         } = other;
 
         let mean_diff = (o_sum / (Decimal::from(o_count))) - (sum / Decimal::from(count));
@@ -649,41 +674,42 @@ impl Add for VarianceIv {
             count: new_count,
             m_2: new_var,
             sum: sum + o_sum,
+            _marker: PhantomData,
         }
     }
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct SdIv {
-    viv: VarianceIv,
+pub(crate) struct SdIv<G: WindowGeneric> {
+    viv: VarianceIv<G>,
 }
 
-impl WindowIv for SdIv {
-    fn default(ts: Time) -> SdIv {
+impl<G: WindowGeneric> WindowIv for SdIv<G> {
+    fn default(ts: Time) -> SdIv<G> {
         SdIv {
             viv: VarianceIv::default(ts),
         }
     }
 }
 
-impl From<SdIv> for Value {
-    fn from(iv: SdIv) -> Value {
+impl<G: WindowGeneric> From<SdIv<G>> for Value {
+    fn from(iv: SdIv<G>) -> Value {
         let v: Value = iv.viv.into();
-        v.pow(Value::try_from(0.5).unwrap())
+        v.pow(G::from_value(0.5.try_into().unwrap()))
     }
 }
 
-impl From<(Value, Time)> for SdIv {
-    fn from(v: (Value, Time)) -> SdIv {
+impl<G: WindowGeneric> From<(Value, Time)> for SdIv<G> {
+    fn from(v: (Value, Time)) -> SdIv<G> {
         let viv = VarianceIv::from(v);
         SdIv { viv }
     }
 }
 
-impl Add for SdIv {
-    type Output = SdIv;
+impl<G: WindowGeneric> Add for SdIv<G> {
+    type Output = SdIv<G>;
 
-    fn add(self, other: SdIv) -> SdIv {
+    fn add(self, other: SdIv<G>) -> SdIv<G> {
         SdIv {
             viv: self.viv + other.viv,
         }
@@ -695,35 +721,37 @@ impl Add for SdIv {
 ///////////////////////////////////////////////
 // See https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Online for refernce
 #[derive(Clone, Debug)]
-pub(crate) struct CovIv {
+pub(crate) struct CovIv<G: WindowGeneric> {
     count: usize,
     co_moment: Decimal,
     sum_x: Decimal,
     sum_y: Decimal,
+    _marker: PhantomData<G>,
 }
 
-impl WindowIv for CovIv {
-    fn default(_ts: Time) -> CovIv {
+impl<G: WindowGeneric> WindowIv for CovIv<G> {
+    fn default(_ts: Time) -> CovIv<G> {
         CovIv {
             count: 0,
             co_moment: Decimal::zero(),
             sum_x: Decimal::zero(),
             sum_y: Decimal::zero(),
+            _marker: PhantomData,
         }
     }
 }
 
-impl From<CovIv> for Value {
-    fn from(iv: CovIv) -> Value {
+impl<G: WindowGeneric> From<CovIv<G>> for Value {
+    fn from(iv: CovIv<G>) -> Value {
         if iv.count == 0 {
             return Value::None;
         }
-        Value::try_from((iv.co_moment / Decimal::from(iv.count)).to_f64().unwrap()).unwrap()
+        G::from_value(Value::Decimal(iv.co_moment / Decimal::from(iv.count)))
     }
 }
 
-impl From<(Value, Time)> for CovIv {
-    fn from(v: (Value, Time)) -> CovIv {
+impl<G: WindowGeneric> From<(Value, Time)> for CovIv<G> {
+    fn from(v: (Value, Time)) -> CovIv<G> {
         let (x, y) = match v.0 {
             Value::Tuple(ref inner_tup) => (inner_tup[0].clone(), inner_tup[1].clone()),
             _ => unreachable!("covariance expects tuple input, ensured by type checker"),
@@ -733,14 +761,15 @@ impl From<(Value, Time)> for CovIv {
             co_moment: Decimal::zero(),
             sum_x: x.try_into().unwrap(),
             sum_y: y.try_into().unwrap(),
+            _marker: PhantomData,
         }
     }
 }
 
-impl Add for CovIv {
-    type Output = CovIv;
+impl<G: WindowGeneric> Add for CovIv<G> {
+    type Output = CovIv<G>;
 
-    fn add(self, other: CovIv) -> CovIv {
+    fn add(self, other: CovIv<G>) -> CovIv<G> {
         if self.count == 0 {
             return other;
         }
@@ -753,6 +782,7 @@ impl Add for CovIv {
             co_moment,
             sum_x,
             sum_y,
+            _marker,
         } = self;
 
         let CovIv {
@@ -760,6 +790,7 @@ impl Add for CovIv {
             co_moment: o_co_moment,
             sum_x: o_sum_x,
             sum_y: o_sum_y,
+            _marker,
         } = other;
 
         let new_count = count + o_count;
@@ -777,6 +808,7 @@ impl Add for CovIv {
             co_moment: new_co_moment,
             sum_x: sum_x + o_sum_x,
             sum_y: sum_y + o_sum_y,
+            _marker: PhantomData,
         }
     }
 }

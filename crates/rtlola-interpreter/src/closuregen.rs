@@ -5,11 +5,12 @@
 use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl, Shr, Sub};
 use std::rc::Rc;
 
+use num::{FromPrimitive, ToPrimitive};
 use ordered_float::NotNan;
 use regex::bytes::Regex as BytesRegex;
 use regex::Regex;
 use rtlola_frontend::mir::{Constant, Expression, ExpressionKind, Offset, StreamAccessKind, Type};
-use rust_decimal::MathematicalOps;
+use rust_decimal::{Decimal, MathematicalOps};
 use string_template::Template;
 
 use crate::evaluator::{ActivationConditionOp, EvaluationContext};
@@ -415,6 +416,21 @@ impl Expr for Expression {
                             }
                         })
                     };
+                    ($from:ident, $to:ident, $fn:expr) => {
+                        CompiledExpr::new(move |ctx| {
+                            let v = f_expr.execute(ctx);
+                            match v {
+                                Value::$from(v) => Value::$to($fn(v)),
+                                v => {
+                                    unreachable!(
+                                        "Value type of {:?} does not match convert from type {:?}",
+                                        v,
+                                        stringify!($from)
+                                    )
+                                },
+                            }
+                        })
+                    };
                 }
 
                 use Type::*;
@@ -427,7 +443,26 @@ impl Expr for Expression {
                     (Int(_), Float(_)) => create_convert!(Signed, Float, f64),
                     (Float(_), UInt(_)) => create_convert!(Float, Unsigned, u64),
                     (Float(_), Int(_)) => create_convert!(Float, Signed, i64),
-                    (Float(_), Float(_)) => f_expr,
+                    (Fixed(_), Fixed(_)) => f_expr,
+                    (UFixed(_), UFixed(_)) => f_expr,
+                    (UInt(_), Fixed(_) | UFixed(_)) => create_convert!(Signed, Decimal, |v: i64| Decimal::from(v)),
+                    (Int(_), Fixed(_) | UFixed(_)) => create_convert!(Unsigned, Decimal, |v: u64| Decimal::from(v)),
+                    (Float(_), Fixed(_) | UFixed(_)) => {
+                        create_convert!(Float, Decimal, |v: NotNan<f64>| {
+                            Decimal::from_f64(v.to_f64().unwrap()).unwrap()
+                        })
+                    },
+                    (Fixed(_) | UFixed(_), Float(_)) => {
+                        create_convert!(Decimal, Float, |v: Decimal| {
+                            NotNan::try_from(v.to_f64().unwrap()).unwrap()
+                        })
+                    },
+                    (Fixed(_) | UFixed(_), Int(_)) => {
+                        create_convert!(Decimal, Signed, |v: Decimal| { v.round().to_i64().unwrap() })
+                    },
+                    (Fixed(_) | UFixed(_), UInt(_)) => {
+                        create_convert!(Decimal, Unsigned, |v: Decimal| { v.round().to_u64().unwrap() })
+                    },
                     (from, to) => unreachable!("from: {:?}, to: {:?}", from, to),
                 }
             },

@@ -134,7 +134,16 @@ impl Value {
                         .and_then(Value::try_from)
                 },
                 Type::String => Ok(Str(source.into())),
-                Type::Tuple(_) => unimplemented!(),
+                Type::Tuple(inner) => {
+                    if inner.is_empty() {
+                        (source == "()")
+                            .then_some(Tuple(Box::new([])))
+                            .ok_or_else(|| ValueConvertError::ParseError(ty.clone(), source.to_string()))
+                    } else {
+                        unimplemented!()
+                    }
+                },
+
                 Type::Option(_) | Type::Function { args: _, ret: _ } => unreachable!(),
                 Type::Fixed(_) => {
                     source
@@ -253,14 +262,13 @@ impl ops::Mul for Value {
     type Output = Value;
 
     fn mul(self, other: Value) -> Value {
-        dbg!(&self, &other);
-        dbg!(match (self, other) {
+        match (self, other) {
             (Unsigned(v1), Unsigned(v2)) => Unsigned(v1 * v2),
             (Signed(v1), Signed(v2)) => Signed(v1 * v2),
             (Float(v1), Float(v2)) => Float(v1 * v2),
             (Decimal(v1), Decimal(v2)) => Decimal(v1 * v2),
             (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
-        })
+        }
     }
 }
 

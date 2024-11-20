@@ -4,10 +4,12 @@ use std::ops::Add;
 use std::time::Duration;
 
 use dyn_clone::DynClone;
+use num::{FromPrimitive, ToPrimitive};
 use ordered_float::NotNan;
 use rtlola_frontend::mir::{
     MemorizationBound, SlidingWindow as MirSlidingWindow, Type, Window, WindowOperation as WinOp,
 };
+use rust_decimal::Decimal;
 
 use super::discrete_window::DiscreteWindowInstance;
 use super::window_aggregations::*;
@@ -98,18 +100,33 @@ impl SlidingWindow {
             (WinOp::Min, Type::UInt(_)) => create_window_instance!(MinIv<WindowUnsigned>, window, ts, active),
             (WinOp::Min, Type::Int(_)) => create_window_instance!(MinIv<WindowSigned>, window, ts, active),
             (WinOp::Min, Type::Float(_)) => create_window_instance!(MinIv<WindowFloat>, window, ts, active),
+            (WinOp::Min, Type::Fixed(_) | Type::UFixed(_)) => {
+                create_window_instance!(MinIv<WindowDecimal>, window, ts, active)
+            },
             (WinOp::Max, Type::UInt(_)) => create_window_instance!(MaxIv<WindowUnsigned>, window, ts, active),
             (WinOp::Max, Type::Int(_)) => create_window_instance!(MaxIv<WindowSigned>, window, ts, active),
             (WinOp::Max, Type::Float(_)) => create_window_instance!(MaxIv<WindowFloat>, window, ts, active),
+            (WinOp::Max, Type::Fixed(_) | Type::UFixed(_)) => {
+                create_window_instance!(MaxIv<WindowDecimal>, window, ts, active)
+            },
             (WinOp::Sum, Type::UInt(_)) => create_window_instance!(SumIv<WindowUnsigned>, window, ts, active),
             (WinOp::Sum, Type::Int(_)) => create_window_instance!(SumIv<WindowSigned>, window, ts, active),
             (WinOp::Sum, Type::Float(_)) => create_window_instance!(SumIv<WindowFloat>, window, ts, active),
+            (WinOp::Sum, Type::Fixed(_) | Type::UFixed(_)) => {
+                create_window_instance!(SumIv<WindowDecimal>, window, ts, active)
+            },
             (WinOp::Sum, Type::Bool) => create_window_instance!(SumIv<WindowBool>, window, ts, active),
             (WinOp::Average, Type::UInt(_)) => create_window_instance!(AvgIv<WindowUnsigned>, window, ts, active),
             (WinOp::Average, Type::Int(_)) => create_window_instance!(AvgIv<WindowSigned>, window, ts, active),
             (WinOp::Average, Type::Float(_)) => create_window_instance!(AvgIv<WindowFloat>, window, ts, active),
+            (WinOp::Average, Type::Fixed(_) | Type::UFixed(_)) => {
+                create_window_instance!(AvgIv<WindowDecimal>, window, ts, active)
+            },
             (WinOp::Integral, Type::Float(_)) | (WinOp::Integral, Type::Int(_)) | (WinOp::Integral, Type::UInt(_)) => {
-                create_window_instance!(IntegralIv, window, ts, active)
+                create_window_instance!(IntegralIv<WindowFloat>, window, ts, active)
+            },
+            (WinOp::Integral, Type::Fixed(_) | Type::UFixed(_)) => {
+                create_window_instance!(IntegralIv<WindowDecimal>, window, ts, active)
             },
             (WinOp::Conjunction, Type::Bool) => create_window_instance!(ConjIv, window, ts, active),
             (WinOp::Disjunction, Type::Bool) => create_window_instance!(DisjIv, window, ts, active),
@@ -139,6 +156,7 @@ impl SlidingWindow {
             (WinOp::Last, Type::Int(_)) => create_window_instance!(LastIv<WindowSigned>, window, ts, active),
             (WinOp::Last, Type::UInt(_)) => create_window_instance!(LastIv<WindowUnsigned>, window, ts, active),
             (WinOp::Last, Type::Float(_)) => create_window_instance!(LastIv<WindowFloat>, window, ts, active),
+            (WinOp::Last, Type::Fixed(_)) => create_window_instance!(LastIv<WindowDecimal>, window, ts, active),
             (WinOp::NthPercentile(x), Type::Int(_)) => {
                 create_percentile_instance!(PercentileIv<WindowSigned>, window, ts, active, x)
             },
@@ -148,9 +166,23 @@ impl SlidingWindow {
             (WinOp::NthPercentile(x), Type::Float(_)) => {
                 create_percentile_instance!(PercentileIv<WindowFloat>, window, ts, active, x)
             },
-            (WinOp::Variance, Type::Float(_)) => create_window_instance!(VarianceIv, window, ts, active),
-            (WinOp::StandardDeviation, Type::Float(_)) => create_window_instance!(SdIv, window, ts, active),
-            (WinOp::Covariance, Type::Float(_)) => create_window_instance!(CovIv, window, ts, active),
+            (WinOp::NthPercentile(x), Type::Fixed(_) | Type::UFixed(_)) => {
+                create_percentile_instance!(PercentileIv<WindowDecimal>, window, ts, active, x)
+            },
+            (WinOp::Variance, Type::Float(_)) => create_window_instance!(VarianceIv<WindowFloat>, window, ts, active),
+            (WinOp::Variance, Type::Fixed(_) | Type::UFixed(_)) => {
+                create_window_instance!(VarianceIv<WindowDecimal>, window, ts, active)
+            },
+            (WinOp::StandardDeviation, Type::Float(_)) => {
+                create_window_instance!(SdIv<WindowFloat>, window, ts, active)
+            },
+            (WinOp::StandardDeviation, Type::Fixed(_) | Type::UFixed(_)) => {
+                create_window_instance!(SdIv<WindowDecimal>, window, ts, active)
+            },
+            (WinOp::Covariance, Type::Float(_)) => create_window_instance!(CovIv<WindowFloat>, window, ts, active),
+            (WinOp::Covariance, Type::Fixed(_) | Type::UFixed(_)) => {
+                create_window_instance!(CovIv<WindowDecimal>, window, ts, active)
+            },
             (WinOp::Product, _) => unimplemented!("product not implemented"),
             (WinOp::Last, _) => unimplemented!(),
             (WinOp::Variance, _) => unimplemented!(),
@@ -177,6 +209,9 @@ impl SlidingWindow {
             (WinOp::Min, Type::Float(_)) => {
                 create_discrete_window_instance!(MinIv<WindowFloat>, size, wait, ts, active)
             },
+            (WinOp::Min, Type::Fixed(_) | Type::UFixed(_)) => {
+                create_discrete_window_instance!(MinIv<WindowDecimal>, size, wait, ts, active)
+            },
             (WinOp::Max, Type::UInt(_)) => {
                 create_discrete_window_instance!(MaxIv<WindowUnsigned>, size, wait, ts, active)
             },
@@ -184,12 +219,18 @@ impl SlidingWindow {
             (WinOp::Max, Type::Float(_)) => {
                 create_discrete_window_instance!(MaxIv<WindowFloat>, size, wait, ts, active)
             },
+            (WinOp::Max, Type::Fixed(_) | Type::UFixed(_)) => {
+                create_discrete_window_instance!(MaxIv<WindowDecimal>, size, wait, ts, active)
+            },
             (WinOp::Sum, Type::UInt(_)) => {
                 create_discrete_window_instance!(SumIv<WindowUnsigned>, size, wait, ts, active)
             },
             (WinOp::Sum, Type::Int(_)) => create_discrete_window_instance!(SumIv<WindowSigned>, size, wait, ts, active),
             (WinOp::Sum, Type::Float(_)) => {
                 create_discrete_window_instance!(SumIv<WindowFloat>, size, wait, ts, active)
+            },
+            (WinOp::Sum, Type::Fixed(_) | Type::UFixed(_)) => {
+                create_discrete_window_instance!(SumIv<WindowDecimal>, size, wait, ts, active)
             },
             (WinOp::Sum, Type::Bool) => create_discrete_window_instance!(SumIv<WindowBool>, size, wait, ts, active),
             (WinOp::Average, Type::UInt(_)) => {
@@ -201,8 +242,14 @@ impl SlidingWindow {
             (WinOp::Average, Type::Float(_)) => {
                 create_discrete_window_instance!(AvgIv<WindowFloat>, size, wait, ts, active)
             },
+            (WinOp::Average, Type::Fixed(_) | Type::UFixed(_)) => {
+                create_discrete_window_instance!(AvgIv<WindowDecimal>, size, wait, ts, active)
+            },
             (WinOp::Integral, Type::Float(_)) | (WinOp::Integral, Type::Int(_)) | (WinOp::Integral, Type::UInt(_)) => {
-                create_discrete_window_instance!(IntegralIv, size, wait, ts, active)
+                create_discrete_window_instance!(IntegralIv<WindowFloat>, size, wait, ts, active)
+            },
+            (WinOp::Integral, Type::Fixed(_) | Type::UFixed(_)) => {
+                create_discrete_window_instance!(IntegralIv<WindowDecimal>, size, wait, ts, active)
             },
             (WinOp::Conjunction, Type::Bool) => create_discrete_window_instance!(ConjIv, size, wait, ts, active),
             (WinOp::Disjunction, Type::Bool) => create_discrete_window_instance!(DisjIv, size, wait, ts, active),
@@ -222,6 +269,9 @@ impl SlidingWindow {
             (WinOp::Last, Type::Float(_)) => {
                 create_discrete_window_instance!(LastIv<WindowFloat>, size, wait, ts, active)
             },
+            (WinOp::Last, Type::Fixed(_) | Type::UFixed(_)) => {
+                create_discrete_window_instance!(LastIv<WindowDecimal>, size, wait, ts, active)
+            },
             (WinOp::NthPercentile(x), Type::Int(_)) => {
                 create_discrete_percentile_instance!(PercentileIv<WindowSigned>, size, wait, ts, active, x)
             },
@@ -231,11 +281,27 @@ impl SlidingWindow {
             (WinOp::NthPercentile(x), Type::Float(_)) => {
                 create_discrete_percentile_instance!(PercentileIv<WindowFloat>, size, wait, ts, active, x)
             },
-            (WinOp::Variance, Type::Float(_)) => create_discrete_window_instance!(VarianceIv, size, wait, ts, active),
-            (WinOp::StandardDeviation, Type::Float(_)) => {
-                create_discrete_window_instance!(SdIv, size, wait, ts, active)
+            (WinOp::NthPercentile(x), Type::Fixed(_) | Type::UFixed(_)) => {
+                create_discrete_percentile_instance!(PercentileIv<WindowDecimal>, size, wait, ts, active, x)
             },
-            (WinOp::Covariance, Type::Float(_)) => create_discrete_window_instance!(CovIv, size, wait, ts, active),
+            (WinOp::Variance, Type::Float(_)) => {
+                create_discrete_window_instance!(VarianceIv<WindowFloat>, size, wait, ts, active)
+            },
+            (WinOp::Variance, Type::Fixed(_) | Type::UFixed(_)) => {
+                create_discrete_window_instance!(VarianceIv<WindowDecimal>, size, wait, ts, active)
+            },
+            (WinOp::StandardDeviation, Type::Float(_)) => {
+                create_discrete_window_instance!(SdIv<WindowFloat>, size, wait, ts, active)
+            },
+            (WinOp::StandardDeviation, Type::Fixed(_) | Type::UFixed(_)) => {
+                create_discrete_window_instance!(SdIv<WindowDecimal>, size, wait, ts, active)
+            },
+            (WinOp::Covariance, Type::Float(_)) => {
+                create_discrete_window_instance!(CovIv<WindowFloat>, size, wait, ts, active)
+            },
+            (WinOp::Covariance, Type::Fixed(_) | Type::UFixed(_)) => {
+                create_discrete_window_instance!(CovIv<WindowDecimal>, size, wait, ts, active)
+            },
             (WinOp::Product, _) => unimplemented!("product not implemented"),
             (WinOp::Last, _) => unimplemented!(),
             (WinOp::Variance, _) => unimplemented!(),
@@ -558,8 +624,24 @@ impl WindowGeneric for WindowFloat {
             Value::Signed(i) => i as f64,
             Value::Unsigned(u) => u as f64,
             Value::Float(f) => f.into(),
+            Value::Decimal(f) => f.to_f64().unwrap().into(),
             _ => unreachable!("Type error."),
         };
         Value::Float(NotNan::new(f).unwrap())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct WindowDecimal {}
+impl WindowGeneric for WindowDecimal {
+    fn from_value(v: Value) -> Value {
+        let f = match v {
+            Value::Signed(i) => i.into(),
+            Value::Unsigned(u) => u.into(),
+            Value::Float(f) => Decimal::from_f64(f.to_f64().unwrap()).unwrap(),
+            Value::Decimal(f) => f,
+            _ => unreachable!("Type error."),
+        };
+        Value::Decimal(f)
     }
 }

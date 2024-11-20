@@ -623,7 +623,6 @@ dependencies = [
  "az",
  "bytemuck",
  "half",
- "serde",
  "typenum",
 ]
 
@@ -1508,10 +1507,9 @@ dependencies = [
 [[package]]
 name = "rtlola-frontend"
 version = "0.7.0"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=fixed_decimals#b2397e4472100cfa36b88f09ae8cfb161763eb21"
+source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=fixed_decimals#f688884449594cb9a42ddeb6d14c51ad6ac9391c"
 dependencies = [
  "dot",
- "fixed",
  "itertools 0.10.5",
  "lazy_static",
  "num",
@@ -1529,9 +1527,8 @@ dependencies = [
 [[package]]
 name = "rtlola-hir"
 version = "0.5.0"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=fixed_decimals#b2397e4472100cfa36b88f09ae8cfb161763eb21"
+source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=fixed_decimals#f688884449594cb9a42ddeb6d14c51ad6ac9391c"
 dependencies = [
- "fixed",
  "itertools 0.10.5",
  "lazy_static",
  "num",
@@ -1617,7 +1614,7 @@ dependencies = [
 [[package]]
 name = "rtlola-macros"
 version = "0.1.2"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=fixed_decimals#b2397e4472100cfa36b88f09ae8cfb161763eb21"
+source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=fixed_decimals#f688884449594cb9a42ddeb6d14c51ad6ac9391c"
 dependencies = [
  "quote",
  "syn 1.0.109",
@@ -1626,7 +1623,7 @@ dependencies = [
 [[package]]
 name = "rtlola-parser"
 version = "0.3.2"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=fixed_decimals#b2397e4472100cfa36b88f09ae8cfb161763eb21"
+source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=fixed_decimals#f688884449594cb9a42ddeb6d14c51ad6ac9391c"
 dependencies = [
  "lazy_static",
  "num",
@@ -1641,7 +1638,7 @@ dependencies = [
 [[package]]
 name = "rtlola-reporting"
 version = "0.3.0"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=fixed_decimals#b2397e4472100cfa36b88f09ae8cfb161763eb21"
+source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=fixed_decimals#f688884449594cb9a42ddeb6d14c51ad6ac9391c"
 dependencies = [
  "codespan-reporting",
  "pest",
