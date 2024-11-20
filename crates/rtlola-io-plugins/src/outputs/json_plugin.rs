@@ -216,6 +216,7 @@ fn json_value(value: &Value) -> JsonValue {
         &Value::Unsigned(n) => n.into(),
         &Value::Signed(n) => n.into(),
         &Value::Float(n) => f64::from(n).into(),
+        &Value::Decimal(n) => n.to_string().into(),
         Value::Tuple(tup) => tup.iter().map(json_value).collect::<JsonValue>(),
         Value::Str(s) => s.to_string().into(),
         Value::Bytes(s) => s.iter().copied().collect::<JsonValue>(),

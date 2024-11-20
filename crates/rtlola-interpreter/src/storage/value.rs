@@ -4,10 +4,10 @@ use std::fmt::{Display, Formatter};
 use std::ops;
 use std::ops::{AddAssign, DivAssign, MulAssign, RemAssign, SubAssign};
 
-use num_traits::FromPrimitive;
+use num::ToPrimitive;
+use num_traits::Pow;
 use ordered_float::NotNan;
 use rtlola_frontend::mir::Type;
-use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -54,6 +54,10 @@ pub enum Value {
     A slice of bytes.
     */
     Bytes(Box<[u8]>),
+    /**
+    A signed fixed-point number
+    */
+    Decimal(Decimal),
 }
 
 impl Display for Value {
@@ -79,6 +83,7 @@ impl Display for Value {
                 let hex = hex::encode_upper(b);
                 write!(f, "{}", hex)
             },
+            Decimal(i) => write!(f, "{i}"),
         }
     }
 }
@@ -129,16 +134,20 @@ impl Value {
                         .and_then(Value::try_from)
                 },
                 Type::String => Ok(Str(source.into())),
-                Type::Tuple(inner) => {
-                    if inner.is_empty() {
-                        (source == "()")
-                            .then_some(Tuple(Box::new([])))
-                            .ok_or_else(|| ValueConvertError::ParseError(ty.clone(), source.to_string()))
-                    } else {
-                        unimplemented!()
-                    }
-                },
+                Type::Tuple(_) => unimplemented!(),
                 Type::Option(_) | Type::Function { args: _, ret: _ } => unreachable!(),
+                Type::Fixed(_) => {
+                    source
+                        .parse::<Decimal>()
+                        .map(Decimal)
+                        .map_err(|_| ValueConvertError::ParseError(ty.clone(), source.to_string()))
+                },
+                Type::UFixed(_) => {
+                    source
+                        .parse::<Decimal>()
+                        .map(Decimal)
+                        .map_err(|_| ValueConvertError::ParseError(ty.clone(), source.to_string()))
+                },
             }
         } else {
             Err(ValueConvertError::NotUtf8(source.to_vec()))
@@ -196,6 +205,7 @@ impl ops::Add for Value {
             (Unsigned(v1), Unsigned(v2)) => Unsigned(v1 + v2),
             (Signed(v1), Signed(v2)) => Signed(v1 + v2),
             (Float(v1), Float(v2)) => Float(v1 + v2),
+            (Decimal(v1), Decimal(v2)) => Decimal(v1 + v2),
             (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
         }
     }
@@ -207,6 +217,7 @@ impl AddAssign for Value {
             (Unsigned(v1), Unsigned(v2)) => v1.add_assign(v2),
             (Signed(v1), Signed(v2)) => v1.add_assign(v2),
             (Float(v1), Float(v2)) => v1.add_assign(v2),
+            (Decimal(v1), Decimal(v2)) => v1.add_assign(v2),
             (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
         }
     }
@@ -220,6 +231,7 @@ impl ops::Sub for Value {
             (Unsigned(v1), Unsigned(v2)) => Unsigned(v1 - v2),
             (Signed(v1), Signed(v2)) => Signed(v1 - v2),
             (Float(v1), Float(v2)) => Float(v1 - v2),
+            (Decimal(v1), Decimal(v2)) => Decimal(v1 - v2),
             (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
         }
     }
@@ -231,6 +243,7 @@ impl SubAssign for Value {
             (Unsigned(v1), Unsigned(v2)) => v1.sub_assign(v2),
             (Signed(v1), Signed(v2)) => v1.sub_assign(v2),
             (Float(v1), Float(v2)) => v1.sub_assign(v2),
+            (Decimal(v1), Decimal(v2)) => v1.sub_assign(v2),
             (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
         }
     }
@@ -240,12 +253,14 @@ impl ops::Mul for Value {
     type Output = Value;
 
     fn mul(self, other: Value) -> Value {
-        match (self, other) {
+        dbg!(&self, &other);
+        dbg!(match (self, other) {
             (Unsigned(v1), Unsigned(v2)) => Unsigned(v1 * v2),
             (Signed(v1), Signed(v2)) => Signed(v1 * v2),
             (Float(v1), Float(v2)) => Float(v1 * v2),
+            (Decimal(v1), Decimal(v2)) => Decimal(v1 * v2),
             (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
-        }
+        })
     }
 }
 
@@ -255,6 +270,7 @@ impl MulAssign for Value {
             (Unsigned(v1), Unsigned(v2)) => v1.mul_assign(v2),
             (Signed(v1), Signed(v2)) => v1.mul_assign(v2),
             (Float(v1), Float(v2)) => v1.mul_assign(v2),
+            (Decimal(v1), Decimal(v2)) => v1.mul_assign(v2),
             (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
         }
     }
@@ -268,6 +284,7 @@ impl ops::Div for Value {
             (Unsigned(v1), Unsigned(v2)) => Unsigned(v1 / v2),
             (Signed(v1), Signed(v2)) => Signed(v1 / v2),
             (Float(v1), Float(v2)) => Float(v1 / v2),
+            (Decimal(v1), Decimal(v2)) => Decimal(v1 / v2),
             (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
         }
     }
@@ -279,6 +296,7 @@ impl DivAssign for Value {
             (Unsigned(v1), Unsigned(v2)) => v1.div_assign(v2),
             (Signed(v1), Signed(v2)) => v1.div_assign(v2),
             (Float(v1), Float(v2)) => v1.div_assign(v2),
+            (Decimal(v1), Decimal(v2)) => v1.div_assign(v2),
             (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
         }
     }
@@ -292,6 +310,7 @@ impl ops::Rem for Value {
             (Unsigned(v1), Unsigned(v2)) => Unsigned(v1 % v2),
             (Signed(v1), Signed(v2)) => Signed(v1 % v2),
             (Float(v1), Float(v2)) => Float(v1 % v2),
+            (Decimal(v1), Decimal(v2)) => Decimal(v1 % v2),
             (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
         }
     }
@@ -303,6 +322,7 @@ impl RemAssign for Value {
             (Unsigned(v1), Unsigned(v2)) => v1.rem_assign(v2),
             (Signed(v1), Signed(v2)) => v1.rem_assign(v2),
             (Float(v1), Float(v2)) => v1.rem_assign(v2),
+            (Decimal(v1), Decimal(v2)) => v1.rem_assign(v2),
             (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
         }
     }
@@ -318,6 +338,7 @@ impl Value {
             (Signed(v1), Signed(v2)) => Signed(v1.pow(v2 as u32)),
             (Float(v1), Float(v2)) => Value::try_from(v1.powf(v2.into())).unwrap(),
             (Float(v1), Signed(v2)) => Value::try_from(v1.powi(v2 as i32)).unwrap(),
+            (Decimal(v1), Decimal(v2)) => Decimal(v1.pow(v2)),
             (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
         }
     }
@@ -405,6 +426,7 @@ impl ops::Neg for Value {
         match self {
             Signed(v) => Signed(-v), // TODO Check
             Float(v) => Float(-v),
+            Decimal(v1) => Decimal(-v1),
             a => panic!("Incompatible type: {:?}", a),
         }
     }
@@ -423,6 +445,7 @@ impl Ord for Value {
             (Signed(i1), Signed(i2)) => i1.cmp(i2),
             (Float(f1), Float(f2)) => f1.cmp(f2),
             (Str(s1), Str(s2)) => s1.cmp(s2),
+            (Decimal(v1), Decimal(v2)) => v1.cmp(v2),
             (a, b) => panic!("Incompatible types: ({:?},{:?})", a, b),
         }
     }
@@ -514,14 +537,9 @@ impl TryFrom<f32> for Value {
     }
 }
 
-impl TryFrom<Decimal> for Value {
-    type Error = ValueConvertError;
-
-    fn try_from(value: Decimal) -> Result<Self, Self::Error> {
-        value
-            .to_f64()
-            .ok_or(ValueConvertError::ValueNotSupported(Box::new(value)))
-            .and_then(Value::try_from)
+impl From<Decimal> for Value {
+    fn from(value: Decimal) -> Self {
+        Self::Decimal(value)
     }
 }
 
@@ -661,10 +679,12 @@ impl TryInto<Decimal> for Value {
     type Error = ValueConvertError;
 
     fn try_into(self) -> Result<Decimal, Self::Error> {
-        if let Float(v) = self {
-            Decimal::from_f64(v.into()).ok_or(ValueConvertError::TypeMismatch(self))
-        } else {
-            Err(ValueConvertError::TypeMismatch(self))
+        match self {
+            Unsigned(v) => Ok(v.into()),
+            Signed(v) => Ok(v.into()),
+            Float(v) => Ok(v.to_f64().unwrap().try_into().unwrap()),
+            Decimal(v) => Ok(v),
+            _ => Err(ValueConvertError::ValueNotSupported(Box::new(self))),
         }
     }
 }

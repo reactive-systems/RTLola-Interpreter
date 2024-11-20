@@ -12,6 +12,7 @@ use std::time::{Duration, SystemTime};
 use clap::{Parser, ValueEnum};
 use crossterm::style::Stylize;
 use csv::StringRecord;
+use fixed::types::{I32F32, U32F32};
 use itertools::{Itertools, Position};
 use junit_report::{Duration as JunitDuration, OffsetDateTime, ReportBuilder, TestCase, TestSuiteBuilder};
 use ordered_float::NotNan;
@@ -20,6 +21,7 @@ use rtlola_interpreter::input::{InputMap, MappedFactory};
 use rtlola_interpreter::monitor::{Monitor, TriggerMessages};
 use rtlola_interpreter::time::RelativeFloat;
 use rtlola_interpreter::{ConfigBuilder, Value};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 // inspired by: https://github.com/johnterickson/cargo2junit/blob/master/src/main.rs
@@ -419,6 +421,9 @@ fn value_from_string(str: &str, ty: &Type) -> Result<Value, Box<dyn Error>> {
         Type::UInt(_) => Value::Unsigned(u64::from_str(str)?),
         Type::Float(_) => Value::Float(NotNan::new(f64::from_str(str)?)?),
         Type::String => Value::Str(str.into()),
+        Type::Fixed(_) | Type::UFixed(_) => {
+            Value::Decimal(Decimal::from_str(str).map_err(|_| "error parsing fixed-point number")?)
+        },
         Type::Bytes | Type::Tuple(_) | Type::Option(_) | Type::Function { .. } => unimplemented!(),
     })
 }

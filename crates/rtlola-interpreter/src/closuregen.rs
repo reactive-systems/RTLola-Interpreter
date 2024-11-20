@@ -9,6 +9,7 @@ use ordered_float::NotNan;
 use regex::bytes::Regex as BytesRegex;
 use regex::Regex;
 use rtlola_frontend::mir::{Constant, Expression, ExpressionKind, Offset, StreamAccessKind, Type};
+use rust_decimal::MathematicalOps;
 use string_template::Template;
 
 use crate::evaluator::{ActivationConditionOp, EvaluationContext};
@@ -83,6 +84,7 @@ impl Expr for Expression {
                     Constant::Int(i) => Value::Signed(i),
                     Constant::Float(f) => Value::Float(NotNan::new(f).expect("Constants shouldn't allow NaN")),
                     Constant::Str(s) => Value::Str(s.into_boxed_str()),
+                    Constant::Decimal(i) => Value::Decimal(i),
                 };
                 CompiledExpr::new(move |_| v.clone())
             },
@@ -222,6 +224,19 @@ impl Expr for Expression {
                 assert!(!args.is_empty());
                 let f_arg = args[0].clone().compile();
 
+                macro_rules! create_decimalfn {
+                    ($fn:ident) => {
+                        CompiledExpr::new(move |ctx| {
+                            let arg = f_arg.execute(ctx);
+                            match arg {
+                                Value::Float(f) => Value::try_from(f.$fn()).unwrap(),
+                                Value::Decimal(f) => Value::try_from(f.$fn()).unwrap(),
+                                _ => unreachable!(),
+                            }
+                        })
+                    };
+                }
+
                 macro_rules! create_floatfn {
                     ($fn:ident) => {
                         CompiledExpr::new(move |ctx| {
@@ -253,10 +268,10 @@ impl Expr for Expression {
                 }
 
                 match name.as_ref() {
-                    "sqrt" => create_floatfn!(sqrt),
-                    "sin" => create_floatfn!(sin),
-                    "cos" => create_floatfn!(cos),
-                    "tan" => create_floatfn!(tan),
+                    "sqrt" => create_decimalfn!(sqrt),
+                    "sin" => create_decimalfn!(sin),
+                    "cos" => create_decimalfn!(cos),
+                    "tan" => create_decimalfn!(tan),
                     "arcsin" => create_floatfn!(asin),
                     "arccos" => create_floatfn!(acos),
                     "arctan" => create_floatfn!(atan),

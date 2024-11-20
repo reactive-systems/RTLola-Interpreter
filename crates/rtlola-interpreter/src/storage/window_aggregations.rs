@@ -212,7 +212,7 @@ impl WindowIv for IntegralIv {
 
 impl From<IntegralIv> for Value {
     fn from(iv: IntegralIv) -> Value {
-        Value::try_from(iv.volume).unwrap()
+        Value::try_from(iv.volume.to_f64().unwrap()).unwrap()
     }
 }
 
@@ -605,7 +605,7 @@ impl From<VarianceIv> for Value {
         if iv.count == 0 {
             return Value::Float(NotNan::from(0));
         }
-        Value::try_from(iv.m_2 / Decimal::from(iv.count)).expect("")
+        Value::try_from((iv.m_2 / Decimal::from(iv.count)).to_f64().unwrap()).expect("")
     }
 }
 
@@ -718,7 +718,7 @@ impl From<CovIv> for Value {
         if iv.count == 0 {
             return Value::None;
         }
-        Value::try_from(iv.co_moment / Decimal::from(iv.count)).unwrap()
+        Value::try_from((iv.co_moment / Decimal::from(iv.count)).to_f64().unwrap()).unwrap()
     }
 }
 

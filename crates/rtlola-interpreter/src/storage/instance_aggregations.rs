@@ -1,5 +1,6 @@
 use std::ops::{Add, Mul};
 
+use num::ToPrimitive;
 use num_traits::Zero;
 use ordered_float::NotNan;
 use rtlola_frontend::mir;
@@ -472,7 +473,8 @@ impl IncrementalOp for Variance {
         if self.count == 0 {
             return Value::Float(NotNan::from(0));
         }
-        Value::try_from(self.m_2 / Decimal::from(self.count)).expect("")
+        let res = self.m_2 / Decimal::from(self.count);
+        Value::Float(res.to_f64().unwrap().try_into().unwrap())
     }
 }
 
@@ -605,7 +607,8 @@ impl IncrementalOp for CoVar {
         if self.count == 0 {
             return Value::None;
         }
-        Value::try_from(self.co_moment / Decimal::from(self.count)).expect("")
+        let res = self.co_moment / Decimal::from(self.count);
+        Value::Float(res.to_f64().unwrap().try_into().unwrap())
     }
 }
 
