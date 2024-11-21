@@ -191,6 +191,7 @@ impl Value {
             Type::Int(_) => Signed(val),
             Type::UInt(_) => Unsigned(val as u64),
             Type::Float(_) => Float(NotNan::new(val as f64).unwrap()),
+            Type::Fixed(_) | Type::UFixed(_) => Decimal(Decimal::from(val)),
             _ => unreachable!("Incompatible Value Type."),
         }
     }
@@ -201,6 +202,7 @@ impl Value {
             Signed(_) => Signed(val),
             Unsigned(_) => Unsigned(val as u64),
             Float(_) => Float(NotNan::new(val as f64).unwrap()),
+            Decimal(_) => Decimal(Decimal::from(val)),
             _ => unreachable!("Incompatible Value Type."),
         }
     }
