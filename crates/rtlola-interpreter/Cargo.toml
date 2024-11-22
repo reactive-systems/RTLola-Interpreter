@@ -50,9 +50,6 @@ uom = { version = "0.31.1", default-features = false, features = [
     "use_serde",
 ] }
 num = "0.3.1" # infinite precision rationals
-statrs = "0.17.1"
-fixed = "1.28.0"
-cordic = "0.1.5"
 
 [features]
 queued-api = ["dep:crossbeam-channel"]

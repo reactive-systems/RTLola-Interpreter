@@ -34,6 +34,7 @@ bincode = { version = "1.3.3", optional = true }
 jsonl = { version = "4.0.1", optional = true }
 termcolor = { version = "1.4.1", optional = true }
 serde_json = { version = "1.0.120", optional = true }
+rust_decimal = "1.36.0"
 
 [features]
 default = []

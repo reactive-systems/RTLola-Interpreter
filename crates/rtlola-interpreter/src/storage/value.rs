@@ -145,13 +145,7 @@ impl Value {
                 },
 
                 Type::Option(_) | Type::Function { args: _, ret: _ } => unreachable!(),
-                Type::Fixed(_) => {
-                    source
-                        .parse::<Decimal>()
-                        .map(Decimal)
-                        .map_err(|_| ValueConvertError::ParseError(ty.clone(), source.to_string()))
-                },
-                Type::UFixed(_) => {
+                Type::Fixed(_) | Type::UFixed(_) => {
                     source
                         .parse::<Decimal>()
                         .map(Decimal)
