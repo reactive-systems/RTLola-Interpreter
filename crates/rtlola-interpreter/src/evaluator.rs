@@ -523,13 +523,34 @@ impl Evaluator {
                 match self.window_parameterization(win_ref) {
                     WindowParameterization::None { .. } | WindowParameterization::Target { .. } => unreachable!(),
                     WindowParameterization::Caller => {
+                        let target = self.ir.window(win_ref).target();
+                        let (inst, fresh) = match target {
+                            StreamReference::In(ix) => {
+                                (self.global_store.get_in_instance(ix), self.fresh_inputs.contains(ix))
+                            },
+                            StreamReference::Out(ix) => {
+                                (self.global_store.get_out_instance(ix), self.fresh_outputs.contains(ix))
+                            },
+                        };
+                        let target_value = fresh.then(|| inst.get_value(0).unwrap());
                         let windows = self.global_store.get_window_collection_mut(win_ref);
                         let window = windows.get_or_create(parameter_values.as_slice(), ts);
-                        window.activate(ts);
+                        // Check if target of window produced a value in this iteration and add the value
+                        if !window.is_active() {
+                            window.activate(ts);
+                            if let Some(val) = target_value {
+                                window.accept_value(val, ts);
+                            }
+                        }
                     },
                     WindowParameterization::Both => {
+                        let target = self.ir.window(win_ref).target();
+                        let fresh_values = self
+                            .global_store
+                            .get_out_instance_collection(target.out_ix())
+                            .fresh_values();
                         let windows = self.global_store.get_two_layer_window_collection_mut(win_ref);
-                        windows.spawn_caller_instance(parameter_values.as_slice(), ts);
+                        windows.spawn_caller_instance(fresh_values, parameter_values.as_slice(), ts);
                     },
                 }
             }
@@ -566,10 +587,34 @@ impl Evaluator {
                 // Self is caller of the window
                 match self.window_parameterization(win_ref) {
                     WindowParameterization::None { .. } => {
-                        self.global_store.get_window_mut(win_ref).activate(ts);
+                        let target = self.ir.window(win_ref).target();
+                        let (inst, fresh) = match target {
+                            StreamReference::In(ix) => {
+                                (self.global_store.get_in_instance(ix), self.fresh_inputs.contains(ix))
+                            },
+                            StreamReference::Out(ix) => {
+                                (self.global_store.get_out_instance(ix), self.fresh_outputs.contains(ix))
+                            },
+                        };
+                        let target_value = fresh.then(|| inst.get_value(0).unwrap());
+                        let window = self.global_store.get_window_mut(win_ref);
+
+                        if !window.is_active() {
+                            window.activate(ts);
+                            if let Some(val) = target_value {
+                                window.accept_value(val, ts);
+                            }
+                        }
                     },
                     WindowParameterization::Target { .. } => {
-                        self.global_store.get_window_collection_mut(win_ref).activate_all(ts);
+                        let target = self.ir.window(win_ref).target();
+                        let fresh_values = self
+                            .global_store
+                            .get_out_instance_collection(target.out_ix())
+                            .fresh_values();
+                        self.global_store
+                            .get_window_collection_mut(win_ref)
+                            .activate_all(fresh_values, ts);
                     },
                     WindowParameterization::Caller | WindowParameterization::Both => {
                         unreachable!("parameters are empty!")
@@ -934,7 +979,7 @@ impl Evaluator {
     }
 }
 
-impl<'e> EvaluationContext<'e> {
+impl EvaluationContext<'_> {
     pub(crate) fn lookup_latest(&self, stream_ref: StreamReference, parameter: &[Value]) -> Value {
         match stream_ref {
             StreamReference::In(ix) => {
@@ -2737,6 +2782,7 @@ mod tests {
         assert_eq!(eval.peek_value(b_ref, &[Signed(15)], 0).unwrap(), Signed(30));
 
         time += Duration::from_secs(1);
+        eval.new_cycle(time);
         accept_input_timed!(eval, in_ref, Signed(5), time);
         spawn_stream_timed!(eval, time, b_ref);
         spawn_stream_timed!(eval, time, c_ref);
@@ -2750,6 +2796,7 @@ mod tests {
         assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(20));
 
         time += Duration::from_secs(1);
+        eval.new_cycle(time);
         accept_input_timed!(eval, in_ref, Signed(5), time);
         eval_stream_timed!(eval, b_ref.out_ix(), vec![Signed(5)], time);
         eval_stream_timed!(eval, b_ref.out_ix(), vec![Signed(15)], time);
@@ -3544,5 +3591,33 @@ mod tests {
          3s: c = 2
         !!! Remember that in case that an input coincides with a deadline, the deadline is evaluated first, hence the confusing order of events at time 2s
          */
+    }
+
+    // Corresponds to issue #19
+    #[test]
+    fn test_parameterized_window_spawn_bug() {
+        let (_, eval, mut time) = setup(
+            "input a : Int
+                       output b spawn @a eval @0.5s with a.aggregate(over: 5s, using: count)",
+        );
+        let mut eval = eval.into_evaluator();
+        let a_ref = StreamReference::In(0);
+        let b_ref = StreamReference::Out(0);
+        let mut tracer = NoTracer::default();
+
+        // A receives a value and b is spawned
+        // The windows over a is spawned as well and should already contain the current value of a
+        time += Duration::from_millis(1000);
+        eval.eval_event(&[Signed(1)], time, &mut tracer);
+        assert!(stream_has_instance!(eval, b_ref, Vec::<Value>::new()));
+
+        // b evaluates and the window contains one value. (The value produces by 'a' at time 1)
+        time += Duration::from_millis(500);
+        eval.eval_time_driven_tasks(
+            vec![EvaluationTask::Evaluate(b_ref.out_ix(), vec![Signed(1)])],
+            time,
+            &mut tracer,
+        );
+        assert_eq!(eval.peek_value(b_ref, &[Signed(1)], 0).unwrap(), Unsigned(1));
     }
 }

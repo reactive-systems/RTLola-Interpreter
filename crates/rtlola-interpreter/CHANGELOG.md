@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fix bug where `Incremental` verdict representation included trigger twice.
 - Inform tracer about event parsing times also in the `QueuedMonitor`.
 - Format `Value::String` with surrounding quotation marks.
+- Bug in sliding windows preventing them from accepting values in the same iteration in which they are spawned.
 
 ## [0.10.1] - 02.07.2024
 

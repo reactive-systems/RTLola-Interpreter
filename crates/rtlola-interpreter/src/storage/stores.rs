@@ -101,6 +101,15 @@ impl InstanceCollection {
         self.fresh.contains(parameter)
     }
 
+    /// Returns all fresh values of the stream
+    pub(crate) fn fresh_values(&self) -> HashMap<Vec<Value>, Value> {
+        self.instances
+            .iter()
+            .filter(|(param, _)| self.is_fresh(param.as_slice()))
+            .map(|(param, inst)| (param.clone(), inst.get_value(0).unwrap()))
+            .collect()
+    }
+
     /// Returns an iterator over newly created instances
     pub(crate) fn spawned(&self) -> impl Iterator<Item = &Vec<Value>> {
         self.spawned.iter()
@@ -268,10 +277,14 @@ impl SlidingWindowCollection {
     }
 
     /// Activates all windows in the collection with the given time
-    pub(crate) fn activate_all(&mut self, ts: Time) {
-        self.windows.iter_mut().for_each(|(_, w)| {
+    /// Add all fresh target values to the window
+    pub(crate) fn activate_all(&mut self, mut fresh_values: HashMap<Vec<Value>, Value>, ts: Time) {
+        self.windows.iter_mut().for_each(|(params, w)| {
             if !w.is_active() {
                 w.activate(ts);
+                if let Some(val) = fresh_values.remove(params) {
+                    w.accept_value(val, ts);
+                }
             }
         });
     }
@@ -399,12 +412,38 @@ impl TwoLayerSlidingWindowCollection {
         }
     }
 
-    pub(crate) fn spawn_caller_instance(&mut self, parameters: &[Value], ts: Time) {
-        let next_caller_id = self.caller_instances.len();
-        self.caller_parameters.insert(parameters.to_vec(), next_caller_id);
-        let window = self.create_window(ts, true);
-        self.caller_instances.push(window.clone());
-        self.windows.iter_mut().for_each(|callers| callers.push(window.clone()));
+    pub(crate) fn spawn_caller_instance(
+        &mut self,
+        fresh_target_values: HashMap<Vec<Value>, Value>,
+        parameters: &[Value],
+        ts: Time,
+    ) {
+        if !self.caller_parameters.contains_left(parameters) {
+            let next_caller_id = self.caller_instances.len();
+            self.caller_parameters.insert(parameters.to_vec(), next_caller_id);
+            let window = self.create_window(ts, true);
+            self.caller_instances.push(window.clone());
+            self.windows.iter_mut().enumerate().for_each(|(target_idx, callers)| {
+                let target_params = self.target_parameters.get_by_right(&target_idx).unwrap();
+                let mut new_window = window.clone();
+                if let Some(val) = fresh_target_values.get(target_params) {
+                    new_window.accept_value(val.clone(), ts);
+                }
+                callers.push(new_window);
+            });
+        } else {
+            let caller_idx = *self.caller_parameters.get_by_left(parameters).unwrap();
+            self.windows.iter_mut().enumerate().for_each(|(target_idx, callers)| {
+                let window = &mut callers[caller_idx];
+                let target_params = self.target_parameters.get_by_right(&target_idx).unwrap();
+                if !window.is_active() {
+                    window.activate(ts);
+                    if let Some(val) = fresh_target_values.get(target_params) {
+                        window.accept_value(val.clone(), ts);
+                    }
+                }
+            });
+        }
     }
 
     pub(crate) fn close_caller_instance(&mut self, parameter: &[Value]) {
