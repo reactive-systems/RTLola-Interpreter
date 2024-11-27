@@ -79,14 +79,21 @@ impl Expr for Expression {
         use ExpressionKind::*;
         match self.kind {
             LoadConstant(c) => {
-                let v = match c {
-                    Constant::Bool(b) => Value::Bool(b),
-                    Constant::UInt(u) => Value::Unsigned(u),
-                    Constant::Int(i) => Value::Signed(i),
-                    Constant::Float(f) => Value::Float(NotNan::new(f).expect("Constants shouldn't allow NaN")),
-                    Constant::Str(s) => Value::Str(s.into_boxed_str()),
-                    Constant::Decimal(i) => Value::Decimal(i),
-                };
+                fn const_to_val(c: Constant) -> Value {
+                    match c {
+                        Constant::Bool(b) => Value::Bool(b),
+                        Constant::UInt(u) => Value::Unsigned(u),
+                        Constant::Int(i) => Value::Signed(i),
+                        Constant::Float(f) => Value::Float(NotNan::new(f).expect("Constants shouldn't allow NaN")),
+                        Constant::Str(s) => Value::Str(s.into_boxed_str()),
+                        Constant::Decimal(i) => Value::Decimal(i),
+                        Constant::Tuple(elements) => {
+                            let values: Vec<Value> = elements.into_iter().map(const_to_val).collect();
+                            Value::Tuple(values.into_boxed_slice())
+                        },
+                    }
+                }
+                let v = const_to_val(c);
                 CompiledExpr::new(move |_| v.clone())
             },
             ParameterAccess(_target, idx) => CompiledExpr::new(move |ctx| ctx.parameter[idx].clone()),
