@@ -18,7 +18,9 @@ use crate::api::monitor::{Change, Instance};
 use crate::closuregen::{CompiledExpr, Expr};
 use crate::monitor::{Parameters, Tracer};
 use crate::schedule::{DynamicSchedule, EvaluationTask};
-use crate::storage::{GlobalStore, InstanceAggregationTrait, InstanceStore, Value, WindowParameterization};
+use crate::storage::{
+    GlobalStore, InstanceAggregationTrait, InstanceStore, Value, WindowParameterization, WindowParameterizationKind,
+};
 use crate::Time;
 
 /// Enum to describe the activation condition of a stream; If the activation condition is described by a conjunction, the evaluator uses a bitset representation.
@@ -142,7 +144,7 @@ impl EvaluatorData {
             })
             .collect();
 
-        let global_store = GlobalStore::new(&ir, Time::default());
+        let global_store = GlobalStore::new(&ir);
         let fresh_inputs = BitSet::with_capacity(ir.inputs.len());
         let fresh_outputs = BitSet::with_capacity(ir.outputs.len());
         let spawned_outputs = BitSet::with_capacity(ir.outputs.len());
@@ -499,13 +501,7 @@ impl Evaluator {
         let own_windows: Vec<WindowReference> = self
             .stream_windows
             .get(&stream.reference)
-            .map(|windows| {
-                windows
-                    .iter()
-                    .filter(|w| self.window_parameterization(**w).is_spawned())
-                    .copied()
-                    .collect()
-            })
+            .map(|windows| windows.to_vec())
             .unwrap_or_default();
 
         if stream.is_parameterized() {
@@ -516,63 +512,6 @@ impl Evaluator {
                 return;
             }
             instances.create_instance(parameter_values.as_slice());
-
-            //activate windows of this stream
-            for win_ref in own_windows {
-                // Self is the caller of the window
-                match self.window_parameterization(win_ref) {
-                    WindowParameterization::None { .. } | WindowParameterization::Target { .. } => unreachable!(),
-                    WindowParameterization::Caller => {
-                        let target = self.ir.window(win_ref).target();
-                        let (inst, fresh) = match target {
-                            StreamReference::In(ix) => {
-                                (self.global_store.get_in_instance(ix), self.fresh_inputs.contains(ix))
-                            },
-                            StreamReference::Out(ix) => {
-                                (self.global_store.get_out_instance(ix), self.fresh_outputs.contains(ix))
-                            },
-                        };
-                        let target_value = fresh.then(|| inst.get_value(0).unwrap());
-                        let windows = self.global_store.get_window_collection_mut(win_ref);
-                        let window = windows.get_or_create(parameter_values.as_slice(), ts);
-                        // Check if target of window produced a value in this iteration and add the value
-                        if !window.is_active() {
-                            window.activate(ts);
-                            if let Some(val) = target_value {
-                                window.accept_value(val, ts);
-                            }
-                        }
-                    },
-                    WindowParameterization::Both => {
-                        let target = self.ir.window(win_ref).target();
-                        let fresh_values = self
-                            .global_store
-                            .get_out_instance_collection(target.out_ix())
-                            .fresh_values();
-                        let windows = self.global_store.get_two_layer_window_collection_mut(win_ref);
-                        windows.spawn_caller_instance(fresh_values, parameter_values.as_slice(), ts);
-                    },
-                }
-            }
-            //create window that aggregate over this stream
-            for (_, win_ref) in &stream.aggregated_by {
-                // Self is target of the window
-                match self.window_parameterization(*win_ref) {
-                    WindowParameterization::None { .. } | WindowParameterization::Caller => unreachable!(),
-                    WindowParameterization::Target { is_spawned } => {
-                        let windows = self.global_store.get_window_collection_mut(*win_ref);
-                        let window = windows.get_or_create(parameter_values.as_slice(), ts);
-                        if !is_spawned {
-                            // Window is not activated by caller so we assume it to have existed since the beginning.
-                            window.activate(Time::ZERO);
-                        }
-                    },
-                    WindowParameterization::Both => {
-                        let windows = self.global_store.get_two_layer_window_collection_mut(*win_ref);
-                        windows.spawn_target_instance(parameter_values.as_slice());
-                    },
-                }
-            }
         } else {
             debug_assert!(parameter_values.is_empty());
             let inst = self.global_store.get_out_instance_mut(output);
@@ -581,45 +520,110 @@ impl Evaluator {
                 return;
             }
             inst.activate();
+        }
 
-            //activate windows of this stream
-            for win_ref in own_windows {
-                // Self is caller of the window
-                match self.window_parameterization(win_ref) {
-                    WindowParameterization::None { .. } => {
-                        let target = self.ir.window(win_ref).target();
-                        let (inst, fresh) = match target {
-                            StreamReference::In(ix) => {
-                                (self.global_store.get_in_instance(ix), self.fresh_inputs.contains(ix))
-                            },
-                            StreamReference::Out(ix) => {
-                                (self.global_store.get_out_instance(ix), self.fresh_outputs.contains(ix))
-                            },
-                        };
-                        let target_value = fresh.then(|| inst.get_value(0).unwrap());
-                        let window = self.global_store.get_window_mut(win_ref);
+        //activate windows of this stream
+        for win_ref in own_windows {
+            let WindowParameterization { kind, global } = self.window_parameterization(win_ref);
+            let target = self.ir.window(win_ref).target();
+            // Self is the caller of the window
+            match (kind, global) {
+                (WindowParameterizationKind::None | WindowParameterizationKind::Caller, true) => {
+                    // Only a single window with a global clock exists. nothing to do...
+                },
+                (WindowParameterizationKind::None, false) => {
+                    // Caller is spawned but not parameterized
+                    // activate single window now
+                    let (inst, fresh) = match target {
+                        StreamReference::In(ix) => {
+                            (self.global_store.get_in_instance(ix), self.fresh_inputs.contains(ix))
+                        },
+                        StreamReference::Out(ix) => {
+                            (self.global_store.get_out_instance(ix), self.fresh_outputs.contains(ix))
+                        },
+                    };
+                    let target_value = fresh.then(|| inst.get_value(0).unwrap());
+                    let window = self.global_store.get_window_mut(win_ref);
 
-                        if !window.is_active() {
-                            window.activate(ts);
-                            if let Some(val) = target_value {
-                                window.accept_value(val, ts);
-                            }
+                    if !window.is_active() {
+                        window.activate(ts);
+                        if let Some(val) = target_value {
+                            window.accept_value(val, ts);
                         }
-                    },
-                    WindowParameterization::Target { .. } => {
-                        let target = self.ir.window(win_ref).target();
-                        let fresh_values = self
-                            .global_store
-                            .get_out_instance_collection(target.out_ix())
-                            .fresh_values();
-                        self.global_store
-                            .get_window_collection_mut(win_ref)
-                            .activate_all(fresh_values, ts);
-                    },
-                    WindowParameterization::Caller | WindowParameterization::Both => {
-                        unreachable!("parameters are empty!")
-                    },
-                }
+                    }
+                },
+                (WindowParameterizationKind::Target, false) => {
+                    // Caller is spawned and Target is parameterized; window evaluates at local clock
+                    // activate all windows registered now
+                    let fresh_values = self
+                        .global_store
+                        .get_out_instance_collection(target.out_ix())
+                        .fresh_values();
+                    self.global_store
+                        .get_window_collection_mut(win_ref)
+                        .activate_all(fresh_values, ts, ts);
+                },
+                (WindowParameterizationKind::Caller, false) => {
+                    // Caller is parameterized and windows are evaluated at local clock
+                    // Create and activate window instance of the spawned instance
+                    let (inst, fresh) = match target {
+                        StreamReference::In(ix) => {
+                            (self.global_store.get_in_instance(ix), self.fresh_inputs.contains(ix))
+                        },
+                        StreamReference::Out(ix) => {
+                            (self.global_store.get_out_instance(ix), self.fresh_outputs.contains(ix))
+                        },
+                    };
+                    let target_value = fresh.then(|| inst.get_value(0).unwrap());
+                    let windows = self.global_store.get_window_collection_mut(win_ref);
+                    let window = windows.get_or_create(parameter_values.as_slice(), ts);
+                    // Check if target of window produced a value in this iteration and add the value
+                    if !window.is_active() {
+                        window.activate(ts);
+                        if let Some(val) = target_value {
+                            window.accept_value(val, ts);
+                        }
+                    }
+                },
+                (WindowParameterizationKind::Both, false) => {
+                    // target and caller are parameterized and windows are evaluated at local clock
+                    // create and activate a new set of sliding windows over all available target instances
+                    let fresh_values = self
+                        .global_store
+                        .get_out_instance_collection(target.out_ix())
+                        .fresh_values();
+                    let windows = self.global_store.get_two_layer_window_collection_mut(win_ref);
+                    windows.spawn_caller_instance(fresh_values, parameter_values.as_slice(), ts, ts);
+                },
+                (WindowParameterizationKind::Both | WindowParameterizationKind::Target, true) => {
+                    // target and caller are parameterized and windows are evaluated at global clock.
+                    // nothing to do?
+                },
+            }
+        }
+
+        //create window that aggregate over this stream
+        for (_, win_ref) in &stream.aggregated_by {
+            let WindowParameterization { kind, global } = self.window_parameterization(*win_ref);
+            // Self is target of the window
+            match (kind, global) {
+                (WindowParameterizationKind::Caller | WindowParameterizationKind::None, _) => {},
+                (WindowParameterizationKind::Both | WindowParameterizationKind::Target, true) => {
+                    let windows = self.global_store.get_window_collection_mut(*win_ref);
+                    let window = windows.get_or_create(parameter_values.as_slice(), ts);
+                    // Window is not activated by caller so we assume it to have existed since the beginning.
+                    window.activate(Time::default());
+                },
+                (WindowParameterizationKind::Target, false) => {
+                    let windows = self.global_store.get_window_collection_mut(*win_ref);
+                    windows.create_window(parameter_values.as_slice(), ts);
+                    // Window is activated by caller at spawn
+                },
+                (WindowParameterizationKind::Both, false) => {
+                    let windows = self.global_store.get_two_layer_window_collection_mut(*win_ref);
+                    windows.spawn_target_instance(parameter_values.as_slice());
+                    // Windows are activated by caller at spawn
+                },
             }
         }
 
@@ -661,13 +665,7 @@ impl Evaluator {
         let own_windows: Vec<WindowReference> = self
             .stream_windows
             .get(&stream.reference)
-            .map(|windows| {
-                windows
-                    .iter()
-                    .filter(|w| self.window_parameterization(**w).is_spawned())
-                    .copied()
-                    .collect()
-            })
+            .map(|windows| windows.to_vec())
             .unwrap_or_default();
         if stream.is_parameterized() {
             // mark instance for closing
@@ -677,14 +675,14 @@ impl Evaluator {
 
             for win_ref in own_windows {
                 // Self is caller of the window
-                match self.window_parameterization(win_ref) {
-                    WindowParameterization::None { .. } | WindowParameterization::Target { .. } => unreachable!(),
-                    WindowParameterization::Caller => {
+                match self.window_parameterization(win_ref).kind {
+                    WindowParameterizationKind::None | WindowParameterizationKind::Target => unreachable!(),
+                    WindowParameterizationKind::Caller => {
                         self.global_store
                             .get_window_collection_mut(win_ref)
                             .delete_window(parameter);
                     },
-                    WindowParameterization::Both => {
+                    WindowParameterizationKind::Both => {
                         self.global_store
                             .get_two_layer_window_collection_mut(win_ref)
                             .close_caller_instance(parameter);
@@ -695,14 +693,14 @@ impl Evaluator {
             // close all windows referencing this instance
             for (_, win_ref) in &stream.aggregated_by {
                 // Self is target of the window
-                match self.window_parameterization(*win_ref) {
-                    WindowParameterization::None { .. } | WindowParameterization::Caller => unreachable!(),
-                    WindowParameterization::Target { .. } => {
+                match self.window_parameterization(*win_ref).kind {
+                    WindowParameterizationKind::None | WindowParameterizationKind::Caller => unreachable!(),
+                    WindowParameterizationKind::Target => {
                         self.global_store
                             .get_window_collection_mut(*win_ref)
                             .schedule_deletion(parameter, ts);
                     },
-                    WindowParameterization::Both => {
+                    WindowParameterizationKind::Both => {
                         self.global_store
                             .get_two_layer_window_collection_mut(*win_ref)
                             .close_target_instance(parameter, ts);
@@ -712,14 +710,14 @@ impl Evaluator {
         } else {
             for win_ref in own_windows {
                 // Self is caller of the window
-                match self.window_parameterization(win_ref) {
-                    WindowParameterization::None { .. } => {
+                match self.window_parameterization(win_ref).kind {
+                    WindowParameterizationKind::None => {
                         self.global_store.get_window_mut(win_ref).deactivate();
                     },
-                    WindowParameterization::Target { .. } => {
+                    WindowParameterizationKind::Target => {
                         self.global_store.get_window_collection_mut(win_ref).deactivate_all();
                     },
-                    WindowParameterization::Caller | WindowParameterization::Both => {
+                    WindowParameterizationKind::Caller | WindowParameterizationKind::Both => {
                         unreachable!("Parameters are empty")
                     },
                 }
@@ -834,20 +832,20 @@ impl Evaluator {
         // We need to copy the references first because updating needs exclusive access to `self`.
         let windows = &self.ir.sliding_windows;
         for win in windows {
-            let parameterization = self.window_parameterization(win.reference);
-            match parameterization {
-                WindowParameterization::None { .. } => {
+            let WindowParameterization { kind, .. } = self.window_parameterization(win.reference);
+            match kind {
+                WindowParameterizationKind::None => {
                     let window = self.global_store.get_window_mut(win.reference);
                     if window.is_active() {
                         window.update(ts);
                     }
                 },
-                WindowParameterization::Caller | WindowParameterization::Target { .. } => {
+                WindowParameterizationKind::Caller | WindowParameterizationKind::Target => {
                     self.global_store
                         .get_window_collection_mut(win.reference)
                         .update_all(ts);
                 },
-                WindowParameterization::Both => {
+                WindowParameterizationKind::Both => {
                     self.global_store
                         .get_two_layer_window_collection_mut(win.reference)
                         .update_all(ts);
@@ -909,21 +907,21 @@ impl Evaluator {
     }
 
     fn extend_window(&mut self, own_parameter: &[Value], win: WindowReference, value: Value, ts: Time) {
-        match self.window_parameterization(win) {
-            WindowParameterization::None { .. } => self.global_store.get_window_mut(win).accept_value(value, ts),
-            WindowParameterization::Caller => {
+        match self.window_parameterization(win).kind {
+            WindowParameterizationKind::None => self.global_store.get_window_mut(win).accept_value(value, ts),
+            WindowParameterizationKind::Caller => {
                 self.global_store
                     .get_window_collection_mut(win)
                     .accept_value_all(value, ts)
             },
-            WindowParameterization::Target { .. } => {
+            WindowParameterizationKind::Target => {
                 self.global_store
                     .get_window_collection_mut(win)
                     .window_mut(own_parameter)
                     .expect("tried to extend non existing window")
                     .accept_value(value, ts)
             },
-            WindowParameterization::Both => {
+            WindowParameterizationKind::Both => {
                 self.global_store
                     .get_two_layer_window_collection_mut(win)
                     .accept_value(own_parameter, value, ts)
@@ -1083,17 +1081,17 @@ impl EvaluationContext<'_> {
     }
 
     pub(crate) fn lookup_window(&self, window_ref: WindowReference, target_parameter: &[Value]) -> Value {
-        let parameterization = self.global_store.window_parameterization(window_ref);
+        let parameterization = self.global_store.window_parameterization(window_ref).kind;
         match parameterization {
-            WindowParameterization::None { .. } => self.global_store.get_window(window_ref).get_value(self.ts),
-            WindowParameterization::Caller => {
+            WindowParameterizationKind::None => self.global_store.get_window(window_ref).get_value(self.ts),
+            WindowParameterizationKind::Caller => {
                 self.global_store
                     .get_window_collection(window_ref)
                     .window(self.parameter.as_slice())
                     .expect("Own window to exist")
                     .get_value(self.ts)
             },
-            WindowParameterization::Target { .. } => {
+            WindowParameterizationKind::Target => {
                 let window_collection = self.global_store.get_window_collection(window_ref);
                 let window = window_collection.window(target_parameter);
                 if let Some(w) = window {
@@ -1102,7 +1100,7 @@ impl EvaluationContext<'_> {
                     window_collection.default_value(self.ts)
                 }
             },
-            WindowParameterization::Both => {
+            WindowParameterizationKind::Both => {
                 let collection = self.global_store.get_two_layer_window_collection(window_ref);
                 let window = collection.window(target_parameter, self.parameter.as_slice());
                 if let Some(w) = window {
@@ -3601,7 +3599,6 @@ mod tests {
                        output b spawn @a eval @0.5s with a.aggregate(over: 5s, using: count)",
         );
         let mut eval = eval.into_evaluator();
-        let a_ref = StreamReference::In(0);
         let b_ref = StreamReference::Out(0);
         let mut tracer = NoTracer::default();
 
@@ -3619,5 +3616,69 @@ mod tests {
             &mut tracer,
         );
         assert_eq!(eval.peek_value(b_ref, &[Signed(1)], 0).unwrap(), Unsigned(1));
+    }
+
+    // Corresponds to issue #20
+    #[test]
+    fn test_parameterized_window_global_freq() {
+        let (_, eval, mut time) = setup(
+            "input page_id: UInt
+                    output page_id_visits(pid)
+                      spawn with page_id
+                      eval when pid == page_id
+
+                    output visits_per_day(pid)
+                      spawn with page_id
+                      eval @Global(1h) with page_id_visits(pid).aggregate(over: 1h, using: count)",
+        );
+        let mut eval = eval.into_evaluator();
+        let visits = StreamReference::Out(0);
+        let avg = StreamReference::Out(1);
+        let mut tracer = NoTracer::default();
+
+        eval.eval_event(&[Signed(1)], time, &mut tracer);
+        assert!(stream_has_instance!(eval, visits, vec![Signed(1)]));
+        assert!(stream_has_instance!(eval, avg, vec![Signed(1)]));
+
+        time += Duration::from_millis(1000);
+        eval.eval_event(&[Signed(2)], time, &mut tracer);
+        assert!(stream_has_instance!(eval, visits, vec![Signed(2)]));
+        assert!(stream_has_instance!(eval, avg, vec![Signed(2)]));
+
+        time += Duration::from_millis(1000);
+        eval.eval_event(&[Signed(3)], time, &mut tracer);
+        assert!(stream_has_instance!(eval, visits, vec![Signed(3)]));
+        assert!(stream_has_instance!(eval, avg, vec![Signed(3)]));
+
+        time += Duration::from_millis(1000);
+        eval.eval_event(&[Signed(5)], time, &mut tracer);
+        assert!(stream_has_instance!(eval, visits, vec![Signed(5)]));
+        assert!(stream_has_instance!(eval, avg, vec![Signed(5)]));
+
+        time += Duration::from_millis(1000);
+        eval.eval_event(&[Signed(3)], time, &mut tracer);
+        assert!(stream_has_instance!(eval, visits, vec![Signed(3)]));
+        assert!(stream_has_instance!(eval, avg, vec![Signed(3)]));
+
+        time += Duration::from_millis(1000);
+        eval.eval_event(&[Signed(1)], time, &mut tracer);
+        assert!(stream_has_instance!(eval, visits, vec![Signed(1)]));
+        assert!(stream_has_instance!(eval, avg, vec![Signed(1)]));
+
+        time = Duration::from_secs(3600);
+        eval.eval_time_driven_tasks(
+            vec![
+                EvaluationTask::Evaluate(avg.out_ix(), vec![Signed(1)]),
+                EvaluationTask::Evaluate(avg.out_ix(), vec![Signed(2)]),
+                EvaluationTask::Evaluate(avg.out_ix(), vec![Signed(3)]),
+                EvaluationTask::Evaluate(avg.out_ix(), vec![Signed(5)]),
+            ],
+            time,
+            &mut tracer,
+        );
+        assert_eq!(eval.peek_value(avg, &[Signed(1)], 0).unwrap(), Unsigned(1));
+        assert_eq!(eval.peek_value(avg, &[Signed(2)], 0).unwrap(), Unsigned(1));
+        assert_eq!(eval.peek_value(avg, &[Signed(3)], 0).unwrap(), Unsigned(2));
+        assert_eq!(eval.peek_value(avg, &[Signed(5)], 0).unwrap(), Unsigned(1));
     }
 }

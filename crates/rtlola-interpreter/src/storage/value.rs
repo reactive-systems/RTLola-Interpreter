@@ -731,7 +731,7 @@ mod tests {
 
     #[test]
     fn size_of_value() {
-        let result = std::mem::size_of::<Value>();
+        let result = size_of::<Value>();
         let expected = 24;
         assert!(
             result == expected,
