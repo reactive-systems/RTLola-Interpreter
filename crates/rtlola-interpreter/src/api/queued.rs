@@ -782,8 +782,9 @@ mod tests {
 
     #[test]
     fn test_count_window() {
-        let (_, mut monitor) =
-            setup::<1, Incremental>("input a: UInt16\noutput b: UInt16 @0.25Hz := a.aggregate(over: 40s, using: #)");
+        let (_, mut monitor) = setup::<1, Incremental>(
+            "input a: UInt16\noutput b: UInt16 @0.25Hz := a.aggregate(over: 40s, using: count)",
+        );
 
         let timeout = Duration::from_millis(500);
         let output = monitor.output_queue();
