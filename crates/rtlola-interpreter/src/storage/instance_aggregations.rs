@@ -1,11 +1,13 @@
+use std::marker::PhantomData;
 use std::ops::{Add, Mul};
 
+use num::ToPrimitive;
 use num_traits::Zero;
-use ordered_float::NotNan;
 use rtlola_frontend::mir;
 use rtlola_frontend::mir::{InstanceOperation, InstanceSelection, StreamReference, Type, Window};
 use rust_decimal::Decimal;
 
+use super::window::{WindowDecimal, WindowFloat, WindowGeneric};
 use crate::storage::stores::InstanceCollection;
 use crate::storage::InstanceStore;
 use crate::Value;
@@ -28,10 +30,42 @@ impl From<&mir::InstanceAggregation> for InstanceAggregation {
                     InstanceOperation::Average => Box::new(FreshAggregation(Avg::neutral(value.ty()))),
                     InstanceOperation::Conjunction => Box::new(FreshAggregation(All::neutral(value.ty()))),
                     InstanceOperation::Disjunction => Box::new(FreshAggregation(Any::neutral(value.ty()))),
-                    InstanceOperation::Variance => Box::new(FreshAggregation(Variance::neutral(value.ty()))),
-                    InstanceOperation::Covariance => Box::new(FreshAggregation(CoVar::neutral(value.ty()))),
-                    InstanceOperation::StandardDeviation => Box::new(FreshAggregation(StdDev::neutral(value.ty()))),
-                    InstanceOperation::NthPercentile(pctl) => Box::new(FreshAggregation(Percentile::new(pctl))),
+                    InstanceOperation::Variance => {
+                        match value.ty() {
+                            Type::Fixed(_) | Type::UFixed(_) => {
+                                Box::new(FreshAggregation(Variance::<WindowDecimal>::neutral(value.ty())))
+                            },
+                            Type::Float(_) => Box::new(FreshAggregation(Variance::<WindowFloat>::neutral(value.ty()))),
+                            _ => unreachable!(),
+                        }
+                    },
+                    InstanceOperation::Covariance => {
+                        match value.ty() {
+                            Type::Fixed(_) | Type::UFixed(_) => {
+                                Box::new(FreshAggregation(CoVar::<WindowDecimal>::neutral(value.ty())))
+                            },
+                            Type::Float(_) => Box::new(FreshAggregation(CoVar::<WindowFloat>::neutral(value.ty()))),
+                            _ => unreachable!(),
+                        }
+                    },
+                    InstanceOperation::StandardDeviation => {
+                        match value.ty() {
+                            Type::Fixed(_) | Type::UFixed(_) => {
+                                Box::new(FreshAggregation(StdDev::<WindowDecimal>::neutral(value.ty())))
+                            },
+                            Type::Float(_) => Box::new(FreshAggregation(StdDev::<WindowFloat>::neutral(value.ty()))),
+                            _ => unreachable!(),
+                        }
+                    },
+                    InstanceOperation::NthPercentile(pctl) => {
+                        match value.ty() {
+                            Type::Fixed(_) | Type::UFixed(_) => {
+                                Box::new(FreshAggregation(Percentile::<WindowDecimal>::new(pctl)))
+                            },
+                            Type::Float(_) => Box::new(FreshAggregation(Percentile::<WindowFloat>::new(pctl))),
+                            _ => unreachable!(),
+                        }
+                    },
                 }
             },
             InstanceSelection::All => {
@@ -44,12 +78,54 @@ impl From<&mir::InstanceAggregation> for InstanceAggregation {
                     InstanceOperation::Average => Box::new(Incremental(AllAggregation(Avg::neutral(value.ty())))),
                     InstanceOperation::Conjunction => Box::new(Incremental(AllAggregation(All::neutral(value.ty())))),
                     InstanceOperation::Disjunction => Box::new(Incremental(AllAggregation(Any::neutral(value.ty())))),
-                    InstanceOperation::Variance => Box::new(Incremental(AllAggregation(Variance::neutral(value.ty())))),
-                    InstanceOperation::Covariance => Box::new(Incremental(AllAggregation(CoVar::neutral(value.ty())))),
-                    InstanceOperation::StandardDeviation => {
-                        Box::new(Incremental(AllAggregation(StdDev::neutral(value.ty()))))
+                    InstanceOperation::Variance => {
+                        match value.ty() {
+                            Type::Fixed(_) | Type::UFixed(_) => {
+                                Box::new(Incremental(AllAggregation(Variance::<WindowDecimal>::neutral(
+                                    value.ty(),
+                                ))))
+                            },
+                            Type::Float(_) => {
+                                Box::new(Incremental(AllAggregation(Variance::<WindowFloat>::neutral(
+                                    value.ty(),
+                                ))))
+                            },
+                            _ => unreachable!(),
+                        }
                     },
-                    InstanceOperation::NthPercentile(pctl) => Box::new(Total(AllAggregation(Percentile::new(pctl)))),
+                    InstanceOperation::Covariance => {
+                        match value.ty() {
+                            Type::Fixed(_) | Type::UFixed(_) => {
+                                Box::new(Incremental(AllAggregation(CoVar::<WindowDecimal>::neutral(value.ty()))))
+                            },
+                            Type::Float(_) => {
+                                Box::new(Incremental(AllAggregation(CoVar::<WindowFloat>::neutral(value.ty()))))
+                            },
+                            _ => unreachable!(),
+                        }
+                    },
+                    InstanceOperation::StandardDeviation => {
+                        match value.ty() {
+                            Type::Fixed(_) | Type::UFixed(_) => {
+                                Box::new(Incremental(AllAggregation(StdDev::<WindowDecimal>::neutral(
+                                    value.ty(),
+                                ))))
+                            },
+                            Type::Float(_) => {
+                                Box::new(Incremental(AllAggregation(StdDev::<WindowFloat>::neutral(value.ty()))))
+                            },
+                            _ => unreachable!(),
+                        }
+                    },
+                    InstanceOperation::NthPercentile(pctl) => {
+                        match value.ty() {
+                            Type::Fixed(_) | Type::UFixed(_) => {
+                                Box::new(Total(AllAggregation(Percentile::<WindowDecimal>::new(pctl))))
+                            },
+                            Type::Float(_) => Box::new(Total(AllAggregation(Percentile::<WindowFloat>::new(pctl)))),
+                            _ => unreachable!(),
+                        }
+                    },
                 }
             },
         };
@@ -390,6 +466,7 @@ impl IncrementalOp for Avg {
                 Value::Unsigned(sum) => Value::Unsigned(sum / self.count as u64),
                 Value::Signed(sum) => Value::Signed(sum / self.count as i64),
                 Value::Float(sum) => Value::Float(sum / self.count as f64),
+                Value::Decimal(sum) => Value::Decimal(sum / Decimal::from(self.count)),
                 _ => unreachable!("Incompatible Value Types"),
             }
         } else {
@@ -399,23 +476,25 @@ impl IncrementalOp for Avg {
 }
 
 // See https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Welford's_online_algorithm for reference
-struct Variance {
+struct Variance<G: WindowGeneric> {
     count: usize,
     m_2: Decimal,
     sum: Decimal,
+    _marker: PhantomData<G>,
 }
 
-impl InstanceOp for Variance {
+impl<G: WindowGeneric> InstanceOp for Variance<G> {
     fn neutral(_ty: &Type) -> Self {
         Variance {
             count: 0,
             m_2: Decimal::zero(),
             sum: Decimal::zero(),
+            _marker: PhantomData,
         }
     }
 }
 
-impl TotalOp for Variance {
+impl<G: WindowGeneric> TotalOp for Variance<G> {
     fn for_instances<'s>(&'s self, instances: impl IntoIterator<Item = &'s InstanceStore>) -> Value {
         let (sum, m_2, count) = instances
             .into_iter()
@@ -432,11 +511,17 @@ impl TotalOp for Variance {
                     (sum + val, m_2 + (val - avg_old) * (val - avg_current), count + 1)
                 },
             );
-        Self { sum, m_2, count }.value()
+        Self {
+            sum,
+            m_2,
+            count,
+            _marker: PhantomData,
+        }
+        .value()
     }
 }
 
-impl IncrementalOp for Variance {
+impl<G: WindowGeneric> IncrementalOp for Variance<G> {
     fn add(&mut self, val: Value) {
         let val: Decimal = val.try_into().unwrap();
         let avg_old = if self.count > 0 {
@@ -470,28 +555,29 @@ impl IncrementalOp for Variance {
 
     fn value(&self) -> Value {
         if self.count == 0 {
-            return Value::Float(NotNan::from(0));
+            return G::from_value(Value::Decimal(0.into()));
         }
-        Value::try_from(self.m_2 / Decimal::from(self.count)).expect("")
+        let res = self.m_2 / Decimal::from(self.count);
+        G::from_value(Value::Decimal(res))
     }
 }
 
-struct StdDev(Variance);
+struct StdDev<G: WindowGeneric>(Variance<G>);
 
-impl InstanceOp for StdDev {
+impl<G: WindowGeneric> InstanceOp for StdDev<G> {
     fn neutral(ty: &Type) -> Self {
         Self(Variance::neutral(ty))
     }
 }
 
-impl TotalOp for StdDev {
+impl<G: WindowGeneric> TotalOp for StdDev<G> {
     fn for_instances<'s>(&'s self, instances: impl IntoIterator<Item = &'s InstanceStore>) -> Value {
         let inner = self.0.for_instances(instances);
-        inner.pow(Value::try_from(0.5).unwrap())
+        inner.pow(G::from_value(Value::Decimal(0.5.try_into().unwrap())))
     }
 }
 
-impl IncrementalOp for StdDev {
+impl<G: WindowGeneric> IncrementalOp for StdDev<G> {
     fn add(&mut self, val: Value) {
         self.0.add(val)
     }
@@ -502,19 +588,20 @@ impl IncrementalOp for StdDev {
 
     fn value(&self) -> Value {
         let inner = self.0.value();
-        inner.pow(Value::try_from(0.5).unwrap())
+        inner.pow(G::from_value(Value::Decimal(0.5.try_into().unwrap())))
     }
 }
 
 // See https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Online for reference
-struct CoVar {
+struct CoVar<G: WindowGeneric> {
     count: usize,
     co_moment: Decimal,
     sum_x: Decimal,
     sum_y: Decimal,
+    _marker: PhantomData<G>,
 }
 
-impl CoVar {
+impl<G: WindowGeneric> CoVar<G> {
     fn unwrap_value(val: Value) -> Option<(Decimal, Decimal)> {
         if let Value::Tuple(inner) = val {
             let [x, y]: [Value; 2] = inner.into_vec().try_into().unwrap();
@@ -525,18 +612,19 @@ impl CoVar {
     }
 }
 
-impl InstanceOp for CoVar {
+impl<G: WindowGeneric> InstanceOp for CoVar<G> {
     fn neutral(_ty: &Type) -> Self {
         Self {
             count: 0,
             co_moment: Decimal::zero(),
             sum_x: Decimal::zero(),
             sum_y: Decimal::zero(),
+            _marker: PhantomData,
         }
     }
 }
 
-impl TotalOp for CoVar {
+impl<G: WindowGeneric> TotalOp for CoVar<G> {
     fn for_instances<'s>(&'s self, instances: impl IntoIterator<Item = &'s InstanceStore>) -> Value {
         let (sum_x, sum_y, co_moment, count) = instances
             .into_iter()
@@ -563,12 +651,13 @@ impl TotalOp for CoVar {
             sum_y,
             co_moment,
             count,
+            _marker: PhantomData,
         }
         .value()
     }
 }
 
-impl IncrementalOp for CoVar {
+impl<G: WindowGeneric> IncrementalOp for CoVar<G> {
     fn add(&mut self, val: Value) {
         let (x, y) = Self::unwrap_value(val).expect("Covariance to be applied to tuples");
         let avg_x_old = if self.count > 0 {
@@ -605,27 +694,32 @@ impl IncrementalOp for CoVar {
         if self.count == 0 {
             return Value::None;
         }
-        Value::try_from(self.co_moment / Decimal::from(self.count)).expect("")
+        let res = self.co_moment / Decimal::from(self.count);
+        G::from_value(Value::Decimal(res))
     }
 }
 
-struct Percentile {
+struct Percentile<G: WindowGeneric> {
     percentile: u8,
+    _marker: PhantomData<G>,
 }
 
-impl Percentile {
+impl<G: WindowGeneric> Percentile<G> {
     fn new(percentile: u8) -> Self {
-        Percentile { percentile }
+        Percentile {
+            percentile,
+            _marker: PhantomData,
+        }
     }
 }
 
-impl InstanceOp for Percentile {
+impl<G: WindowGeneric> InstanceOp for Percentile<G> {
     fn neutral(_ty: &Type) -> Self {
         panic!("Should not be used with percentile.")
     }
 }
 
-impl TotalOp for Percentile {
+impl<G: WindowGeneric> TotalOp for Percentile<G> {
     fn for_instances<'s>(&'s self, instances: impl IntoIterator<Item = &'s InstanceStore>) -> Value {
         let mut values: Vec<Value> = instances.into_iter().filter_map(|inst| inst.get_value(0)).collect();
 
@@ -634,6 +728,7 @@ impl TotalOp for Percentile {
                 (Value::Signed(x), Value::Signed(y)) => x.cmp(y),
                 (Value::Unsigned(x), Value::Unsigned(y)) => x.cmp(y),
                 (Value::Float(x), Value::Float(y)) => x.partial_cmp(y).unwrap(),
+                (Value::Decimal(x), Value::Decimal(y)) => x.partial_cmp(y).unwrap(),
                 _ => unimplemented!("only primitive types implemented for percentile"),
             }
         });
@@ -643,10 +738,10 @@ impl TotalOp for Percentile {
             values[idx].clone()
         } else {
             // Take the average of the adjacent values
-            let idx = count as f64 / 100.0;
+            let idx = Decimal::from(count) / Decimal::from(100);
             let frac = idx.fract();
-            let idx = idx.floor() as usize;
-            let diff = Value::try_from(frac).unwrap() * (values[idx + 1].clone() - values[idx].clone());
+            let idx = idx.floor().to_usize().unwrap();
+            let diff = G::from_value(Value::Decimal(frac)) * (values[idx + 1].clone() - values[idx].clone());
             values[idx].clone() + diff
         }
     }
@@ -654,22 +749,29 @@ impl TotalOp for Percentile {
 
 #[cfg(test)]
 mod tests {
-    use rtlola_frontend::mir::{FloatTy, MemorizationBound, Type};
+    use rtlola_frontend::mir::{FixedTy, FloatTy, MemorizationBound, Type};
+    use rust_decimal::Decimal;
 
     use crate::storage::instance_aggregations::{
         All, AllAggregation, Any, Avg, CoVar, Count, FreshAggregation, Incremental, InstanceOp, Max, Min, Percentile,
         Product, StdDev, Sum, Total, Variance,
     };
     use crate::storage::stores::InstanceCollection;
+    use crate::storage::window::{WindowDecimal, WindowFloat};
     use crate::storage::InstanceAggregationTrait;
     use crate::Value;
 
     const FLOAT_TY: Type = Type::Float(FloatTy::Float64);
+    const DECIMAL_TY: Type = Type::Fixed(FixedTy::Fixed64_32);
 
     const BOOL_TY: Type = Type::Bool;
 
     fn float(f: f64) -> Value {
         Value::try_from(f).unwrap()
+    }
+
+    fn decimal(f: f64) -> Value {
+        Value::try_from(Decimal::try_from(f).unwrap()).unwrap()
     }
 
     fn tuple(a: f64, b: f64) -> Value {
@@ -678,6 +780,10 @@ mod tests {
 
     fn prepare_store(values: &[Value]) -> InstanceCollection {
         prepare_store_with_ty(values, FLOAT_TY)
+    }
+
+    fn prepare_decimal_store(values: &[Value]) -> InstanceCollection {
+        prepare_store_with_ty(values, DECIMAL_TY)
     }
 
     fn prepare_store_with_ty(values: &[Value], ty: Type) -> InstanceCollection {
@@ -705,6 +811,10 @@ mod tests {
 
     fn apply_incremental(values: &[Value], aggr: &mut impl InstanceAggregationTrait) {
         apply_incremental_cb(values, aggr, |idx| float((idx + 10) as f64))
+    }
+
+    fn apply_incremental_decimals(values: &[Value], aggr: &mut impl InstanceAggregationTrait) {
+        apply_incremental_cb(values, aggr, |idx| decimal((idx + 10) as f64))
     }
 
     #[test]
@@ -758,6 +868,19 @@ mod tests {
     }
 
     #[test]
+    fn test_sum_decimals() {
+        let values = &[decimal(42.0), decimal(5.0), decimal(7.0), decimal(-13.0)];
+        let store = prepare_decimal_store(values);
+
+        let fresh = FreshAggregation(Sum::neutral(&DECIMAL_TY));
+        let mut all = Incremental(AllAggregation(Sum::neutral(&DECIMAL_TY)));
+        apply_incremental_decimals(values, &mut all);
+
+        assert_eq!(fresh.get_value(&store), decimal(41.0));
+        assert_eq!(all.get_value(&store), decimal(41.0));
+    }
+
+    #[test]
     fn test_avg() {
         let values = &[float(42.0), float(5.0), float(7.0), float(-13.0)];
         let store = prepare_store(values);
@@ -768,6 +891,19 @@ mod tests {
 
         assert_eq!(fresh.get_value(&store), float(10.25));
         assert_eq!(all.get_value(&store), float(10.25));
+    }
+
+    #[test]
+    fn test_avg_decimals() {
+        let values = &[decimal(42.0), decimal(5.0), decimal(7.0), decimal(-13.0)];
+        let store = prepare_decimal_store(values);
+
+        let fresh = FreshAggregation(Avg::neutral(&DECIMAL_TY));
+        let mut all = Incremental(AllAggregation(Avg::neutral(&DECIMAL_TY)));
+        apply_incremental_decimals(values, &mut all);
+
+        assert_eq!(fresh.get_value(&store), decimal(10.25));
+        assert_eq!(all.get_value(&store), decimal(10.25));
     }
 
     #[test]
@@ -824,8 +960,8 @@ mod tests {
         let values = &[float(42.0), float(5.0), float(7.0), float(-13.0)];
         let store = prepare_store(values);
 
-        let fresh = FreshAggregation(Variance::neutral(&FLOAT_TY));
-        let mut all = Incremental(AllAggregation(Variance::neutral(&FLOAT_TY)));
+        let fresh = FreshAggregation(Variance::<WindowFloat>::neutral(&FLOAT_TY));
+        let mut all = Incremental(AllAggregation(Variance::<WindowFloat>::neutral(&FLOAT_TY)));
         apply_incremental(values, &mut all);
 
         assert_eq!(fresh.get_value(&store), float(396.6875));
@@ -833,16 +969,48 @@ mod tests {
     }
 
     #[test]
+    fn test_variance_decimals() {
+        let values = &[decimal(42.0), decimal(5.0), decimal(7.0), decimal(-13.0)];
+        let store = prepare_decimal_store(values);
+
+        let fresh = FreshAggregation(Variance::<WindowDecimal>::neutral(&DECIMAL_TY));
+        let mut all = Incremental(AllAggregation(Variance::<WindowDecimal>::neutral(&DECIMAL_TY)));
+        apply_incremental_decimals(values, &mut all);
+
+        assert_eq!(fresh.get_value(&store), decimal(396.6875));
+        assert_eq!(all.get_value(&store), decimal(396.6875));
+    }
+
+    #[test]
     fn test_stddev() {
         let values = &[float(42.0), float(5.0), float(7.0), float(-13.0)];
         let store = prepare_store(values);
 
-        let fresh = FreshAggregation(StdDev::neutral(&FLOAT_TY));
-        let mut all = Incremental(AllAggregation(StdDev::neutral(&FLOAT_TY)));
+        let fresh = FreshAggregation(StdDev::<WindowFloat>::neutral(&FLOAT_TY));
+        let mut all = Incremental(AllAggregation(StdDev::<WindowFloat>::neutral(&FLOAT_TY)));
         apply_incremental(values, &mut all);
 
         assert_eq!(fresh.get_value(&store), float(19.917015338649513));
         assert_eq!(all.get_value(&store), float(19.917015338649513));
+    }
+
+    #[test]
+    fn test_stddev_decimals() {
+        let values = &[decimal(42.0), decimal(5.0), decimal(7.0), decimal(-13.0)];
+        let store = prepare_decimal_store(values);
+
+        let fresh = FreshAggregation(StdDev::<WindowDecimal>::neutral(&DECIMAL_TY));
+        let mut all = Incremental(AllAggregation(StdDev::<WindowDecimal>::neutral(&DECIMAL_TY)));
+        apply_incremental_decimals(values, &mut all);
+
+        match fresh.get_value(&store) {
+            Value::Decimal(d) => assert_eq!(d.round_dp(5), Decimal::try_from(19.91702).unwrap()),
+            _ => panic!(),
+        };
+        match all.get_value(&store) {
+            Value::Decimal(d) => assert_eq!(d.round_dp(5), Decimal::try_from(19.91702).unwrap()),
+            _ => panic!(),
+        };
     }
 
     #[test]
@@ -856,8 +1024,8 @@ mod tests {
         ];
         let store = prepare_store_with_ty(values, ty);
 
-        let fresh = FreshAggregation(CoVar::neutral(&FLOAT_TY));
-        let mut all = Incremental(AllAggregation(CoVar::neutral(&FLOAT_TY)));
+        let fresh = FreshAggregation(CoVar::<WindowFloat>::neutral(&FLOAT_TY));
+        let mut all = Incremental(AllAggregation(CoVar::<WindowFloat>::neutral(&FLOAT_TY)));
         apply_incremental_cb(values, &mut all, |idx| tuple((idx + 5) as f64, (idx + 13) as f64));
 
         assert_eq!(fresh.get_value(&store), float(153.8125));
@@ -865,12 +1033,33 @@ mod tests {
     }
 
     #[test]
+    fn test_covariance_decimal() {
+        let ty = Type::Tuple(vec![DECIMAL_TY, DECIMAL_TY]);
+        let values = &[
+            Value::Tuple(vec![decimal(42.0), decimal(15.0)].into_boxed_slice()),
+            Value::Tuple(vec![decimal(5.0), decimal(8.0)].into_boxed_slice()),
+            Value::Tuple(vec![decimal(7.0), decimal(23.0)].into_boxed_slice()),
+            Value::Tuple(vec![decimal(-13.0), decimal(-11.0)].into_boxed_slice()),
+        ];
+        let store = prepare_store_with_ty(values, ty);
+
+        let fresh = FreshAggregation(CoVar::<WindowDecimal>::neutral(&DECIMAL_TY));
+        let mut all = Incremental(AllAggregation(CoVar::<WindowDecimal>::neutral(&DECIMAL_TY)));
+        apply_incremental_cb(values, &mut all, |idx| {
+            Value::Tuple(vec![decimal((idx + 5) as f64), decimal((idx + 13) as f64)].into_boxed_slice())
+        });
+
+        assert_eq!(fresh.get_value(&store), decimal(153.8125));
+        assert_eq!(all.get_value(&store), decimal(153.8125));
+    }
+
+    #[test]
     fn test_percentile() {
         let values = &[float(42.0), float(5.0), float(7.0), float(-13.0)];
         let store = prepare_store(values);
 
-        let mut fresh = FreshAggregation(Percentile::new(50));
-        let mut all = Total(AllAggregation(Percentile::new(50)));
+        let mut fresh = FreshAggregation(Percentile::<WindowFloat>::new(50));
+        let mut all = Total(AllAggregation(Percentile::<WindowFloat>::new(50)));
 
         assert_eq!(fresh.get_value(&store), float(6.0));
         assert_eq!(all.get_value(&store), float(6.0));
@@ -892,5 +1081,35 @@ mod tests {
 
         assert_eq!(fresh.get_value(&store), float(5.52));
         assert_eq!(all.get_value(&store), float(5.52));
+    }
+
+    #[test]
+    fn test_percentile_decimals() {
+        let values = &[decimal(42.0), decimal(5.0), decimal(7.0), decimal(-13.0)];
+        let store = prepare_decimal_store(values);
+
+        let mut fresh = FreshAggregation(Percentile::<WindowDecimal>::new(50));
+        let mut all = Total(AllAggregation(Percentile::<WindowDecimal>::new(50)));
+
+        assert_eq!(fresh.get_value(&store), decimal(6.0));
+        assert_eq!(all.get_value(&store), decimal(6.0));
+
+        fresh = FreshAggregation(Percentile::new(25));
+        all = Total(AllAggregation(Percentile::new(25)));
+
+        assert_eq!(fresh.get_value(&store), decimal(0.5));
+        assert_eq!(all.get_value(&store), decimal(0.5));
+
+        fresh = FreshAggregation(Percentile::new(75));
+        all = Total(AllAggregation(Percentile::new(75)));
+
+        assert_eq!(fresh.get_value(&store), decimal(15.75));
+        assert_eq!(all.get_value(&store), decimal(15.75));
+
+        fresh = FreshAggregation(Percentile::new(42));
+        all = Total(AllAggregation(Percentile::new(42)));
+
+        assert_eq!(fresh.get_value(&store), decimal(5.52));
+        assert_eq!(all.get_value(&store), decimal(5.52));
     }
 }

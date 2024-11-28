@@ -9,6 +9,7 @@ use rtlola_interpreter::monitor::{Change, TotalIncremental, VerdictRepresentatio
 use rtlola_interpreter::rtlola_mir::{OutputReference, RtLolaMir, StreamReference};
 use rtlola_interpreter::time::OutputTimeRepresentation;
 use rtlola_interpreter::Value;
+use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
 use serde_json::value::Value as JsonValue;
 
@@ -216,6 +217,7 @@ fn json_value(value: &Value) -> JsonValue {
         &Value::Unsigned(n) => n.into(),
         &Value::Signed(n) => n.into(),
         &Value::Float(n) => f64::from(n).into(),
+        &Value::Decimal(n) => n.to_f64().unwrap().into(),
         Value::Tuple(tup) => tup.iter().map(json_value).collect::<JsonValue>(),
         Value::Str(s) => s.to_string().into(),
         Value::Bytes(s) => s.iter().copied().collect::<JsonValue>(),

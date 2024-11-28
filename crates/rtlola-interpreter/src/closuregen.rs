@@ -5,10 +5,12 @@
 use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl, Shr, Sub};
 use std::rc::Rc;
 
+use num::{FromPrimitive, ToPrimitive};
 use ordered_float::NotNan;
 use regex::bytes::Regex as BytesRegex;
 use regex::Regex;
 use rtlola_frontend::mir::{Constant, Expression, ExpressionKind, Offset, StreamAccessKind, Type};
+use rust_decimal::{Decimal, MathematicalOps};
 use string_template::Template;
 
 use crate::evaluator::{ActivationConditionOp, EvaluationContext};
@@ -77,13 +79,21 @@ impl Expr for Expression {
         use ExpressionKind::*;
         match self.kind {
             LoadConstant(c) => {
-                let v = match c {
-                    Constant::Bool(b) => Value::Bool(b),
-                    Constant::UInt(u) => Value::Unsigned(u),
-                    Constant::Int(i) => Value::Signed(i),
-                    Constant::Float(f) => Value::Float(NotNan::new(f).expect("Constants shouldn't allow NaN")),
-                    Constant::Str(s) => Value::Str(s.into_boxed_str()),
-                };
+                fn const_to_val(c: Constant) -> Value {
+                    match c {
+                        Constant::Bool(b) => Value::Bool(b),
+                        Constant::UInt(u) => Value::Unsigned(u),
+                        Constant::Int(i) => Value::Signed(i),
+                        Constant::Float(f) => Value::Float(NotNan::new(f).expect("Constants shouldn't allow NaN")),
+                        Constant::Str(s) => Value::Str(s.into_boxed_str()),
+                        Constant::Decimal(i) => Value::Decimal(i),
+                        Constant::Tuple(elements) => {
+                            let values: Vec<Value> = elements.into_iter().map(const_to_val).collect();
+                            Value::Tuple(values.into_boxed_slice())
+                        },
+                    }
+                }
+                let v = const_to_val(c);
                 CompiledExpr::new(move |_| v.clone())
             },
             ParameterAccess(_target, idx) => CompiledExpr::new(move |ctx| ctx.parameter[idx].clone()),
@@ -222,6 +232,19 @@ impl Expr for Expression {
                 assert!(!args.is_empty());
                 let f_arg = args[0].clone().compile();
 
+                macro_rules! create_decimalfn {
+                    ($fn:ident) => {
+                        CompiledExpr::new(move |ctx| {
+                            let arg = f_arg.execute(ctx);
+                            match arg {
+                                Value::Float(f) => Value::try_from(f.$fn()).unwrap(),
+                                Value::Decimal(f) => Value::try_from(f.$fn()).unwrap(),
+                                _ => unreachable!(),
+                            }
+                        })
+                    };
+                }
+
                 macro_rules! create_floatfn {
                     ($fn:ident) => {
                         CompiledExpr::new(move |ctx| {
@@ -253,10 +276,10 @@ impl Expr for Expression {
                 }
 
                 match name.as_ref() {
-                    "sqrt" => create_floatfn!(sqrt),
-                    "sin" => create_floatfn!(sin),
-                    "cos" => create_floatfn!(cos),
-                    "tan" => create_floatfn!(tan),
+                    "sqrt" => create_decimalfn!(sqrt),
+                    "sin" => create_decimalfn!(sin),
+                    "cos" => create_decimalfn!(cos),
+                    "tan" => create_decimalfn!(tan),
                     "arcsin" => create_floatfn!(asin),
                     "arccos" => create_floatfn!(acos),
                     "arctan" => create_floatfn!(atan),
@@ -400,6 +423,21 @@ impl Expr for Expression {
                             }
                         })
                     };
+                    ($from:ident, $to:ident, $fn:expr) => {
+                        CompiledExpr::new(move |ctx| {
+                            let v = f_expr.execute(ctx);
+                            match v {
+                                Value::$from(v) => Value::$to($fn(v)),
+                                v => {
+                                    unreachable!(
+                                        "Value type of {:?} does not match convert from type {:?}",
+                                        v,
+                                        stringify!($from)
+                                    )
+                                },
+                            }
+                        })
+                    };
                 }
 
                 use Type::*;
@@ -412,7 +450,26 @@ impl Expr for Expression {
                     (Int(_), Float(_)) => create_convert!(Signed, Float, f64),
                     (Float(_), UInt(_)) => create_convert!(Float, Unsigned, u64),
                     (Float(_), Int(_)) => create_convert!(Float, Signed, i64),
-                    (Float(_), Float(_)) => f_expr,
+                    (Fixed(_), Fixed(_)) => f_expr,
+                    (UFixed(_), UFixed(_)) => f_expr,
+                    (UInt(_), Fixed(_) | UFixed(_)) => create_convert!(Signed, Decimal, |v: i64| Decimal::from(v)),
+                    (Int(_), Fixed(_) | UFixed(_)) => create_convert!(Unsigned, Decimal, |v: u64| Decimal::from(v)),
+                    (Float(_), Fixed(_) | UFixed(_)) => {
+                        create_convert!(Float, Decimal, |v: NotNan<f64>| {
+                            Decimal::from_f64(v.to_f64().unwrap()).unwrap()
+                        })
+                    },
+                    (Fixed(_) | UFixed(_), Float(_)) => {
+                        create_convert!(Decimal, Float, |v: Decimal| {
+                            NotNan::try_from(v.to_f64().unwrap()).unwrap()
+                        })
+                    },
+                    (Fixed(_) | UFixed(_), Int(_)) => {
+                        create_convert!(Decimal, Signed, |v: Decimal| { v.round().to_i64().unwrap() })
+                    },
+                    (Fixed(_) | UFixed(_), UInt(_)) => {
+                        create_convert!(Decimal, Unsigned, |v: Decimal| { v.round().to_u64().unwrap() })
+                    },
                     (from, to) => unreachable!("from: {:?}, to: {:?}", from, to),
                 }
             },
