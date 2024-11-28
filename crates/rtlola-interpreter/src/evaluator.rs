@@ -498,12 +498,6 @@ impl Evaluator {
             x => vec![x],
         };
 
-        let own_windows: Vec<WindowReference> = self
-            .stream_windows
-            .get(&stream.reference)
-            .map(|windows| windows.to_vec())
-            .unwrap_or_default();
-
         if stream.is_parameterized() {
             debug_assert!(!parameter_values.is_empty());
             let instances = self.global_store.get_out_instance_collection_mut(output);
@@ -521,6 +515,41 @@ impl Evaluator {
             }
             inst.activate();
         }
+
+        self.spawn_windows(output, parameter_values.as_slice(), ts);
+
+        // Schedule instance evaluation if stream is periodic
+        if let Some(tds) = self.time_driven_streams[output] {
+            let mut schedule = (*self.dyn_schedule).borrow_mut();
+
+            // Schedule eval if it has local pacing
+            if tds.locality == PacingLocality::Local {
+                schedule.schedule_evaluation(output, parameter_values.as_slice(), ts, tds.period_in_duration());
+            }
+
+            // Schedule close if it has local pacing
+            if let PacingType::LocalPeriodic(f) = stream.close.pacing {
+                let period = Duration::from_nanos(
+                    UOM_Time::new::<uom::si::time::second>(f.get::<uom::si::frequency::hertz>().inv())
+                        .get::<nanosecond>()
+                        .to_integer()
+                        .try_into()
+                        .expect("Period [ns] too large for u64!"),
+                );
+                schedule.schedule_close(output, parameter_values.as_slice(), ts, period);
+            }
+        }
+
+        self.spawned_outputs.insert(output);
+    }
+
+    fn spawn_windows(&mut self, stream: OutputReference, parameter_values: &[Value], ts: Time) {
+        let stream = &self.ir.outputs[stream];
+        let own_windows: Vec<WindowReference> = self
+            .stream_windows
+            .get(&stream.reference)
+            .map(|windows| windows.to_vec())
+            .unwrap_or_default();
 
         //activate windows of this stream
         for win_ref in own_windows {
@@ -576,7 +605,7 @@ impl Evaluator {
                     };
                     let target_value = fresh.then(|| inst.get_value(0).unwrap());
                     let windows = self.global_store.get_window_collection_mut(win_ref);
-                    let window = windows.get_or_create(parameter_values.as_slice(), ts);
+                    let window = windows.get_or_create(parameter_values, ts);
                     // Check if target of window produced a value in this iteration and add the value
                     if !window.is_active() {
                         window.activate(ts);
@@ -593,7 +622,7 @@ impl Evaluator {
                         .get_out_instance_collection(target.out_ix())
                         .fresh_values();
                     let windows = self.global_store.get_two_layer_window_collection_mut(win_ref);
-                    windows.spawn_caller_instance(fresh_values, parameter_values.as_slice(), ts, ts);
+                    windows.spawn_caller_instance(fresh_values, parameter_values, ts, ts);
                 },
                 (WindowParameterizationKind::Both | WindowParameterizationKind::Target, true) => {
                     // target and caller are parameterized and windows are evaluated at global clock.
@@ -610,46 +639,22 @@ impl Evaluator {
                 (WindowParameterizationKind::Caller | WindowParameterizationKind::None, _) => {},
                 (WindowParameterizationKind::Both | WindowParameterizationKind::Target, true) => {
                     let windows = self.global_store.get_window_collection_mut(*win_ref);
-                    let window = windows.get_or_create(parameter_values.as_slice(), ts);
+                    let window = windows.get_or_create(parameter_values, ts);
                     // Window is not activated by caller so we assume it to have existed since the beginning.
                     window.activate(Time::default());
                 },
                 (WindowParameterizationKind::Target, false) => {
                     let windows = self.global_store.get_window_collection_mut(*win_ref);
-                    windows.create_window(parameter_values.as_slice(), ts);
+                    windows.create_window(parameter_values, ts);
                     // Window is activated by caller at spawn
                 },
                 (WindowParameterizationKind::Both, false) => {
                     let windows = self.global_store.get_two_layer_window_collection_mut(*win_ref);
-                    windows.spawn_target_instance(parameter_values.as_slice());
+                    windows.spawn_target_instance(parameter_values);
                     // Windows are activated by caller at spawn
                 },
             }
         }
-
-        // Schedule instance evaluation if stream is periodic
-        if let Some(tds) = self.time_driven_streams[output] {
-            let mut schedule = (*self.dyn_schedule).borrow_mut();
-
-            // Schedule eval if it has local pacing
-            if tds.locality == PacingLocality::Local {
-                schedule.schedule_evaluation(output, parameter_values.as_slice(), ts, tds.period_in_duration());
-            }
-
-            // Schedule close if it has local pacing
-            if let PacingType::LocalPeriodic(f) = stream.close.pacing {
-                let period = Duration::from_nanos(
-                    UOM_Time::new::<uom::si::time::second>(f.get::<uom::si::frequency::hertz>().inv())
-                        .get::<nanosecond>()
-                        .to_integer()
-                        .try_into()
-                        .expect("Period [ns] too large for u64!"),
-                );
-                schedule.schedule_close(output, parameter_values.as_slice(), ts, period);
-            }
-        }
-
-        self.spawned_outputs.insert(output);
     }
 
     fn eval_close(&mut self, output: OutputReference, parameter: &[Value], ts: Time) {
