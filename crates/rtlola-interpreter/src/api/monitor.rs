@@ -643,7 +643,7 @@ mod tests {
     #[test]
     fn test_count_window() {
         let (_, mut monitor) =
-            setup::<1, Incremental>("input a: UInt16\noutput b: UInt16 @0.25Hz := a.aggregate(over: 40s, using: #)");
+            setup::<1, Incremental>("input a: UInt16\noutput b: UInt16 @0.25Hz := a.aggregate(over: 40s, using: count)");
 
         let n = 25;
         let mut time = Duration::from_secs(45);

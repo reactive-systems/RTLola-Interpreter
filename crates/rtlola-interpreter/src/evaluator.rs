@@ -1718,7 +1718,7 @@ mod tests {
     #[test]
     fn test_count_window() {
         let (_, eval, mut time) =
-            setup_time("input a: UInt16\noutput b: UInt16 @0.25Hz := a.aggregate(over: 40s, using: #)");
+            setup_time("input a: UInt16\noutput b: UInt16 @0.25Hz := a.aggregate(over: 40s, using: count)");
         let mut eval = eval.into_evaluator();
         time += Duration::from_secs(45);
         let out_ref = StreamReference::Out(0);
