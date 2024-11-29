@@ -31,24 +31,30 @@ pub(crate) struct FactoryAttr {
 #[proc_macro_error]
 /// A derive macro that implements the [EventFactory](rtlola_interpreter::input::EventFactory) trait for a type which is composed of types that implement `TryInto<Value>`.
 /// For an example look at `simple.rs` and `custom_names.rs` in the example folder.
+///
+/// _Note:_ This macro does not implement the [EventFactory](rtlola_interpreter::input::EventFactory) trait directly, but rather implements [AssociatedEventFactory](rtlola_interpreter::input::AssociatedEventFactory) which links to the respective factory.
 pub fn derive_record_impl(input: TokenStream) -> TokenStream {
     value_expand(input)
 }
 
 #[proc_macro_derive(CompositFactory, attributes(factory))]
 #[proc_macro_error]
-/// A derive macro that implements the [EventFactory](rtlola_interpreter::input::EventFactory) trait for a type which is composed of types that implement [AssociateFactor](rtlola_interpreter::input::AssociatedFactory).
+/// A derive macro that implements the [EventFactory](rtlola_interpreter::input::EventFactory) trait for a type which is composed of types that implement [AssociatedEventFactory](rtlola_interpreter::input::AssociatedEventFactory).
 /// For an example look at `enum.rs` in the example folder.
+///
+/// _Note:_ This macro does not implement the [EventFactory](rtlola_interpreter::input::EventFactory) trait directly, but rather implements [AssociatedEventFactory](rtlola_interpreter::input::AssociatedEventFactory) which links to the respective factory.
 pub fn derive_input_impl(input: TokenStream) -> TokenStream {
     composit_expand(input)
 }
 
-#[proc_macro_derive(FromStreamValues, attributes(factory))]
+#[proc_macro_derive(VerdictFactory, attributes(factory))]
 #[proc_macro_error]
 /// A derive macro that implements the [FromValues](rtlola_interpreter::output::FromValues) trait for a struct with named fields.
 /// The types of these fields must implement `TryFrom<Value>`, but are also allowed to be optional.
 /// Parametrized streams are captured by HashMaps.
 /// For an example look at `verdict.rs` in the example folder.
+///
+/// _Note:_ This macro does not implement the [VerdictFactory](rtlola_interpreter::output::VerdictFactory) trait directly, but rather implements [AssociatedVerdictFactory](rtlola_interpreter::output::AssociatedVerdictFactory) which links to the respective factory.
 pub fn derive_struct_verdict(input: TokenStream) -> TokenStream {
     struct_verdict_expand(input)
 }

@@ -56,7 +56,7 @@ impl StructDeriver {
             .map(|(ty, ident)| {
                 (
                     format_ident!("{}_factory", ident),
-                    quote! {<#ty as rtlola_interpreter::input::AssociatedFactory>::Factory},
+                    quote! {<#ty as rtlola_interpreter::input::AssociatedEventFactory>::Factory},
                 )
             })
             .unzip();

@@ -2,11 +2,11 @@ use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use rtlola_interpreter::monitor::{TotalIncremental, Verdicts};
-use rtlola_interpreter::output::{StructVerdictError, StructVerdictFactory, VerdictFactory};
+use rtlola_interpreter::output::{AssociatedVerdictFactory, VerdictFactory};
 use rtlola_interpreter::rtlola_frontend::ParserConfig;
 use rtlola_interpreter::time::RelativeFloat;
 use rtlola_interpreter::ConfigBuilder;
-use rtlola_interpreter_macros::{FromStreamValues, ValueFactory};
+use rtlola_interpreter_macros::{ValueFactory, VerdictFactory};
 
 const SPEC: &str = "input a: Int64\n\
     input i: UInt64\n\
@@ -30,7 +30,7 @@ const SPEC: &str = "input a: Int64\n\
 #[derive(Debug, Clone, PartialEq, Default)]
 struct Test {}
 
-#[derive(Debug, Clone, PartialEq, FromStreamValues)]
+#[derive(Debug, Clone, PartialEq, VerdictFactory)]
 struct MyOutputs {
     // Any field named 'time', 'ts' or 'timestamp' is automatically recognized as the time.
     #[factory(is_time)]
@@ -59,12 +59,9 @@ fn main() {
     }
 
     let ir = rtlola_interpreter::rtlola_frontend::parse(&ParserConfig::for_string(SPEC.to_string())).unwrap();
-    let factory: &mut dyn VerdictFactory<
-        TotalIncremental,
-        RelativeFloat,
-        Error = StructVerdictError,
-        Verdict = MyOutputs,
-    > = &mut StructVerdictFactory::<MyOutputs>::new(&ir).unwrap();
+
+    let factory: &mut dyn VerdictFactory<TotalIncremental, RelativeFloat, Error = _, Verdict = _> =
+        &mut <<MyOutputs as AssociatedVerdictFactory<TotalIncremental, RelativeFloat>>::Factory>::new(&ir).unwrap();
 
     let mut monitor = ConfigBuilder::new()
         .with_ir(ir)
@@ -78,6 +75,7 @@ fn main() {
         .accept_event(Inputs { a: -13, i: 24 }, Duration::from_secs_f64(1.2))
         .unwrap();
     let my_output = factory.get_verdict(event, ts).unwrap();
+
     assert_eq!(
         my_output,
         MyOutputs {

@@ -37,7 +37,7 @@ pub(crate) trait ComposingDeriver {
         let get_event = self.get_event();
 
         quote! {
-            impl #impl_generics rtlola_interpreter::input::AssociatedFactory for #name #ty_generics #where_clause {
+            impl #impl_generics rtlola_interpreter::input::AssociatedEventFactory for #name #ty_generics #where_clause {
                 type Factory = #struct_name;
             }
 

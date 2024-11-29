@@ -6,6 +6,7 @@ use std::marker::PhantomData;
 
 use jsonl::WriteError;
 use rtlola_interpreter::monitor::{Change, TotalIncremental, VerdictRepresentation};
+use rtlola_interpreter::output::NewVerdictFactory;
 use rtlola_interpreter::rtlola_mir::{OutputReference, RtLolaMir, StreamReference};
 use rtlola_interpreter::time::OutputTimeRepresentation;
 use rtlola_interpreter::Value;
@@ -275,5 +276,13 @@ impl<O: OutputTimeRepresentation> VerdictFactory<TotalIncremental, O> for JsonFa
             updates,
             time: self.output_time.to_string(ts),
         }))
+    }
+}
+
+impl<O: OutputTimeRepresentation> NewVerdictFactory<TotalIncremental, O> for JsonFactory<O> {
+    type CreationData = JsonVerbosity;
+
+    fn new(ir: &RtLolaMir, data: Self::CreationData) -> Result<Self, Self::Error> {
+        Ok(Self::new(ir, data))
     }
 }

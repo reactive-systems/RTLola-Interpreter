@@ -1,4 +1,4 @@
-use rtlola_interpreter::input::AssociatedFactory;
+use rtlola_interpreter::input::AssociatedEventFactory;
 use rtlola_interpreter::monitor::Incremental;
 use rtlola_interpreter::time::RelativeFloat;
 use rtlola_interpreter::{ConfigBuilder, Monitor};
@@ -46,7 +46,7 @@ fn main() {
                    input c: String\n",
         )
         .offline::<RelativeFloat>()
-        .with_event_factory::<<TestEnum as AssociatedFactory>::Factory>()
+        .with_event_factory::<<TestEnum as AssociatedEventFactory>::Factory>()
         .with_verdict::<Incremental>()
         .monitor()
         .expect("Failed to create monitor.");

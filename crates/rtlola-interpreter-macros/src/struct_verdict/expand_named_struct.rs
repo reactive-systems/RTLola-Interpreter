@@ -9,10 +9,6 @@ use crate::FactoryAttr;
 
 const TIME_NAMES: [&str; 3] = ["time", "ts", "timestamp"];
 
-// fn expand_value_convert(stream_val: TokenStream, is_trigger: bool, target_ty: TokenStream) -> TokenStream {
-//
-// }
-
 pub(crate) fn expand_named_struct(input: &DeriveInput) -> TokenStream {
     let mut attr: FactoryAttr = match deluxe::parse_attributes(input) {
         Ok(attr) => attr,

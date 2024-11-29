@@ -13,17 +13,34 @@ use crate::monitor::{Change, Total, TotalIncremental, VerdictRepresentation};
 use crate::time::{OutputTimeRepresentation, TimeConversion};
 use crate::{Value, ValueConvertError};
 
+/// Extends the [VerdictFactory] trait with a new method.
+pub trait NewVerdictFactory<MonitorOutput: VerdictRepresentation, OutputTime: OutputTimeRepresentation>:
+    VerdictFactory<MonitorOutput, OutputTime> + Sized
+{
+    /// A custom data type supplied when creating the factory.
+    type CreationData;
+
+    /// Creates a new Verdict Factory from the MIR.
+    fn new(ir: &RtLolaMir, data: Self::CreationData) -> Result<Self, Self::Error>;
+}
+
 /// This trait provides the functionally to convert the monitor output.
-/// You can either implement this trait for your own datatype or use one of the predefined output methods.
-/// See [VerdictRepresentationFactory]
+/// You can either implement this trait for your own datatype or use one of the predefined output methods from the `rtlola-io-plugins` crate.
 pub trait VerdictFactory<MonitorOutput: VerdictRepresentation, OutputTime: OutputTimeRepresentation> {
-    /// Type of the expected Output representation
+    /// Type of the expected Output representation.
     type Verdict;
-    /// Error when converting the monitor output to the verdict
+
+    /// Error when converting the monitor output to the verdict.
     type Error: Error + 'static;
 
     /// This function converts a monitor to a verdict.
     fn get_verdict(&mut self, rec: MonitorOutput, ts: OutputTime::InnerTime) -> Result<Self::Verdict, Self::Error>;
+}
+
+/// A trait to annotate Self with an [VerdictFactory] that outputs Self as a Verdict.
+pub trait AssociatedVerdictFactory<MonitorOutput: VerdictRepresentation, OutputTime: OutputTimeRepresentation> {
+    /// The associated factory.
+    type Factory: NewVerdictFactory<MonitorOutput, OutputTime>;
 }
 
 /// Represents the state of a stream in a Verdict.
@@ -47,6 +64,22 @@ pub trait FromValues: Sized {
     /// Tries to construct `Self` from a vector of [StreamValue]s and a timestamp.
     /// The stream values are in the same order as the names returned by `Self::streams()`.
     fn construct(ts: Self::OutputTime, data: Vec<StreamValue>) -> Result<Self, FromValuesError>;
+}
+
+impl<V, ExpectedTime, MonitorTime> AssociatedVerdictFactory<Total, MonitorTime> for V
+where
+    V: FromValues<OutputTime = ExpectedTime>,
+    MonitorTime: TimeConversion<ExpectedTime>,
+{
+    type Factory = StructVerdictFactory<V>;
+}
+
+impl<V, ExpectedTime, MonitorTime> AssociatedVerdictFactory<TotalIncremental, MonitorTime> for V
+where
+    V: FromValues<OutputTime = ExpectedTime>,
+    MonitorTime: TimeConversion<ExpectedTime>,
+{
+    type Factory = StructVerdictFactory<V>;
 }
 
 /// Represents the errors that can occur when constructing an arbitraty type from a vector of [StreamValue]s.
@@ -236,6 +269,18 @@ where
     }
 }
 
+impl<O, I, V> NewVerdictFactory<Total, O> for StructVerdictFactory<V>
+where
+    V: FromValues<OutputTime = I>,
+    O: OutputTimeRepresentation + TimeConversion<I>,
+{
+    type CreationData = ();
+
+    fn new(ir: &RtLolaMir, _data: Self::CreationData) -> Result<Self, Self::Error> {
+        Self::new(ir)
+    }
+}
+
 impl<O, I, V> VerdictFactory<TotalIncremental, O> for StructVerdictFactory<V>
 where
     V: FromValues<OutputTime = I>,
@@ -287,5 +332,17 @@ where
         }
         let time = O::into(ts);
         Ok(V::construct(time, values)?)
+    }
+}
+
+impl<O, I, V> NewVerdictFactory<TotalIncremental, O> for StructVerdictFactory<V>
+where
+    V: FromValues<OutputTime = I>,
+    O: OutputTimeRepresentation + TimeConversion<I>,
+{
+    type CreationData = ();
+
+    fn new(ir: &RtLolaMir, _data: Self::CreationData) -> Result<Self, Self::Error> {
+        Self::new(ir)
     }
 }

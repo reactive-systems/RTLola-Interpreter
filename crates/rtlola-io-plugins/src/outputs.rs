@@ -15,7 +15,8 @@ use std::io::Write;
 use std::marker::PhantomData;
 
 use rtlola_interpreter::monitor::{VerdictRepresentation, Verdicts};
-use rtlola_interpreter::output::VerdictFactory;
+use rtlola_interpreter::output::{NewVerdictFactory, VerdictFactory};
+use rtlola_interpreter::rtlola_frontend::RtLolaMir;
 use rtlola_interpreter::time::{OutputTimeRepresentation, TimeRepresentation};
 
 /// Struct for a generic factory returning the monitor output
@@ -42,6 +43,18 @@ impl<MonitorOutput: VerdictRepresentation, OutputTime: OutputTimeRepresentation>
 
     fn get_verdict(&mut self, rec: MonitorOutput, ts: OutputTime::InnerTime) -> Result<Self::Verdict, Self::Error> {
         Ok((rec, ts))
+    }
+}
+
+impl<MonitorOutput: VerdictRepresentation, OutputTime: OutputTimeRepresentation>
+    NewVerdictFactory<MonitorOutput, OutputTime> for VerdictRepresentationFactory<MonitorOutput, OutputTime>
+{
+    type CreationData = ();
+
+    fn new(_ir: &RtLolaMir, _data: Self::CreationData) -> Result<Self, Self::Error> {
+        Ok(Self {
+            phantom: Default::default(),
+        })
     }
 }
 
@@ -220,5 +233,13 @@ impl<V: VerdictRepresentation, O: OutputTimeRepresentation> VerdictFactory<V, O>
 
     fn get_verdict(&mut self, _rec: V, _ts: O::InnerTime) -> Result<Self::Verdict, Self::Error> {
         Ok(())
+    }
+}
+
+impl<V: VerdictRepresentation, O: OutputTimeRepresentation> NewVerdictFactory<V, O> for EmptyFactory {
+    type CreationData = ();
+
+    fn new(_ir: &RtLolaMir, _data: Self::CreationData) -> Result<Self, Self::Error> {
+        Ok(Self)
     }
 }

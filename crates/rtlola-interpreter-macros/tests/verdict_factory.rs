@@ -6,7 +6,7 @@ use rtlola_interpreter::output::{FromValuesError, StructVerdictError, StructVerd
 use rtlola_interpreter::rtlola_frontend::ParserConfig;
 use rtlola_interpreter::time::RelativeFloat;
 use rtlola_interpreter::ConfigBuilder;
-use rtlola_interpreter_macros::{FromStreamValues, ValueFactory};
+use rtlola_interpreter_macros::{ValueFactory, VerdictFactory};
 
 #[test]
 fn complex_types() {
@@ -32,7 +32,7 @@ fn complex_types() {
     #[derive(Debug, Clone, PartialEq, Default)]
     struct Test {}
 
-    #[derive(Debug, Clone, PartialEq, FromStreamValues)]
+    #[derive(Debug, Clone, PartialEq, VerdictFactory)]
     struct MyOutputs {
         // Any field named 'time', 'ts' or 'timestamp' is automatically recognized as the time.
         #[factory(is_time)]
@@ -110,7 +110,7 @@ fn parameter_mismatch() {
         eval with \"Parameter 1 is {{}}; Current a is {{}}\".format(p1, a)\n\
     ";
 
-    #[derive(Debug, Clone, PartialEq, FromStreamValues)]
+    #[derive(Debug, Clone, PartialEq, VerdictFactory)]
     struct MyOutputs {
         time: f64,
         d: HashMap<i64, String>,
@@ -155,7 +155,7 @@ fn kind_mismatch() {
         eval with \"Parameter 1 is {{}}; Current a is {{}}\".format(p1, a)\n\
     ";
 
-    #[derive(Debug, Clone, PartialEq, FromStreamValues)]
+    #[derive(Debug, Clone, PartialEq, VerdictFactory)]
     struct MyOutputs {
         time: f64,
         d: String,
@@ -198,7 +198,7 @@ fn expected_value() {
         output b @1Hz := a.hold(or: 42)
     ";
 
-    #[derive(Debug, Clone, PartialEq, FromStreamValues)]
+    #[derive(Debug, Clone, PartialEq, VerdictFactory)]
     struct MyOutputs {
         time: f64,
         b: String,
@@ -241,7 +241,7 @@ fn unkown_stream() {
         output b @1Hz := a.hold(or: 42)
     ";
 
-    #[derive(Debug, Clone, PartialEq, FromStreamValues)]
+    #[derive(Debug, Clone, PartialEq, VerdictFactory)]
     struct MyOutputs {
         time: f64,
         c: String,

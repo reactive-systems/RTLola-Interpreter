@@ -120,7 +120,7 @@ impl EnumComposer {
             .map(|(ident, ty)| {
                 (
                     field_name(ident),
-                    quote! {<#ty as rtlola_interpreter::input::AssociatedFactory>::Factory},
+                    quote! {<#ty as rtlola_interpreter::input::AssociatedEventFactory>::Factory},
                 )
             })
             .unzip();
