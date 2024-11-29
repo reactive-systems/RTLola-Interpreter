@@ -624,7 +624,7 @@ impl WindowGeneric for WindowFloat {
             Value::Signed(i) => i as f64,
             Value::Unsigned(u) => u as f64,
             Value::Float(f) => f.into(),
-            Value::Decimal(f) => f.to_f64().unwrap().into(),
+            Value::Decimal(f) => f.to_f64().unwrap(),
             _ => unreachable!("Type error."),
         };
         Value::Float(NotNan::new(f).unwrap())

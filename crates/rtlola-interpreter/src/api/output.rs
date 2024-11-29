@@ -203,11 +203,8 @@ impl<V: FromValues> StructVerdictFactory<V> {
         let map: Vec<StreamReference> = V::streams()
             .iter()
             .map(|name| {
-                ir.inputs
-                    .iter()
-                    .find(|is| &is.name == name)
-                    .map(|is| is.reference)
-                    .or_else(|| ir.outputs.iter().find(|os| &os.name == name).map(|os| os.reference))
+                ir.get_stream_by_name(name)
+                    .map(|s| s.as_stream_ref())
                     .or_else(|| {
                         name.starts_with("trigger_")
                             .then(|| name.split_once('_'))

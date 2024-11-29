@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.0] - T.B.A
 
 ### Added
-- Derive macro ```FromStreamValues``` to implement the `FromValues` trait for structs with named fields that implement `TryFrom<Value>`.
+- Derive macro ```VerdictFactory``` to implement the `FromValues` trait for structs with named fields that implement `TryFrom<Value>`.
 
 ## [0.1.0] - 28.06.2024
 

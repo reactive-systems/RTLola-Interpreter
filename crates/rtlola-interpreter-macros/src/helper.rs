@@ -66,7 +66,7 @@ pub(crate) fn is_bool(ty: &Type) -> bool {
         path.path
             .segments
             .last()
-            .map(|segment| segment.ident.to_string() == "bool")
+            .map(|segment| segment.ident == "bool")
             .unwrap_or(false)
     } else {
         false
