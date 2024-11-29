@@ -277,7 +277,7 @@ impl CliAnnotations {
                             StreamReference::Out(_) => {
                                 match ir.output(sr).kind {
                                     OutputKind::NamedOutput(_) => StreamVerbosity::Outputs,
-                                    OutputKind::Trigger(_) => StreamVerbosity::Warnings,
+                                    OutputKind::Trigger(_) => StreamVerbosity::Violations,
                                 }
                             },
                         }
@@ -314,9 +314,5 @@ impl CliAnnotations {
 
     fn debug(&self, sr: StreamReference) -> bool {
         self.debug_streams.contains(&sr)
-    }
-
-    fn has_debug(&self) -> bool {
-        !self.debug_streams.is_empty()
     }
 }

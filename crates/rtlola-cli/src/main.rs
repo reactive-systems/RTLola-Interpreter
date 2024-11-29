@@ -80,9 +80,6 @@ enum Cli {
         /// Set the formatting of the monitor output
         #[arg(long, value_enum, default_value_t)]
         output_format: CliOutputFormat,
-        /// Print debugging information for the given streams
-        #[arg(long)]
-        debug_streams: Vec<String>,
     },
 
     /// Start the monitor using the given specification
@@ -697,17 +694,22 @@ fn monitor(
             handler.emit_error(&e);
             std::process::exit(1);
         },
-    }
-    .add_debug_streams(
-        &debug_streams
-            .into_iter()
-            .map(|sname| {
-                ir.get_stream_by_name(sname.as_str())
-                    .expect("could not find stream")
-                    .as_stream_ref()
-            })
-            .collect::<Vec<_>>(),
-    );
+    };
+
+    let debug_streams = debug_streams
+        .into_iter()
+        .map(|sname| {
+            ir.get_stream_by_name(sname.as_str())
+                .ok_or_else(|| format!("stream {sname} marked for debugging, but not found in specification"))
+                .map(|stream| stream.as_stream_ref())
+        })
+        .collect::<Result<Vec<_>, String>>()
+        .unwrap_or_else(|e| {
+            eprintln!("{e}");
+            std::process::exit(1);
+        });
+
+    let annotations = annotations.add_debug_streams(&debug_streams);
 
     let source = EventSourceConfig::from(input.clone());
 
@@ -831,7 +833,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             verbosity,
             output_time_format,
             output_format,
-            debug_streams,
         } => {
             let config = rtlola_frontend::ParserConfig::from_path(spec).unwrap_or_else(|e| {
                 eprintln!("{}", e);
@@ -852,17 +853,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     handler.emit_error(&e);
                     std::process::exit(1);
                 },
-            }
-            .add_debug_streams(
-                &debug_streams
-                    .into_iter()
-                    .map(|sname| {
-                        ir.get_stream_by_name(sname.as_str())
-                            .expect("could not find stream")
-                            .as_stream_ref()
-                    })
-                    .collect::<Vec<_>>(),
-            );
+            };
 
             let source = input.clone().into_event_source(local_network);
 
