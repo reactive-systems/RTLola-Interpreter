@@ -22,7 +22,7 @@ use rtlola_io_plugins::inputs::pcap_plugin::{PcapEventSource, PcapInputSource};
 use rtlola_io_plugins::outputs::csv_plugin::CsvVerdictSink;
 use rtlola_io_plugins::outputs::json_plugin::JsonFactory;
 use rtlola_io_plugins::outputs::log_printer::LogPrinter;
-use rtlola_io_plugins::outputs::DiscardSink;
+use rtlola_io_plugins::outputs::VerbosityAnnotations;
 use termcolor::{Ansi, NoColor};
 
 use crate::config::{Config, EventSourceConfig, Statistics, Verbosity};
@@ -115,6 +115,9 @@ enum Cli {
         /// Set the formatting of the monitor output
         #[arg(long, value_enum, default_value_t)]
         output_format: CliOutputFormat,
+        /// Print debugging information for the given streams
+        #[arg(long)]
+        debug_streams: Vec<String>,
     },
 
     /// Generate a SHELL completion script and print it to stdout
@@ -288,9 +291,12 @@ enum CliOutputTimeRepresentation {
 
 #[derive(Clone, Copy, Debug, ValueEnum, Default)]
 enum CliOutputFormat {
+    /// Print the output in a line based logging format.
     #[default]
     Logger,
+    /// Print each verdict as a JSON object.
     Json,
+    /// Print each verdict as a row in CSV format.
     Csv,
 }
 
@@ -348,7 +354,7 @@ impl From<CliStartTime> for Option<SystemTime> {
 }
 
 macro_rules! run_config {
-    ($it:expr, $ot: expr, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr) => {
+    ($it:expr, $ot: expr, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr, $annotations:expr) => {
         match $it {
             CliInputTimeRepresentation::RelativeNanos | CliInputTimeRepresentation::RelativeUintNanos => {
                 run_config_it!(
@@ -361,7 +367,8 @@ macro_rules! run_config {
                     $output,
                     $mode,
                     $start_time,
-                    $of
+                    $of,
+                    $annotations
                 )
             },
             CliInputTimeRepresentation::Relative
@@ -377,7 +384,8 @@ macro_rules! run_config {
                     $output,
                     $mode,
                     $start_time,
-                    $of
+                    $of,
+                    $annotations
                 )
             },
             CliInputTimeRepresentation::OffsetNanos | CliInputTimeRepresentation::OffsetUintNanos => {
@@ -391,7 +399,8 @@ macro_rules! run_config {
                     $output,
                     $mode,
                     $start_time,
-                    $of
+                    $of,
+                    $annotations
                 )
             },
             CliInputTimeRepresentation::Offset
@@ -407,7 +416,8 @@ macro_rules! run_config {
                     $output,
                     $mode,
                     $start_time,
-                    $of
+                    $of,
+                    $annotations
                 )
             },
             CliInputTimeRepresentation::Absolute | CliInputTimeRepresentation::AbsoluteUnix => {
@@ -421,7 +431,8 @@ macro_rules! run_config {
                     $output,
                     $mode,
                     $start_time,
-                    $of
+                    $of,
+                    $annotations
                 )
             },
             CliInputTimeRepresentation::AbsoluteRfc | CliInputTimeRepresentation::AbsoluteRfc3339 => {
@@ -435,7 +446,8 @@ macro_rules! run_config {
                     $output,
                     $mode,
                     $start_time,
-                    $of
+                    $of,
+                    $annotations
                 )
             },
         }
@@ -443,7 +455,7 @@ macro_rules! run_config {
 }
 
 macro_rules! run_config_it {
-    ($it:expr, $ot: expr, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr) => {
+    ($it:expr, $ot: expr, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr, $annotations:expr) => {
         match $ot {
             CliOutputTimeRepresentation::RelativeNanos | CliOutputTimeRepresentation::RelativeUintNanos => {
                 run_config_it_ot!(
@@ -456,7 +468,8 @@ macro_rules! run_config_it {
                     $output,
                     $mode,
                     $start_time,
-                    $of
+                    $of,
+                    $annotations
                 )
             },
             CliOutputTimeRepresentation::Relative
@@ -472,7 +485,8 @@ macro_rules! run_config_it {
                     $output,
                     $mode,
                     $start_time,
-                    $of
+                    $of,
+                    $annotations
                 )
             },
             CliOutputTimeRepresentation::Absolute | CliOutputTimeRepresentation::AbsoluteUnix => {
@@ -486,7 +500,8 @@ macro_rules! run_config_it {
                     $output,
                     $mode,
                     $start_time,
-                    $of
+                    $of,
+                    $annotations
                 )
             },
             CliOutputTimeRepresentation::AbsoluteRfc | CliOutputTimeRepresentation::AbsoluteRfc3339 => {
@@ -500,7 +515,8 @@ macro_rules! run_config_it {
                     $output,
                     $mode,
                     $start_time,
-                    $of
+                    $of,
+                    $annotations
                 )
             },
         }
@@ -508,7 +524,7 @@ macro_rules! run_config_it {
 }
 
 macro_rules! run_config_it_ot {
-    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr) => {
+    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr, $annotations:expr) => {
         match $source {
             EventSourceConfig::Csv { time_col, kind } => {
                 let src: CsvEventSource<_> = CsvEventSource::setup(time_col, kind, &$ir)?;
@@ -522,7 +538,8 @@ macro_rules! run_config_it_ot {
                     $output,
                     $mode,
                     $start_time,
-                    $of
+                    $of,
+                    $annotations
                 )
             },
             #[cfg(feature = "pcap_interface")]
@@ -538,7 +555,8 @@ macro_rules! run_config_it_ot {
                     $output,
                     $mode,
                     $start_time,
-                    $of
+                    $of,
+                    $annotations
                 )
             },
         }
@@ -546,7 +564,7 @@ macro_rules! run_config_it_ot {
 }
 
 macro_rules! run_config_it_ot_src {
-    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr) => {
+    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr, $annotations:expr) => {
         match $output {
             OutputChannel::StdOut => {
                 run_config_it_ot_src2!(
@@ -560,7 +578,8 @@ macro_rules! run_config_it_ot_src {
                     $mode,
                     $start_time,
                     $of,
-                    atty::is(atty::Stream::Stdout)
+                    atty::is(atty::Stream::Stdout),
+                    $annotations
                 )
             },
             OutputChannel::StdErr => {
@@ -575,7 +594,8 @@ macro_rules! run_config_it_ot_src {
                     $mode,
                     $start_time,
                     $of,
-                    atty::is(atty::Stream::Stderr)
+                    atty::is(atty::Stream::Stderr),
+                    $annotations
                 )
             },
             OutputChannel::File(f) => {
@@ -592,7 +612,8 @@ macro_rules! run_config_it_ot_src {
                     $mode,
                     $start_time,
                     $of,
-                    false
+                    false,
+                    $annotations
                 )
             },
         }
@@ -600,29 +621,27 @@ macro_rules! run_config_it_ot_src {
 }
 
 macro_rules! run_config_it_ot_src2 {
-    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr, $colored: expr) => {{
-        if $verbosity == Verbosity::Silent {
-            let sink = DiscardSink::default();
-            run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
-        } else {
-            match $of {
-                CliOutputFormat::Logger if $colored => {
-                    let sink = LogPrinter::<_, Ansi<_>>::new($verbosity.try_into()?, &$ir).sink($output);
-                    run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
-                },
-                CliOutputFormat::Logger => {
-                    let sink = LogPrinter::<_, NoColor<_>>::new($verbosity.try_into()?, &$ir).sink($output);
-                    run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
-                },
-                CliOutputFormat::Json => {
-                    let sink = JsonFactory::new(&$ir, $verbosity.try_into()?).sink($output);
-                    run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
-                },
-                CliOutputFormat::Csv => {
-                    let sink = CsvVerdictSink::for_verbosity(&$ir, $output, $verbosity.try_into()?)?;
-                    run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
-                },
-            }
+    ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr, $colored: expr, $annotations:expr) => {{
+        match $of {
+            CliOutputFormat::Logger if $colored => {
+                let sink = LogPrinter::<_, Ansi<_>>::new_with_annotations($verbosity.try_into()?, &$ir, $annotations)?
+                    .sink($output);
+                run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
+            },
+            CliOutputFormat::Logger => {
+                let sink =
+                    LogPrinter::<_, NoColor<_>>::new_with_annotations($verbosity.try_into()?, &$ir, $annotations)?
+                        .sink($output);
+                run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
+            },
+            CliOutputFormat::Json => {
+                let sink = JsonFactory::new_with_annotations(&$ir, $verbosity.try_into()?, $annotations)?.sink($output);
+                run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
+            },
+            CliOutputFormat::Csv => {
+                let sink = CsvVerdictSink::for_verbosity(&$ir, $output, $verbosity.try_into()?, $annotations)?;
+                run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
+            },
         }
     }};
 }
@@ -645,6 +664,93 @@ macro_rules! run_config_it_ot_src_of {
         .run()
         .map(|_| ())
     }};
+}
+
+fn monitor(
+    spec: PathBuf,
+    input: MonitorInput,
+    output: CliOutputChannel,
+    mode: CliExecutionMode,
+    start_time: CliStartTime,
+    statistics: Statistics,
+    verbosity: Verbosity,
+    output_time_format: CliOutputTimeRepresentation,
+    output_format: CliOutputFormat,
+    debug_streams: Vec<String>,
+) -> Result<(), Box<dyn Error>> {
+    let config = rtlola_frontend::ParserConfig::from_path(spec).unwrap_or_else(|e| {
+        eprintln!("{}", e);
+        std::process::exit(1)
+    });
+    let handler = rtlola_frontend::Handler::from(&config);
+    let ir = rtlola_frontend::parse(&config).unwrap_or_else(|e| {
+        handler.emit_error(&e);
+        std::process::exit(1);
+    });
+
+    let annotations = match ir
+        .validate_tags(VerbosityAnnotations::parsers())
+        .and_then(|_| VerbosityAnnotations::new_with_debug(&ir, &debug_streams))
+    {
+        Ok(annotations) => annotations,
+        Err(e) => {
+            handler.emit_error(&e);
+            std::process::exit(1);
+        },
+    };
+
+    let source = EventSourceConfig::from(input.clone());
+
+    match mode {
+        CliExecutionMode { online: true, .. } => {
+            run_config_it!(
+                RealTime::default(),
+                output_time_format,
+                ir,
+                source,
+                statistics,
+                verbosity,
+                output.into(),
+                OnlineMode,
+                start_time.into(),
+                output_format,
+                annotations
+            )?;
+        },
+        CliExecutionMode { offline: Some(it), .. } => {
+            if let Some(d) = input.input_delay {
+                run_config_it!(
+                    DelayTime::new(Duration::from_millis(d)),
+                    output_time_format,
+                    ir,
+                    source,
+                    statistics,
+                    verbosity,
+                    output.into(),
+                    OfflineMode<_>,
+                    start_time.into(),
+                    output_format,
+                    annotations
+                )?;
+            } else {
+                run_config!(
+                    it,
+                    output_time_format,
+                    ir,
+                    source,
+                    statistics,
+                    verbosity,
+                    output.into(),
+                    OfflineMode<_>,
+                    start_time.into(),
+                    output_format,
+                    annotations
+                )?;
+            }
+        },
+        _ => unreachable!("Ensured by Clap"),
+    }
+    Ok(())
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -685,63 +791,22 @@ fn main() -> Result<(), Box<dyn Error>> {
             verbosity,
             output_time_format,
             output_format,
+            debug_streams,
         } => {
-            let config = rtlola_frontend::ParserConfig::from_path(spec).unwrap_or_else(|e| {
-                eprintln!("{}", e);
-                std::process::exit(1)
-            });
-            let handler = rtlola_frontend::Handler::from(&config);
-            let ir = rtlola_frontend::parse(&config).unwrap_or_else(|e| {
-                handler.emit_error(&e);
+            if let Err(e) = monitor(
+                spec,
+                input,
+                output,
+                mode,
+                start_time,
+                statistics,
+                verbosity,
+                output_time_format,
+                output_format,
+                debug_streams,
+            ) {
+                eprintln!("{e}");
                 std::process::exit(1);
-            });
-            let source = EventSourceConfig::from(input.clone());
-
-            match mode {
-                CliExecutionMode { online: true, .. } => {
-                    run_config_it!(
-                        RealTime::default(),
-                        output_time_format,
-                        ir,
-                        source,
-                        statistics,
-                        verbosity,
-                        output.into(),
-                        OnlineMode,
-                        start_time.into(),
-                        output_format
-                    )?;
-                },
-                CliExecutionMode { offline: Some(it), .. } => {
-                    if let Some(d) = input.input_delay {
-                        run_config_it!(
-                            DelayTime::new(Duration::from_millis(d)),
-                            output_time_format,
-                            ir,
-                            source,
-                            statistics,
-                            verbosity,
-                            output.into(),
-                            OfflineMode<_>,
-                            start_time.into(),
-                            output_format
-                        )?;
-                    } else {
-                        run_config!(
-                            it,
-                            output_time_format,
-                            ir,
-                            source,
-                            statistics,
-                            verbosity,
-                            output.into(),
-                            OfflineMode<_>,
-                            start_time.into(),
-                            output_format
-                        )?;
-                    }
-                },
-                _ => unreachable!("Ensured by Clap"),
             }
         },
 
@@ -767,6 +832,17 @@ fn main() -> Result<(), Box<dyn Error>> {
                 std::process::exit(1);
             });
 
+            let annotations = match ir
+                .validate_tags(VerbosityAnnotations::parsers())
+                .and_then(|_| VerbosityAnnotations::new(&ir))
+            {
+                Ok(annotations) => annotations,
+                Err(e) => {
+                    handler.emit_error(&e);
+                    std::process::exit(1);
+                },
+            };
+
             let source = input.clone().into_event_source(local_network);
 
             if input.interface.is_some() {
@@ -780,7 +856,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                     output.into(),
                     OnlineMode,
                     start_time.into(),
-                    output_format
+                    output_format,
+                    annotations
                 )?;
             } else if let Some(d) = input.input_delay {
                 run_config_it!(
@@ -793,7 +870,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                     output.into(),
                     OfflineMode<_>,
                     start_time.into(),
-                    output_format
+                    output_format,
+                    annotations
                 )?;
             } else {
                 run_config_it!(
@@ -806,7 +884,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                     output.into(),
                     OfflineMode<_>,
                     start_time.into(),
-                    output_format
+                    output_format,
+                    annotations
                 )?;
             }
         },

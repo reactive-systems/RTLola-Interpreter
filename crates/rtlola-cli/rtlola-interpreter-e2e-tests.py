@@ -60,7 +60,7 @@ def print_trigger_too_many(message, expected, actual):
 
 
 def run_offline():
-    res = subprocess.run([rtlola_interpreter_executable_path_string, "monitor", "--offline", "relative-secs", "--stdout", "--verbosity", "trigger", str(spec_file), "--csv-in", str(input_file)] + config, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=str(repo_base_dir), universal_newlines=True, timeout=10)
+    res = subprocess.run([rtlola_interpreter_executable_path_string, "monitor", "--offline", "relative-secs", "--stdout", "--verbosity", "warnings", str(spec_file), "--csv-in", str(input_file)] + config, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=str(repo_base_dir), universal_newlines=True, timeout=10)
     return res.returncode, iter(res.stdout.split("\n"))
 
 def run_online():
@@ -69,7 +69,7 @@ def run_online():
     time_idx = input_lines[0].split(',').index("time")
 
     out_file = open("temp_test_output.txt", "w+")
-    monitor = subprocess.Popen([rtlola_interpreter_executable_path_string, "monitor", "--online", "--stdout", "--verbosity", "trigger", "--stdin", str(spec_file)] + config, stdout=out_file, stderr=subprocess.STDOUT, cwd=str(repo_base_dir), stdin=subprocess.PIPE, universal_newlines=True)
+    monitor = subprocess.Popen([rtlola_interpreter_executable_path_string, "monitor", "--online", "--stdout", "--verbosity", "warnings", "--stdin", str(spec_file)] + config, stdout=out_file, stderr=subprocess.STDOUT, cwd=str(repo_base_dir), stdin=subprocess.PIPE, universal_newlines=True)
 
     # write csv header
     monitor.stdin.write(input_lines[0]+os.linesep)

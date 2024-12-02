@@ -7,14 +7,15 @@ use std::marker::PhantomData;
 use jsonl::WriteError;
 use rtlola_interpreter::monitor::{Change, TotalIncremental, VerdictRepresentation};
 use rtlola_interpreter::output::NewVerdictFactory;
-use rtlola_interpreter::rtlola_mir::{OutputReference, RtLolaMir, StreamReference};
+use rtlola_interpreter::rtlola_frontend::tag_parser::verbosity_parser::StreamVerbosity;
+use rtlola_interpreter::rtlola_mir::{RtLolaMir, StreamReference};
 use rtlola_interpreter::time::OutputTimeRepresentation;
 use rtlola_interpreter::Value;
 use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
 use serde_json::value::Value as JsonValue;
 
-use super::{VerdictFactory, VerdictsSink};
+use super::{VerbosityAnnotations, VerdictFactory, VerdictsSink};
 
 /// Print the verdicts in JSONL format to the writer
 #[derive(Debug)]
@@ -76,8 +77,14 @@ impl<
 #[derive(PartialEq, Ord, PartialOrd, Eq, Debug, Clone, Copy)]
 /// The verbosity of the JSON output
 pub enum JsonVerbosity {
-    /// only print the values of the trigger
-    Trigger,
+    /// don't print anything (except streams explicitly marked as debug)
+    Silent,
+    /// only print trigger violations
+    Violations,
+    /// only print trigger violations and warnings
+    Warnings,
+    /// print public output streams
+    Public,
     /// print the values of the outputs (including trigger)
     Outputs,
     /// print the values of all streams (including inputs)
@@ -86,21 +93,15 @@ pub enum JsonVerbosity {
     Debug,
 }
 
-impl JsonVerbosity {
-    fn include_inputs(&self) -> bool {
-        self >= &JsonVerbosity::Streams
-    }
-
-    fn include_non_trigger_outputs(&self) -> bool {
-        self >= &JsonVerbosity::Outputs
-    }
-
-    fn include_triggers(&self) -> bool {
-        true
-    }
-
-    fn include_spawn_and_close(&self) -> bool {
-        self >= &JsonVerbosity::Debug
+impl From<StreamVerbosity> for JsonVerbosity {
+    fn from(value: StreamVerbosity) -> Self {
+        match value {
+            StreamVerbosity::Streams => JsonVerbosity::Streams,
+            StreamVerbosity::Outputs => JsonVerbosity::Outputs,
+            StreamVerbosity::Public => JsonVerbosity::Public,
+            StreamVerbosity::Warnings => JsonVerbosity::Warnings,
+            StreamVerbosity::Violations => JsonVerbosity::Violations,
+        }
     }
 }
 
@@ -109,28 +110,40 @@ impl JsonVerbosity {
 pub struct JsonFactory<OutputTime: OutputTimeRepresentation> {
     stream_names: HashMap<StreamReference, String>,
     output_time: OutputTime,
-    triggers: HashSet<OutputReference>,
     verbosity: JsonVerbosity,
+    stream_verbosity: HashMap<StreamReference, JsonVerbosity>,
+    debug_streams: HashSet<StreamReference>,
 }
 
 impl<O: OutputTimeRepresentation> JsonFactory<O> {
     /// Construct a new factory for the given specification that writes to the supplied writer
-    pub fn new(ir: &RtLolaMir, verbosity: JsonVerbosity) -> Self {
+    pub fn new(ir: &RtLolaMir, verbosity: JsonVerbosity) -> Result<Self, String> {
+        let annotations = VerbosityAnnotations::new(ir).map_err(|e| e.to_string())?;
+        Self::new_with_annotations(ir, verbosity, annotations)
+    }
+
+    /// Construct a new factory for the given specification with the provided verbosity annotations
+    pub fn new_with_annotations(
+        ir: &RtLolaMir,
+        verbosity: JsonVerbosity,
+        annotations: VerbosityAnnotations,
+    ) -> Result<Self, String> {
         let stream_names = ir
             .all_streams()
             .map(|stream| (stream, ir.stream(stream).name().to_owned()))
             .collect();
-        let triggers = ir
-            .triggers
-            .iter()
-            .map(|trigger| trigger.output_reference.out_ix())
-            .collect();
-        Self {
+        let stream_verbosity = ir
+            .all_streams()
+            .map(|stream| Ok((stream, JsonVerbosity::from(annotations.verbosity(stream)))))
+            .collect::<Result<_, String>>()?;
+        let debug_streams = ir.all_streams().filter(|sr| annotations.debug(*sr)).collect();
+        Ok(Self {
             stream_names,
             output_time: Default::default(),
-            triggers,
             verbosity,
-        }
+            stream_verbosity,
+            debug_streams,
+        })
     }
 
     /// Turn the json factory into a sink writing to a writer
@@ -139,16 +152,14 @@ impl<O: OutputTimeRepresentation> JsonFactory<O> {
     }
 
     fn include_stream(&self, stream: StreamReference) -> bool {
-        match stream {
-            StreamReference::In(_) => self.verbosity.include_inputs(),
-            StreamReference::Out(o) if self.triggers.contains(&o) => self.verbosity.include_triggers(),
-            StreamReference::Out(_) => self.verbosity.include_non_trigger_outputs(),
-        }
+        self.verbosity >= *self.stream_verbosity.get(&stream).unwrap() || self.debug_streams.contains(&stream)
     }
 
-    fn include_change(&self, change: &Change) -> bool {
+    fn include_change(&self, change: &Change, sr: StreamReference) -> bool {
         match change {
-            Change::Spawn(_) | Change::Close(_) => self.verbosity.include_spawn_and_close(),
+            Change::Spawn(_) | Change::Close(_) => {
+                self.verbosity >= JsonVerbosity::Debug || self.debug_streams.contains(&sr)
+            },
             Change::Value(_, _) => true,
         }
     }
@@ -230,15 +241,20 @@ impl<O: OutputTimeRepresentation> VerdictFactory<TotalIncremental, O> for JsonFa
     type Verdict = Option<JsonVerdict>;
 
     fn get_verdict(&mut self, rec: TotalIncremental, ts: O::InnerTime) -> Result<Self::Verdict, Self::Error> {
+        if self.verbosity == JsonVerbosity::Silent && self.debug_streams.is_empty() {
+            return Ok(None);
+        }
+
         let updates: HashMap<_, _> = rec
             .outputs
             .iter()
             .filter(|(s, _)| self.include_stream(StreamReference::Out(*s)))
             .flat_map(|(stream, changes)| {
-                let stream_name = &self.stream_names[&StreamReference::Out(*stream)];
+                let sr = StreamReference::Out(*stream);
+                let stream_name = &self.stream_names[&sr];
                 let mut instances: HashMap<Option<&Vec<Value>>, InstanceUpdate> = HashMap::new();
                 for change in changes {
-                    if !self.include_change(change) {
+                    if !self.include_change(change, sr) {
                         continue;
                     }
                     let instance = match &change {
@@ -261,15 +277,13 @@ impl<O: OutputTimeRepresentation> VerdictFactory<TotalIncremental, O> for JsonFa
                 (!instances.is_empty()).then(|| (stream_name.clone(), instances.into_values().collect::<Vec<_>>()))
             })
             .chain(
-                (self.verbosity.include_inputs())
-                    .then(|| {
-                        rec.inputs.iter().map(|(stream, value)| {
-                            let stream_name = &self.stream_names[&StreamReference::In(*stream)];
-                            (stream_name.clone(), vec![InstanceUpdate::input(value)])
-                        })
-                    })
-                    .into_iter()
-                    .flatten(),
+                rec.inputs
+                    .iter()
+                    .filter(|(i, _)| self.include_stream(StreamReference::In(*i)))
+                    .map(|(stream, value)| {
+                        let stream_name = &self.stream_names[&StreamReference::In(*stream)];
+                        (stream_name.clone(), vec![InstanceUpdate::input(value)])
+                    }),
             )
             .collect();
         Ok((!updates.is_empty()).then_some(JsonVerdict {
@@ -281,8 +295,9 @@ impl<O: OutputTimeRepresentation> VerdictFactory<TotalIncremental, O> for JsonFa
 
 impl<O: OutputTimeRepresentation> NewVerdictFactory<TotalIncremental, O> for JsonFactory<O> {
     type CreationData = JsonVerbosity;
+    type CreationError = String;
 
-    fn new(ir: &RtLolaMir, data: Self::CreationData) -> Result<Self, Self::Error> {
-        Ok(Self::new(ir, data))
+    fn new(ir: &RtLolaMir, data: Self::CreationData) -> Result<Self, Self::CreationError> {
+        Self::new(ir, data)
     }
 }

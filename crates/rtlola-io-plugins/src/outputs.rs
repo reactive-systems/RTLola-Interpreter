@@ -9,6 +9,7 @@ pub mod log_printer;
 #[cfg(feature = "statistics_plugin")]
 pub mod statistics_plugin;
 
+use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::error::Error;
 use std::io::Write;
@@ -16,7 +17,12 @@ use std::marker::PhantomData;
 
 use rtlola_interpreter::monitor::{VerdictRepresentation, Verdicts};
 use rtlola_interpreter::output::{NewVerdictFactory, VerdictFactory};
-use rtlola_interpreter::rtlola_frontend::RtLolaMir;
+use rtlola_interpreter::rtlola_frontend::tag_parser::verbosity_parser::{
+    DebugParser, StreamVerbosity, VerbosityParser,
+};
+use rtlola_interpreter::rtlola_frontend::tag_parser::TagValidator;
+use rtlola_interpreter::rtlola_frontend::{RtLolaError, RtLolaMir};
+use rtlola_interpreter::rtlola_mir::StreamReference;
 use rtlola_interpreter::time::{OutputTimeRepresentation, TimeRepresentation};
 
 /// Struct for a generic factory returning the monitor output
@@ -50,6 +56,7 @@ impl<MonitorOutput: VerdictRepresentation, OutputTime: OutputTimeRepresentation>
     NewVerdictFactory<MonitorOutput, OutputTime> for VerdictRepresentationFactory<MonitorOutput, OutputTime>
 {
     type CreationData = ();
+    type CreationError = Infallible;
 
     fn new(_ir: &RtLolaMir, _data: Self::CreationData) -> Result<Self, Self::Error> {
         Ok(Self {
@@ -238,8 +245,77 @@ impl<V: VerdictRepresentation, O: OutputTimeRepresentation> VerdictFactory<V, O>
 
 impl<V: VerdictRepresentation, O: OutputTimeRepresentation> NewVerdictFactory<V, O> for EmptyFactory {
     type CreationData = ();
+    type CreationError = Infallible;
 
     fn new(_ir: &RtLolaMir, _data: Self::CreationData) -> Result<Self, Self::Error> {
         Ok(Self)
+    }
+}
+
+/// Represents the verbosity and debug configuration of the streams in the specification to be used with the output plugins.
+#[derive(Debug, Clone)]
+pub struct VerbosityAnnotations {
+    stream_verbosity: HashMap<StreamReference, StreamVerbosity>,
+    debug_streams: HashSet<StreamReference>,
+}
+
+impl VerbosityAnnotations {
+    /// Parses the annotated tags in the specification to build the [CliAnnotations]
+    pub fn new(ir: &RtLolaMir) -> Result<VerbosityAnnotations, RtLolaError> {
+        let verbosity_parser = VerbosityParser;
+        let debug_parser = DebugParser;
+
+        let stream_verbosity_tags = ir.parse_tags(verbosity_parser)?;
+        let stream_verbosity = ir
+            .all_streams()
+            .map(|sr| (sr, *stream_verbosity_tags.local_tags(sr).unwrap()))
+            .collect();
+        let debug_tags = ir.parse_tags(debug_parser)?;
+        let debug_streams = ir
+            .all_streams()
+            .filter(|sr| *debug_tags.local_tags(*sr).unwrap())
+            .collect();
+
+        Ok(Self {
+            stream_verbosity,
+            debug_streams,
+        })
+    }
+
+    /// Parses the annotated tags in the specification and additionally mark all streams in `debug_streams` as debug.
+    pub fn new_with_debug(ir: &RtLolaMir, debug_streams: &[String]) -> Result<VerbosityAnnotations, RtLolaError> {
+        let annotations = Self::new(ir)?;
+        let debug_streams = debug_streams
+            .into_iter()
+            .map(|sname| {
+                ir.get_stream_by_name(sname.as_str())
+                    .ok_or_else(|| format!("stream {sname} marked for debugging, but not found in specification"))
+                    .map(|stream| stream.as_stream_ref())
+            })
+            .collect::<Result<Vec<_>, String>>()
+            .unwrap_or_else(|e| {
+                eprintln!("{e}");
+                std::process::exit(1);
+            });
+        Ok(annotations.add_debug_streams(&debug_streams))
+    }
+
+    /// Returns the tag parsers applied by the [Self::new] call
+    pub fn parsers<'a>() -> &'a [&'a dyn TagValidator] {
+        &[&VerbosityParser, &DebugParser]
+    }
+
+    /// Mark a set of streams as additional debug streams
+    pub fn add_debug_streams(mut self, stream: &[StreamReference]) -> Self {
+        self.debug_streams.extend(stream);
+        self
+    }
+
+    fn verbosity(&self, sr: StreamReference) -> StreamVerbosity {
+        *self.stream_verbosity.get(&sr).unwrap()
+    }
+
+    fn debug(&self, sr: StreamReference) -> bool {
+        self.debug_streams.contains(&sr)
     }
 }

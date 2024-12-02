@@ -103,6 +103,7 @@ impl<OutputTime: OutputTimeRepresentation>
     NewVerdictFactory<TracingVerdict<EvalTimeTracer, TotalIncremental>, OutputTime> for StatisticsFactory
 {
     type CreationData = usize;
+    type CreationError = Infallible;
 
     fn new(_ir: &RtLolaMir, data: Self::CreationData) -> Result<Self, Self::Error> {
         Ok(Self::new(data))

@@ -7,10 +7,11 @@ use std::iter;
 
 use rtlola_interpreter::monitor::TotalIncremental;
 use rtlola_interpreter::output::NewVerdictFactory;
+use rtlola_interpreter::rtlola_frontend::tag_parser::verbosity_parser::StreamVerbosity;
 use rtlola_interpreter::rtlola_mir::{RtLolaMir, StreamReference};
 use rtlola_interpreter::time::OutputTimeRepresentation;
 
-use super::{VerdictFactory, VerdictsSink};
+use super::{VerbosityAnnotations, VerdictFactory, VerdictsSink};
 
 /// A verdict sink to write the new values of the output streams in CSV format
 ///
@@ -24,21 +25,52 @@ pub struct CsvVerdictSink<O: OutputTimeRepresentation, W: Write> {
 #[derive(PartialEq, Ord, PartialOrd, Eq, Debug, Clone, Copy)]
 /// The verbosity of the CSV output
 pub enum CsvVerbosity {
-    /// only print the values of the trigger
-    Trigger,
+    /// don't print anything (except streams explicitly marked as debug)
+    Silent,
+    /// only print trigger violations
+    Violations,
+    /// only print trigger violations and warnings
+    Warnings,
+    /// print public output streams
+    Public,
     /// print the values of the outputs (including trigger)
     Outputs,
     /// print the values of all streams (including inputs)
     Streams,
 }
 
+impl From<StreamVerbosity> for CsvVerbosity {
+    fn from(value: StreamVerbosity) -> Self {
+        match value {
+            StreamVerbosity::Streams => CsvVerbosity::Streams,
+            StreamVerbosity::Outputs => CsvVerbosity::Outputs,
+            StreamVerbosity::Public => CsvVerbosity::Public,
+            StreamVerbosity::Warnings => CsvVerbosity::Warnings,
+            StreamVerbosity::Violations => CsvVerbosity::Violations,
+        }
+    }
+}
+
 impl<O: OutputTimeRepresentation, W: Write> CsvVerdictSink<O, W> {
     /// Construct a CsvVerdictSink to print the verdicts according to the specified verbosity to CSV
-    pub fn for_verbosity(ir: &RtLolaMir, writer: W, verbosity: CsvVerbosity) -> Result<Self, String> {
+    pub fn for_verbosity(
+        ir: &RtLolaMir,
+        writer: W,
+        verbosity: CsvVerbosity,
+        annotations: VerbosityAnnotations,
+    ) -> Result<Self, String> {
         let verbosity_map = ir
             .all_streams()
-            .filter_map(|s| Self::verbosity_index(s, ir, verbosity).map(|i| (s, i)))
-            .collect();
+            .filter_map(|s| {
+                match Self::include_stream(s, verbosity, &annotations) {
+                    Ok(true) => Some(Ok(s)),
+                    Ok(false) => None,
+                    Err(e) => Some(Err(e)),
+                }
+            })
+            .enumerate()
+            .map(|(i, sr)| Ok((sr?, i)))
+            .collect::<Result<_, String>>()?;
 
         Self::new(ir, writer, verbosity_map)
     }
@@ -50,20 +82,13 @@ impl<O: OutputTimeRepresentation, W: Write> CsvVerdictSink<O, W> {
         Self::new(ir, writer, stream_map)
     }
 
-    /// Maps the given `stream` to the index of the corresponding column in the CSV file.
-    fn verbosity_index(stream: StreamReference, ir: &RtLolaMir, verbosity: CsvVerbosity) -> Option<usize> {
-        match stream {
-            StreamReference::In(i) if verbosity >= CsvVerbosity::Streams => Some(i),
-            StreamReference::In(_) => None,
-            StreamReference::Out(o) if verbosity >= CsvVerbosity::Streams => Some(ir.inputs.len() + o),
-            StreamReference::Out(o) if verbosity >= CsvVerbosity::Outputs => Some(o),
-            StreamReference::Out(o) => {
-                match ir.outputs[o].kind {
-                    rtlola_interpreter::rtlola_mir::OutputKind::NamedOutput(_) => None,
-                    rtlola_interpreter::rtlola_mir::OutputKind::Trigger(t) => Some(t),
-                }
-            },
-        }
+    fn include_stream(
+        sr: StreamReference,
+        verbosity: CsvVerbosity,
+        annotations: &VerbosityAnnotations,
+    ) -> Result<bool, String> {
+        let include = verbosity >= CsvVerbosity::from(annotations.verbosity(sr)) || annotations.debug(sr);
+        Ok(include)
     }
 
     /// Construct a new sink for the given specification that writes to the supplied writer
@@ -79,17 +104,20 @@ impl<O: OutputTimeRepresentation, W: Write> CsvVerdictSink<O, W> {
 
         let factory = CsvVerdictFactory::new(ir, stream_map).unwrap();
         let mut writer = csv::Writer::from_writer(writer);
-        writer
-            .write_record(
-                iter::once("time")
-                    .chain(
-                        ir.all_streams()
-                            .filter(|s| factory.stream_map.contains_key(s))
-                            .map(|s| ir.stream(s).name()),
-                    )
-                    .collect::<Vec<&str>>(),
-            )
-            .unwrap();
+
+        if !factory.stream_map.is_empty() {
+            writer
+                .write_record(
+                    iter::once("time")
+                        .chain(
+                            ir.all_streams()
+                                .filter(|s| factory.stream_map.contains_key(s))
+                                .map(|s| ir.stream(s).name()),
+                        )
+                        .collect::<Vec<&str>>(),
+                )
+                .unwrap();
+        }
         Ok(Self { writer, factory })
     }
 }
@@ -124,6 +152,10 @@ impl<O: OutputTimeRepresentation> VerdictFactory<TotalIncremental, O> for CsvVer
     type Verdict = Option<Vec<String>>;
 
     fn get_verdict(&mut self, rec: TotalIncremental, ts: O::InnerTime) -> Result<Self::Verdict, Self::Error> {
+        if self.stream_map.is_empty() {
+            return Ok(None);
+        }
+
         let mut values = vec![None; self.stream_map.len()];
 
         for (input, value) in rec.inputs {
@@ -164,8 +196,9 @@ impl<O: OutputTimeRepresentation> VerdictFactory<TotalIncremental, O> for CsvVer
 
 impl<O: OutputTimeRepresentation> NewVerdictFactory<TotalIncremental, O> for CsvVerdictFactory<O> {
     type CreationData = HashMap<StreamReference, usize>;
+    type CreationError = String;
 
-    fn new(_ir: &RtLolaMir, data: Self::CreationData) -> Result<Self, Self::Error> {
+    fn new(_ir: &RtLolaMir, data: Self::CreationData) -> Result<Self, Self::CreationError> {
         Ok(Self {
             output_time: O::default(),
             stream_map: data,
