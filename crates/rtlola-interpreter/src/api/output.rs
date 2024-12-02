@@ -19,9 +19,11 @@ pub trait NewVerdictFactory<MonitorOutput: VerdictRepresentation, OutputTime: Ou
 {
     /// A custom data type supplied when creating the factory.
     type CreationData;
+    /// A custom error type returned on a failure during creation of the factory.
+    type CreationError;
 
     /// Creates a new Verdict Factory from the MIR.
-    fn new(ir: &RtLolaMir, data: Self::CreationData) -> Result<Self, Self::Error>;
+    fn new(ir: &RtLolaMir, data: Self::CreationData) -> Result<Self, Self::CreationError>;
 }
 
 /// This trait provides the functionally to convert the monitor output.
@@ -272,6 +274,7 @@ where
     O: OutputTimeRepresentation + TimeConversion<I>,
 {
     type CreationData = ();
+    type CreationError = StructVerdictError;
 
     fn new(ir: &RtLolaMir, _data: Self::CreationData) -> Result<Self, Self::Error> {
         Self::new(ir)
@@ -338,6 +341,7 @@ where
     O: OutputTimeRepresentation + TimeConversion<I>,
 {
     type CreationData = ();
+    type CreationError = StructVerdictError;
 
     fn new(ir: &RtLolaMir, _data: Self::CreationData) -> Result<Self, Self::Error> {
         Self::new(ir)

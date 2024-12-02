@@ -11,7 +11,7 @@ use rtlola_interpreter::rtlola_frontend::tag_parser::verbosity_parser::StreamVer
 use rtlola_interpreter::rtlola_mir::{RtLolaMir, StreamReference};
 use rtlola_interpreter::time::OutputTimeRepresentation;
 
-use super::{CliAnnotations, VerdictFactory, VerdictsSink};
+use super::{VerbosityAnnotations, VerdictFactory, VerdictsSink};
 
 /// A verdict sink to write the new values of the output streams in CSV format
 ///
@@ -57,7 +57,7 @@ impl<O: OutputTimeRepresentation, W: Write> CsvVerdictSink<O, W> {
         ir: &RtLolaMir,
         writer: W,
         verbosity: CsvVerbosity,
-        annotations: CliAnnotations,
+        annotations: VerbosityAnnotations,
     ) -> Result<Self, String> {
         let verbosity_map = ir
             .all_streams()
@@ -85,7 +85,7 @@ impl<O: OutputTimeRepresentation, W: Write> CsvVerdictSink<O, W> {
     fn include_stream(
         sr: StreamReference,
         verbosity: CsvVerbosity,
-        annotations: &CliAnnotations,
+        annotations: &VerbosityAnnotations,
     ) -> Result<bool, String> {
         let include = verbosity >= CsvVerbosity::from(annotations.verbosity(sr)) || annotations.debug(sr);
         Ok(include)
@@ -196,8 +196,9 @@ impl<O: OutputTimeRepresentation> VerdictFactory<TotalIncremental, O> for CsvVer
 
 impl<O: OutputTimeRepresentation> NewVerdictFactory<TotalIncremental, O> for CsvVerdictFactory<O> {
     type CreationData = HashMap<StreamReference, usize>;
+    type CreationError = String;
 
-    fn new(_ir: &RtLolaMir, data: Self::CreationData) -> Result<Self, Self::Error> {
+    fn new(_ir: &RtLolaMir, data: Self::CreationData) -> Result<Self, Self::CreationError> {
         Ok(Self {
             output_time: O::default(),
             stream_map: data,

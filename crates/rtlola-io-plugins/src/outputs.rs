@@ -22,7 +22,7 @@ use rtlola_interpreter::rtlola_frontend::tag_parser::verbosity_parser::{
 };
 use rtlola_interpreter::rtlola_frontend::tag_parser::TagValidator;
 use rtlola_interpreter::rtlola_frontend::{RtLolaError, RtLolaMir};
-use rtlola_interpreter::rtlola_mir::{OutputKind, StreamReference};
+use rtlola_interpreter::rtlola_mir::StreamReference;
 use rtlola_interpreter::time::{OutputTimeRepresentation, TimeRepresentation};
 
 /// Struct for a generic factory returning the monitor output
@@ -56,6 +56,7 @@ impl<MonitorOutput: VerdictRepresentation, OutputTime: OutputTimeRepresentation>
     NewVerdictFactory<MonitorOutput, OutputTime> for VerdictRepresentationFactory<MonitorOutput, OutputTime>
 {
     type CreationData = ();
+    type CreationError = Infallible;
 
     fn new(_ir: &RtLolaMir, _data: Self::CreationData) -> Result<Self, Self::Error> {
         Ok(Self {
@@ -244,6 +245,7 @@ impl<V: VerdictRepresentation, O: OutputTimeRepresentation> VerdictFactory<V, O>
 
 impl<V: VerdictRepresentation, O: OutputTimeRepresentation> NewVerdictFactory<V, O> for EmptyFactory {
     type CreationData = ();
+    type CreationError = Infallible;
 
     fn new(_ir: &RtLolaMir, _data: Self::CreationData) -> Result<Self, Self::Error> {
         Ok(Self)
@@ -251,39 +253,22 @@ impl<V: VerdictRepresentation, O: OutputTimeRepresentation> NewVerdictFactory<V,
 }
 
 /// Represents the verbosity and debug configuration of the streams in the specification to be used with the output plugins.
-pub struct CliAnnotations {
+#[derive(Debug, Clone)]
+pub struct VerbosityAnnotations {
     stream_verbosity: HashMap<StreamReference, StreamVerbosity>,
     debug_streams: HashSet<StreamReference>,
 }
 
-impl CliAnnotations {
+impl VerbosityAnnotations {
     /// Parses the annotated tags in the specification to build the [CliAnnotations]
-    pub fn new(ir: &RtLolaMir) -> Result<CliAnnotations, RtLolaError> {
+    pub fn new(ir: &RtLolaMir) -> Result<VerbosityAnnotations, RtLolaError> {
         let verbosity_parser = VerbosityParser;
         let debug_parser = DebugParser;
 
-        let stream_verbosity = ir.parse_tags(verbosity_parser)?;
+        let stream_verbosity_tags = ir.parse_tags(verbosity_parser)?;
         let stream_verbosity = ir
             .all_streams()
-            .map(|sr| {
-                let verbosity = stream_verbosity
-                    .local_tags(sr)
-                    .unwrap()
-                    .as_ref()
-                    .copied()
-                    .unwrap_or_else(|| {
-                        match sr {
-                            StreamReference::In(_) => StreamVerbosity::Streams,
-                            StreamReference::Out(_) => {
-                                match ir.output(sr).kind {
-                                    OutputKind::NamedOutput(_) => StreamVerbosity::Outputs,
-                                    OutputKind::Trigger(_) => StreamVerbosity::Violations,
-                                }
-                            },
-                        }
-                    });
-                (sr, verbosity)
-            })
+            .map(|sr| (sr, *stream_verbosity_tags.local_tags(sr).unwrap()))
             .collect();
         let debug_tags = ir.parse_tags(debug_parser)?;
         let debug_streams = ir
@@ -295,6 +280,24 @@ impl CliAnnotations {
             stream_verbosity,
             debug_streams,
         })
+    }
+
+    /// Parses the annotated tags in the specification and additionally mark all streams in `debug_streams` as debug.
+    pub fn new_with_debug(ir: &RtLolaMir, debug_streams: &[String]) -> Result<VerbosityAnnotations, RtLolaError> {
+        let annotations = Self::new(ir)?;
+        let debug_streams = debug_streams
+            .into_iter()
+            .map(|sname| {
+                ir.get_stream_by_name(sname.as_str())
+                    .ok_or_else(|| format!("stream {sname} marked for debugging, but not found in specification"))
+                    .map(|stream| stream.as_stream_ref())
+            })
+            .collect::<Result<Vec<_>, String>>()
+            .unwrap_or_else(|e| {
+                eprintln!("{e}");
+                std::process::exit(1);
+            });
+        Ok(annotations.add_debug_streams(&debug_streams))
     }
 
     /// Returns the tag parsers applied by the [Self::new] call

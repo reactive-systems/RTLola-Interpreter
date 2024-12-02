@@ -12,7 +12,7 @@ use rtlola_interpreter::time::OutputTimeRepresentation;
 use rtlola_interpreter::Value;
 use termcolor::{Ansi, Color, ColorSpec, NoColor, WriteColor};
 
-use super::{ByteSink, CliAnnotations, VerdictFactory};
+use super::{ByteSink, VerbosityAnnotations, VerdictFactory};
 
 /// A trait that captures color writers that can forward the result to a regular `std::io::write` implementor.
 pub trait IndirectWriteColor<W: Write>: WriteColor {
@@ -116,7 +116,17 @@ pub struct LogPrinter<OutputTime: OutputTimeRepresentation, W: IndirectWriteColo
 
 impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> LogPrinter<OutputTime, W> {
     /// Construct a new LogPrinter based on the given verbosity
-    pub fn new(verbosity: Verbosity, ir: &RtLolaMir, annotations: CliAnnotations) -> Result<Self, String> {
+    pub fn new(verbosity: Verbosity, ir: &RtLolaMir) -> Result<Self, String> {
+        let annotations = VerbosityAnnotations::new(ir).map_err(|e| e.to_string())?;
+        Self::new_with_annotations(verbosity, ir, annotations)
+    }
+
+    /// Construct a new LogPrinter based on the given verbosity and the given verbosity annotations on streams
+    pub fn new_with_annotations(
+        verbosity: Verbosity,
+        ir: &RtLolaMir,
+        annotations: VerbosityAnnotations,
+    ) -> Result<Self, String> {
         let stream_names = ir.all_streams().map(|s| (s, ir.stream(s).name().to_owned())).collect();
         let trigger_ids = ir
             .triggers
@@ -249,9 +259,10 @@ impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>>
     NewVerdictFactory<TotalIncremental, OutputTime> for LogPrinter<OutputTime, W>
 {
     type CreationData = Verbosity;
+    type CreationError = String;
 
-    fn new(ir: &RtLolaMir, data: Self::CreationData) -> Result<Self, Self::Error> {
-        Ok(Self::new(data, ir))
+    fn new(ir: &RtLolaMir, data: Self::CreationData) -> Result<Self, Self::CreationError> {
+        Self::new(data, ir)
     }
 }
 

@@ -22,7 +22,7 @@ use rtlola_io_plugins::inputs::pcap_plugin::{PcapEventSource, PcapInputSource};
 use rtlola_io_plugins::outputs::csv_plugin::CsvVerdictSink;
 use rtlola_io_plugins::outputs::json_plugin::JsonFactory;
 use rtlola_io_plugins::outputs::log_printer::LogPrinter;
-use rtlola_io_plugins::outputs::CliAnnotations;
+use rtlola_io_plugins::outputs::VerbosityAnnotations;
 use termcolor::{Ansi, NoColor};
 
 use crate::config::{Config, EventSourceConfig, Statistics, Verbosity};
@@ -624,15 +624,18 @@ macro_rules! run_config_it_ot_src2 {
     ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr, $colored: expr, $annotations:expr) => {{
         match $of {
             CliOutputFormat::Logger if $colored => {
-                let sink = LogPrinter::<_, Ansi<_>>::new($verbosity.try_into()?, &$ir, $annotations)?.sink($output);
+                let sink = LogPrinter::<_, Ansi<_>>::new_with_annotations($verbosity.try_into()?, &$ir, $annotations)?
+                    .sink($output);
                 run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
             },
             CliOutputFormat::Logger => {
-                let sink = LogPrinter::<_, NoColor<_>>::new($verbosity.try_into()?, &$ir, $annotations)?.sink($output);
+                let sink =
+                    LogPrinter::<_, NoColor<_>>::new_with_annotations($verbosity.try_into()?, &$ir, $annotations)?
+                        .sink($output);
                 run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
             },
             CliOutputFormat::Json => {
-                let sink = JsonFactory::new(&$ir, $verbosity.try_into()?, $annotations)?.sink($output);
+                let sink = JsonFactory::new_with_annotations(&$ir, $verbosity.try_into()?, $annotations)?.sink($output);
                 run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
             },
             CliOutputFormat::Csv => {
@@ -686,8 +689,8 @@ fn monitor(
     });
 
     let annotations = match ir
-        .validate_tags(CliAnnotations::parsers())
-        .and_then(|_| CliAnnotations::new(&ir))
+        .validate_tags(VerbosityAnnotations::parsers())
+        .and_then(|_| VerbosityAnnotations::new_with_debug(&ir, &debug_streams))
     {
         Ok(annotations) => annotations,
         Err(e) => {
@@ -695,21 +698,6 @@ fn monitor(
             std::process::exit(1);
         },
     };
-
-    let debug_streams = debug_streams
-        .into_iter()
-        .map(|sname| {
-            ir.get_stream_by_name(sname.as_str())
-                .ok_or_else(|| format!("stream {sname} marked for debugging, but not found in specification"))
-                .map(|stream| stream.as_stream_ref())
-        })
-        .collect::<Result<Vec<_>, String>>()
-        .unwrap_or_else(|e| {
-            eprintln!("{e}");
-            std::process::exit(1);
-        });
-
-    let annotations = annotations.add_debug_streams(&debug_streams);
 
     let source = EventSourceConfig::from(input.clone());
 
@@ -845,8 +833,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             });
 
             let annotations = match ir
-                .validate_tags(CliAnnotations::parsers())
-                .and_then(|_| CliAnnotations::new(&ir))
+                .validate_tags(VerbosityAnnotations::parsers())
+                .and_then(|_| VerbosityAnnotations::new(&ir))
             {
                 Ok(annotations) => annotations,
                 Err(e) => {

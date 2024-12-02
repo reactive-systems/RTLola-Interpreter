@@ -15,7 +15,7 @@ use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
 use serde_json::value::Value as JsonValue;
 
-use super::{CliAnnotations, VerdictFactory, VerdictsSink};
+use super::{VerbosityAnnotations, VerdictFactory, VerdictsSink};
 
 /// Print the verdicts in JSONL format to the writer
 #[derive(Debug)]
@@ -77,10 +77,12 @@ impl<
 #[derive(PartialEq, Ord, PartialOrd, Eq, Debug, Clone, Copy)]
 /// The verbosity of the JSON output
 pub enum JsonVerbosity {
-    /// only print trigger violations and warnings
-    Warnings,
+    /// don't print anything (except streams explicitly marked as debug)
+    Silent,
     /// only print trigger violations
     Violations,
+    /// only print trigger violations and warnings
+    Warnings,
     /// print public output streams
     Public,
     /// print the values of the outputs (including trigger)
@@ -115,7 +117,17 @@ pub struct JsonFactory<OutputTime: OutputTimeRepresentation> {
 
 impl<O: OutputTimeRepresentation> JsonFactory<O> {
     /// Construct a new factory for the given specification that writes to the supplied writer
-    pub fn new(ir: &RtLolaMir, verbosity: JsonVerbosity, annotations: CliAnnotations) -> Result<Self, String> {
+    pub fn new(ir: &RtLolaMir, verbosity: JsonVerbosity) -> Result<Self, String> {
+        let annotations = VerbosityAnnotations::new(ir).map_err(|e| e.to_string())?;
+        Self::new_with_annotations(ir, verbosity, annotations)
+    }
+
+    /// Construct a new factory for the given specification with the provided verbosity annotations
+    pub fn new_with_annotations(
+        ir: &RtLolaMir,
+        verbosity: JsonVerbosity,
+        annotations: VerbosityAnnotations,
+    ) -> Result<Self, String> {
         let stream_names = ir
             .all_streams()
             .map(|stream| (stream, ir.stream(stream).name().to_owned()))
@@ -283,8 +295,9 @@ impl<O: OutputTimeRepresentation> VerdictFactory<TotalIncremental, O> for JsonFa
 
 impl<O: OutputTimeRepresentation> NewVerdictFactory<TotalIncremental, O> for JsonFactory<O> {
     type CreationData = JsonVerbosity;
+    type CreationError = String;
 
-    fn new(ir: &RtLolaMir, data: Self::CreationData) -> Result<Self, Self::Error> {
-        Ok(Self::new(ir, data))
+    fn new(ir: &RtLolaMir, data: Self::CreationData) -> Result<Self, Self::CreationError> {
+        Self::new(ir, data)
     }
 }
