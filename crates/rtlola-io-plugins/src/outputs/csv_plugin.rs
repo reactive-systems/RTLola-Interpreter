@@ -6,6 +6,7 @@ use std::io::Write;
 use std::iter;
 
 use rtlola_interpreter::monitor::TotalIncremental;
+use rtlola_interpreter::output::NewVerdictFactory;
 use rtlola_interpreter::rtlola_mir::{RtLolaMir, StreamReference};
 use rtlola_interpreter::time::OutputTimeRepresentation;
 
@@ -76,10 +77,7 @@ impl<O: OutputTimeRepresentation, W: Write> CsvVerdictSink<O, W> {
 
         debug_assert!((0..stream_map.len()).all(|col| stream_map.values().any(|v| *v == col)));
 
-        let factory = CsvVerdictFactory {
-            output_time: O::default(),
-            stream_map,
-        };
+        let factory = CsvVerdictFactory::new(ir, stream_map).unwrap();
         let mut writer = csv::Writer::from_writer(writer);
         writer
             .write_record(
@@ -161,5 +159,16 @@ impl<O: OutputTimeRepresentation> VerdictFactory<TotalIncremental, O> for CsvVer
                     .collect(),
             ))
         }
+    }
+}
+
+impl<O: OutputTimeRepresentation> NewVerdictFactory<TotalIncremental, O> for CsvVerdictFactory<O> {
+    type CreationData = HashMap<StreamReference, usize>;
+
+    fn new(_ir: &RtLolaMir, data: Self::CreationData) -> Result<Self, Self::Error> {
+        Ok(Self {
+            output_time: O::default(),
+            stream_map: data,
+        })
     }
 }

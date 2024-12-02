@@ -3,7 +3,8 @@ use quote::{format_ident, quote, ToTokens};
 use syn::spanned::Spanned;
 use syn::{Data, DeriveInput, Fields};
 
-use crate::{ComposingDeriver, FactoryAttr};
+use crate::composit_factory::ComposingDeriver;
+use crate::FactoryAttr;
 
 pub(crate) struct StructDeriver {
     name: Ident,
@@ -55,7 +56,7 @@ impl StructDeriver {
             .map(|(ty, ident)| {
                 (
                     format_ident!("{}_factory", ident),
-                    quote! {<#ty as rtlola_interpreter::input::AssociatedFactory>::Factory},
+                    quote! {<#ty as rtlola_interpreter::input::AssociatedEventFactory>::Factory},
                 )
             })
             .unzip();

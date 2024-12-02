@@ -214,7 +214,7 @@ impl<G: WindowGeneric> WindowIv for IntegralIv<G> {
 
 impl<G: WindowGeneric> From<IntegralIv<G>> for Value {
     fn from(iv: IntegralIv<G>) -> Value {
-        G::from_value(Value::try_from(iv.volume).unwrap())
+        G::from_value(Value::from(iv.volume))
     }
 }
 
@@ -537,7 +537,7 @@ impl<G: WindowGeneric> PercentileIv<G> {
             Value::Unsigned(_) => Value::Unsigned(2),
             Value::Signed(_) => Value::Signed(2),
             Value::Float(_) => Value::try_from(2.0).unwrap(),
-            Value::Decimal(_) => Value::try_from(Decimal::from(2)).unwrap(),
+            Value::Decimal(_) => Value::from(Decimal::from(2)),
             _ => unreachable!("Type error."),
         };
 
@@ -623,7 +623,7 @@ impl<G: WindowGeneric> From<VarianceIv<G>> for Value {
         if iv.count == 0 {
             return G::from_value(Value::Decimal(0.into()));
         }
-        G::from_value(Value::try_from(iv.m_2 / Decimal::from(iv.count)).unwrap())
+        G::from_value(Value::from(iv.m_2 / Decimal::from(iv.count)))
     }
 }
 

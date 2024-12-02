@@ -8,7 +8,7 @@ use std::time::SystemTime;
 
 use clap::ValueEnum;
 use rtlola_interpreter::config::{ExecutionMode, OfflineMode, OnlineMode};
-use rtlola_interpreter::input::{AssociatedFactory, EventFactory, InputMap, MappedFactory};
+use rtlola_interpreter::input::{AssociatedEventFactory, EventFactory, InputMap, MappedFactory};
 use rtlola_interpreter::monitor::{TotalIncremental, TracingVerdict};
 use rtlola_interpreter::rtlola_mir::RtLolaMir;
 use rtlola_interpreter::time::{OutputTimeRepresentation, RealTime, TimeRepresentation};
@@ -146,7 +146,7 @@ impl<
     > Config<Source, OfflineMode<InputTime>, InputTime, OutputTime, VerdictSink, W>
 where
     Source::Factory:
-        InputMap<CreationData = <<Source::Factory as AssociatedFactory>::Factory as EventFactory>::CreationData>,
+        InputMap<CreationData = <<Source::Factory as AssociatedEventFactory>::Factory as EventFactory>::CreationData>,
 {
     pub(crate) fn run(self) -> Result<(), Box<dyn Error>> {
         // Convert config
@@ -207,7 +207,7 @@ impl<
     > Config<Source, OnlineMode, RealTime, OutputTime, VerdictSink, W>
 where
     Source::Factory:
-        InputMap<CreationData = <<Source::Factory as AssociatedFactory>::Factory as EventFactory>::CreationData>,
+        InputMap<CreationData = <<Source::Factory as AssociatedEventFactory>::Factory as EventFactory>::CreationData>,
 {
     pub(crate) fn run(self) -> Result<(), Box<dyn Error>> {
         // Convert config

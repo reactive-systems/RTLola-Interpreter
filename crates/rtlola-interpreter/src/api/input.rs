@@ -2,7 +2,7 @@
 //! Most notably, the [EventFactory] trait represents a factory for events such that you can feed events of type [EventFactory::Record] to the monitor.
 //! To easy the implementation, there are helper traits like [InputMap] which works together with the [MappedFactory].
 //!
-//! Note: A struct implementing [EventFactory] for a given type can often be derived. For that take a look at the rtlola-interpreter-macros crate and the [AssociatedFactory] trait.
+//! Note: A struct implementing [EventFactory] for a given type can often be derived. For that take a look at the rtlola-interpreter-macros crate and the [AssociatedEventFactory] trait.
 
 // ######## Traits ############
 
@@ -58,7 +58,7 @@ pub trait EventFactory: Sized {
 
 /// This trait provides functionality to parse a type into an event.
 /// For that, getter functions for the different input streams are provided through the `func_for_input` method.
-/// Note: The [AssociatedFactory] trait is automatically implemented for all types that implement this trait.
+/// Note: The [AssociatedEventFactory] trait is automatically implemented for all types that implement this trait.
 pub trait InputMap: Send {
     /// Arbitrary type of the data provided at creation time to help initializing the input method.
     type CreationData: Clone + Send;
@@ -69,7 +69,7 @@ pub trait InputMap: Send {
 }
 
 /// A trait to annotate Self with an [EventFactory] that accepts Self as a Record.
-pub trait AssociatedFactory {
+pub trait AssociatedEventFactory {
     /// The associated factory.
     type Factory: EventFactory<Record = Self> + Sized;
 }
@@ -193,7 +193,7 @@ pub struct MappedFactory<Inner: InputMap> {
     translators: Vec<ValueGetter<Inner, Inner::Error>>,
 }
 
-impl<M: InputMap> AssociatedFactory for M {
+impl<M: InputMap> AssociatedEventFactory for M {
     type Factory = MappedFactory<M>;
 }
 impl<Inner: InputMap> EventFactory for MappedFactory<Inner> {
@@ -398,7 +398,7 @@ impl<I: Error + Send + 'static, E: TryInto<Vec<Value>, Error = I> + Send + CondS
     }
 }
 
-impl AssociatedFactory for Vec<Value> {
+impl AssociatedEventFactory for Vec<Value> {
     type Factory = VectorFactory<Infallible, Vec<Value>>;
 }
 
@@ -427,6 +427,6 @@ impl<T: Send> EventFactory for EmptyFactory<T> {
     }
 }
 
-impl AssociatedFactory for NoEvent {
+impl AssociatedEventFactory for NoEvent {
     type Factory = EmptyFactory<NoEvent>;
 }

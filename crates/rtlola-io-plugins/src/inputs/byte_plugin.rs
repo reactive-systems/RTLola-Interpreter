@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use std::io::ErrorKind;
 use std::marker::PhantomData;
 
-use rtlola_interpreter::input::{AssociatedFactory, EventFactory};
+use rtlola_interpreter::input::{AssociatedEventFactory, EventFactory};
 use rtlola_interpreter::time::TimeRepresentation;
 use serde::{Deserialize, Serialize};
 use time_converter::TimeConverter;
@@ -18,11 +18,11 @@ pub mod upd;
 #[derive(Debug)]
 pub struct ByteEventSource<
     Source: ByteSource,
-    Parser: ByteParser<Output: AssociatedFactory>,
+    Parser: ByteParser<Output: AssociatedEventFactory>,
     InputTime: TimeRepresentation,
     const BUFFERSIZE: usize,
 > where
-    <<Parser::Output as AssociatedFactory>::Factory as EventFactory>::Error: Error,
+    <<Parser::Output as AssociatedEventFactory>::Factory as EventFactory>::Error: Error,
 {
     /// The factory to parse the monitor input given as bytearray
     parser: Parser,
@@ -36,12 +36,12 @@ pub struct ByteEventSource<
 
 impl<
         Source: ByteSource,
-        Parser: ByteParser<Output: AssociatedFactory>,
+        Parser: ByteParser<Output: AssociatedEventFactory>,
         InputTime: TimeRepresentation,
         const BUFFERSIZE: usize,
     > ByteEventSource<Source, Parser, InputTime, BUFFERSIZE>
 where
-    <<Parser::Output as AssociatedFactory>::Factory as EventFactory>::Error: Error,
+    <<Parser::Output as AssociatedEventFactory>::Factory as EventFactory>::Error: Error,
 {
     /// Creates a new [ByteEventSource] out of a (conncetion)[ByteSource] and a (parser)[ByteParser].
     pub fn new(source: Source, factory: Parser) -> Self {
@@ -91,24 +91,24 @@ impl<Parse: Error + Debug + 'static, Source: Error + Debug + 'static, Time: Erro
 
 impl<
         InputTime: TimeRepresentation,
-        Parser: ByteParser<Output: AssociatedFactory<Factory: EventFactory<CreationData = ()>>>,
+        Parser: ByteParser<Output: AssociatedEventFactory<Factory: EventFactory<CreationData = ()>>>,
         Source: ByteSource + Debug,
         const BUFFERSIZE: usize,
     > EventSource<InputTime> for ByteEventSource<Source, Parser, InputTime, BUFFERSIZE>
 where
-    <<Parser::Output as AssociatedFactory>::Factory as EventFactory>::Error: Error,
+    <<Parser::Output as AssociatedEventFactory>::Factory as EventFactory>::Error: Error,
     Parser::Output: TimeConverter<InputTime>,
 {
     type Error = ByteEventSourceError<
         Parser::Error,
         Source::Error,
-        <<Parser::Output as AssociatedFactory>::Factory as EventFactory>::Error,
+        <<Parser::Output as AssociatedEventFactory>::Factory as EventFactory>::Error,
     >;
     type Factory = Parser::Output;
 
     fn init_data(
         &self,
-    ) -> Result<<<Self::Factory as AssociatedFactory>::Factory as EventFactory>::CreationData, Self::Error> {
+    ) -> Result<<<Self::Factory as AssociatedEventFactory>::Factory as EventFactory>::CreationData, Self::Error> {
         Ok(())
     }
 
@@ -185,11 +185,11 @@ pub enum ByteParsingError<Inner: Error> {
 
 /// A struct to create a stateless parser that is build out of the [Serialize] and [Deserialize] trait.
 #[derive(Debug, Clone, Copy)]
-pub struct SerdeParser<B: Serialize + for<'a> Deserialize<'a> + AssociatedFactory> {
+pub struct SerdeParser<B: Serialize + for<'a> Deserialize<'a> + AssociatedEventFactory> {
     phantom: PhantomData<B>,
 }
 
-impl<B: Serialize + for<'a> Deserialize<'a> + AssociatedFactory> Default for SerdeParser<B> {
+impl<B: Serialize + for<'a> Deserialize<'a> + AssociatedEventFactory> Default for SerdeParser<B> {
     fn default() -> Self {
         Self {
             phantom: Default::default(),
@@ -197,7 +197,7 @@ impl<B: Serialize + for<'a> Deserialize<'a> + AssociatedFactory> Default for Ser
     }
 }
 
-impl<B: Serialize + for<'a> Deserialize<'a> + AssociatedFactory> ByteParser for SerdeParser<B> {
+impl<B: Serialize + for<'a> Deserialize<'a> + AssociatedEventFactory> ByteParser for SerdeParser<B> {
     type Error = bincode::Error;
     type Output = B;
 
@@ -220,11 +220,11 @@ impl<B: Serialize + for<'a> Deserialize<'a> + AssociatedFactory> ByteParser for 
 impl<
         Source: ByteSource,
         InputTime: TimeRepresentation,
-        B: Serialize + for<'a> Deserialize<'a> + AssociatedFactory,
+        B: Serialize + for<'a> Deserialize<'a> + AssociatedEventFactory,
         const BUFFERSIZE: usize,
     > ByteEventSource<Source, SerdeParser<B>, InputTime, BUFFERSIZE>
 where
-    <<B as AssociatedFactory>::Factory as EventFactory>::Error: Error,
+    <<B as AssociatedEventFactory>::Factory as EventFactory>::Error: Error,
 {
     /// Creates a new [ByteEventSource] given a [ByteSource].
     pub fn from_source(source: Source) -> Self {
@@ -240,11 +240,11 @@ where
 impl<
         Source: ByteSource,
         InputTime: TimeRepresentation,
-        B: Serialize + for<'a> Deserialize<'a> + AssociatedFactory,
+        B: Serialize + for<'a> Deserialize<'a> + AssociatedEventFactory,
         const BUFFERSIZE: usize,
     > From<Source> for ByteEventSource<Source, SerdeParser<B>, InputTime, BUFFERSIZE>
 where
-    <<B as AssociatedFactory>::Factory as EventFactory>::Error: Error,
+    <<B as AssociatedEventFactory>::Factory as EventFactory>::Error: Error,
 {
     fn from(value: Source) -> Self {
         Self::from_source(value)

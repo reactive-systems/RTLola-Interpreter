@@ -2,6 +2,7 @@ use rtlola_interpreter_macros::ValueFactory;
 
 #[derive(ValueFactory)]
 #[factory(custom_prefix = Custom)]
+#[allow(dead_code)]
 /// Exposes the struct fields 'a' and 'b' to input streams named Custom_a and Custom_b
 /// The field 'c' is exposed as 'Different'
 struct TestCustomNames {
@@ -16,6 +17,7 @@ struct TestCustomNames {
 
 #[derive(ValueFactory)]
 #[factory(prefix)]
+#[allow(dead_code)]
 /// Exposes the fields of the struct to input streams named Prefixed_a, Prefixed_b and Prefixed_c
 struct Prefixed {
     a: usize,
@@ -24,12 +26,15 @@ struct Prefixed {
 }
 
 #[derive(ValueFactory)]
+#[allow(dead_code)]
 struct EmptyStruct {}
 
 #[derive(ValueFactory)]
+#[allow(dead_code)]
 struct UnitStruct;
 
 #[derive(ValueFactory)]
+#[allow(dead_code)]
 enum ComplexEnum {
     #[allow(dead_code)]
     UnnamedVariant(usize, String, i32),

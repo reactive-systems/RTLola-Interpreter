@@ -1,10 +1,11 @@
-//! Module that contains the implementation of the default [VerdictsSink] used by the CLI for printing log messages
+//! Module that contains the implementation of the default [VerdictsSink](crate::outputs::VerdictsSink) used by the CLI for printing log messages
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io::Write;
 use std::marker::PhantomData;
 
 use rtlola_interpreter::monitor::{Change, Parameters, TotalIncremental};
+use rtlola_interpreter::output::NewVerdictFactory;
 use rtlola_interpreter::rtlola_mir::{OutputReference, RtLolaMir, StreamReference, TriggerReference};
 use rtlola_interpreter::time::OutputTimeRepresentation;
 use rtlola_interpreter::Value;
@@ -198,6 +199,16 @@ impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> Verdi
 
         writer.flush()?;
         Ok(writer.into_inner())
+    }
+}
+
+impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>>
+    NewVerdictFactory<TotalIncremental, OutputTime> for LogPrinter<OutputTime, W>
+{
+    type CreationData = Verbosity;
+
+    fn new(ir: &RtLolaMir, data: Self::CreationData) -> Result<Self, Self::Error> {
+        Ok(Self::new(data, ir))
     }
 }
 

@@ -240,15 +240,15 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "bytes"
-version = "1.8.0"
+version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ac0150caa2ae65ca5bd83f25c7de183dea78d4d366469f148435e2acfbad0da"
+checksum = "325918d6fe32f23b19878fe4b34794ae41fc19ddbe53b10571a4874d44ffd39b"
 
 [[package]]
 name = "cc"
-version = "1.2.1"
+version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd9de9f2205d5ef3fd67e685b0df337994ddd4495e2a28d185500d0e1edfea47"
+checksum = "f34d93e62b03caf570cccc334cbc6c2fceca82f39211051345108adcba3eebdc"
 dependencies = [
  "shlex",
 ]
@@ -545,12 +545,12 @@ dependencies = [
 
 [[package]]
 name = "errno"
-version = "0.3.9"
+version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "534c5cf6194dfab3db3242765c03bbe257cf92f22b38f6bc0c58d59108a820ba"
+checksum = "33d852cb9b869c2a9b3df2f71a3074817f01e1844f839a144f5fcef059a4eb5d"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -744,6 +744,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -780,9 +789,9 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
 name = "libc"
-version = "0.2.166"
+version = "0.2.167"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2ccc108bbc0b1331bd061864e7cd823c0cab660bbe6970e66e2c0614decde36"
+checksum = "09d6582e104315a817dff97f75133544b2e094ee22447d2acf4a74e189ba06fc"
 
 [[package]]
 name = "libloading"
@@ -1378,7 +1387,7 @@ dependencies = [
 [[package]]
 name = "rtlola-frontend"
 version = "0.7.0"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#06f7e8a12fc221d5b20b953d815d4f41cfed5b5a"
+source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#e8025668c397892a7e36381a167d2b0380e983f6"
 dependencies = [
  "dot",
  "itertools 0.10.5",
@@ -1398,7 +1407,7 @@ dependencies = [
 [[package]]
 name = "rtlola-hir"
 version = "0.5.0"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#06f7e8a12fc221d5b20b953d815d4f41cfed5b5a"
+source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#e8025668c397892a7e36381a167d2b0380e983f6"
 dependencies = [
  "itertools 0.10.5",
  "lazy_static",
@@ -1416,7 +1425,7 @@ dependencies = [
 
 [[package]]
 name = "rtlola-interpreter"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "bimap",
  "bit-set",
@@ -1447,7 +1456,7 @@ dependencies = [
 
 [[package]]
 name = "rtlola-interpreter-macros"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "convert_case",
  "deluxe",
@@ -1483,7 +1492,7 @@ dependencies = [
 [[package]]
 name = "rtlola-macros"
 version = "0.1.2"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#06f7e8a12fc221d5b20b953d815d4f41cfed5b5a"
+source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#e8025668c397892a7e36381a167d2b0380e983f6"
 dependencies = [
  "quote",
  "syn 1.0.109",
@@ -1492,8 +1501,9 @@ dependencies = [
 [[package]]
 name = "rtlola-parser"
 version = "0.3.2"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#06f7e8a12fc221d5b20b953d815d4f41cfed5b5a"
+source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#e8025668c397892a7e36381a167d2b0380e983f6"
 dependencies = [
+ "itertools 0.13.0",
  "lazy_static",
  "num",
  "num-rational 0.4.2",
@@ -1501,13 +1511,14 @@ dependencies = [
  "pest_derive",
  "rtlola-reporting",
  "serde",
+ "unicode-normalization",
  "uom",
 ]
 
 [[package]]
 name = "rtlola-reporting"
 version = "0.3.0"
-source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#06f7e8a12fc221d5b20b953d815d4f41cfed5b5a"
+source = "git+ssh://git@projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend.git?branch=development#e8025668c397892a7e36381a167d2b0380e983f6"
 dependencies = [
  "codespan-reporting",
  "pest",
@@ -1543,7 +1554,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7f649912bc1495e167a6edee79151c84b1bad49748cb4f1f1167f459f6224f6"
 dependencies = [
  "bitflags 2.6.0",
- "errno 0.3.9",
+ "errno 0.3.10",
  "libc",
  "linux-raw-sys",
  "windows-sys 0.52.0",
@@ -1911,6 +1922,15 @@ name = "unicode-ident"
 version = "1.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "adb9e6ca4f869e1180728b7950e35922a7fc6397f7b641499e8f3ef06e50dc83"
+
+[[package]]
+name = "unicode-normalization"
+version = "0.1.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5033c97c4262335cded6d6fc3e5c18ab755e1a3dc96376350f3d8e9f009ad956"
+dependencies = [
+ "tinyvec",
+]
 
 [[package]]
 name = "unicode-segmentation"

@@ -9,7 +9,7 @@ pub mod byte_plugin;
 
 use std::error::Error;
 
-use rtlola_interpreter::input::{AssociatedFactory, EventFactory};
+use rtlola_interpreter::input::{AssociatedEventFactory, EventFactory};
 use rtlola_interpreter::time::TimeRepresentation;
 
 type EventResult<MappedEvent, Time, Error> = Result<Option<(MappedEvent, Time)>, Error>;
@@ -17,14 +17,14 @@ type EventResult<MappedEvent, Time, Error> = Result<Option<(MappedEvent, Time)>,
 /// The main trait that has to be implemented by an input plugin
 pub trait EventSource<InputTime: TimeRepresentation> {
     /// Type of the Event given to the monitor
-    type Factory: AssociatedFactory;
+    type Factory: AssociatedEventFactory;
     /// Error type when buildin the next Event
     type Error: Error;
 
     /// Return the data needed by the monitor to initialize the input source.
     fn init_data(
         &self,
-    ) -> Result<<<Self::Factory as AssociatedFactory>::Factory as EventFactory>::CreationData, Self::Error>;
+    ) -> Result<<<Self::Factory as AssociatedEventFactory>::Factory as EventFactory>::CreationData, Self::Error>;
 
     /// Queries the event source for a new Record(Event) in a blocking fashion.
     /// If there are no more records, None is returned.

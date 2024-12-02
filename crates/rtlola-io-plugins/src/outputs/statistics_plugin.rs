@@ -1,8 +1,10 @@
-//! Module that implements [VerdictsSink] to print statistics about the monitoring run
+//! Module that implements [VerdictsSink](crate::outputs::VerdictsSink) to print statistics about the monitoring run
 use std::convert::Infallible;
 use std::time::{Duration, Instant};
 
 use rtlola_interpreter::monitor::{TotalIncremental, Tracer, TracingVerdict};
+use rtlola_interpreter::output::NewVerdictFactory;
+use rtlola_interpreter::rtlola_frontend::RtLolaMir;
 use rtlola_interpreter::time::OutputTimeRepresentation;
 
 use super::VerdictFactory;
@@ -94,6 +96,16 @@ impl<OutputTime: OutputTimeRepresentation> VerdictFactory<TracingVerdict<EvalTim
             self.trigger(trigger);
         }
         Ok(self.verdict())
+    }
+}
+
+impl<OutputTime: OutputTimeRepresentation>
+    NewVerdictFactory<TracingVerdict<EvalTimeTracer, TotalIncremental>, OutputTime> for StatisticsFactory
+{
+    type CreationData = usize;
+
+    fn new(_ir: &RtLolaMir, data: Self::CreationData) -> Result<Self, Self::Error> {
+        Ok(Self::new(data))
     }
 }
 

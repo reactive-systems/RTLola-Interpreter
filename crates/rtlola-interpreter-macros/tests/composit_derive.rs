@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use rtlola_interpreter::input::{AssociatedFactory, EventFactory, EventFactoryError};
+use rtlola_interpreter::input::{AssociatedEventFactory, EventFactory, EventFactoryError};
 use rtlola_interpreter::rtlola_mir::InputReference;
 use rtlola_interpreter::Value;
 use rtlola_interpreter_macros::{CompositFactory, ValueFactory};
@@ -36,7 +36,7 @@ fn simple() {
     .into_iter()
     .collect();
 
-    let input = <Rec as AssociatedFactory>::Factory::new(map, ()).unwrap();
+    let input = <Rec as AssociatedEventFactory>::Factory::new(map, ()).unwrap();
 
     let t1 = Rec::Var1(Msg1 { a: 42, b: 13.37 });
     let expected = vec![
@@ -102,7 +102,7 @@ fn ignore() {
     .into_iter()
     .collect();
 
-    let input = <Rec as AssociatedFactory>::Factory::new(map, ()).unwrap();
+    let input = <Rec as AssociatedEventFactory>::Factory::new(map, ()).unwrap();
 
     let t1 = Rec::Var1(Msg1 { a: 42, b: 13.37 });
     let expected = vec![
@@ -166,7 +166,7 @@ fn overlap() {
     .into_iter()
     .collect();
 
-    let input = <Rec as AssociatedFactory>::Factory::new(map, ()).unwrap();
+    let input = <Rec as AssociatedEventFactory>::Factory::new(map, ()).unwrap();
 
     let t1 = Rec::Var1(Msg1 { a: 42, time: 13.37 });
     let expected = vec![Value::Unsigned(42), Value::None, Value::try_from(13.37).unwrap()];
@@ -211,7 +211,7 @@ fn missing() {
     .into_iter()
     .collect();
 
-    let res = <Rec as AssociatedFactory>::Factory::new(map, ());
+    let res = <Rec as AssociatedEventFactory>::Factory::new(map, ());
     let Err(EventFactoryError::InputStreamUnknown(errs)) = res else {
         panic!("Expected error reporting unknown stream!")
     };
