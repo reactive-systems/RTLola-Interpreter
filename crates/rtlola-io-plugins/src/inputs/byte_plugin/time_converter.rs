@@ -7,7 +7,10 @@ pub trait TimeConverter<T: TimeRepresentation>: Sized + AssociatedEventFactory {
     /// Converts a value to a [TimeRepresentation].
     fn convert_time(
         &self,
-    ) -> Result<<T as TimeRepresentation>::InnerTime, <<Self as AssociatedEventFactory>::Factory as EventFactory>::Error>;
+    ) -> Result<
+        <T as TimeRepresentation>::InnerTime,
+        <<Self as AssociatedEventFactory>::Factory as EventFactory>::Error,
+    >;
 }
 
 impl<Map: AssociatedEventFactory> TimeConverter<DelayTime> for Map {

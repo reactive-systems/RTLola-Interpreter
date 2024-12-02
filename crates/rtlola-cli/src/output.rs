@@ -13,7 +13,9 @@ use crossterm::terminal::{Clear, ClearType};
 use rtlola_interpreter::monitor::{TotalIncremental, TracingVerdict};
 use rtlola_interpreter::queued::{QueuedVerdict, Receiver, RecvTimeoutError};
 use rtlola_interpreter::time::OutputTimeRepresentation;
-use rtlola_io_plugins::outputs::statistics_plugin::{EvalTimeTracer, StatisticsFactory, StatisticsVerdict};
+use rtlola_io_plugins::outputs::statistics_plugin::{
+    EvalTimeTracer, StatisticsFactory, StatisticsVerdict,
+};
 use rtlola_io_plugins::outputs::VerdictsSink;
 
 /// The possible targets at which the output of the interpreter can be directed.
@@ -59,7 +61,9 @@ impl<
 
     pub(crate) fn run(
         mut self,
-        input: Receiver<QueuedVerdict<TracingVerdict<EvalTimeTracer, TotalIncremental>, OutputTime>>,
+        input: Receiver<
+            QueuedVerdict<TracingVerdict<EvalTimeTracer, TotalIncremental>, OutputTime>,
+        >,
     ) {
         loop {
             let res = input.recv_timeout(Duration::from_millis(100));
@@ -71,17 +75,21 @@ impl<
             match res {
                 Ok(queue_verdict) => {
                     self.verdict_sink
-                        .sink_verdict(queue_verdict.ts.clone(), queue_verdict.verdict.verdict.clone())
+                        .sink_verdict(
+                            queue_verdict.ts.clone(),
+                            queue_verdict.verdict.verdict.clone(),
+                        )
                         .unwrap();
                     if let Some(sink) = &mut self.stats_sink {
-                        sink.sink_verdict(queue_verdict.ts, queue_verdict.verdict).unwrap();
+                        sink.sink_verdict(queue_verdict.ts, queue_verdict.verdict)
+                            .unwrap();
                     }
-                },
+                }
                 Err(RecvTimeoutError::Timeout) => {
                     if let Some(sink) = &mut self.stats_sink {
                         sink.progress();
                     }
-                },
+                }
                 Err(RecvTimeoutError::Disconnected) => break,
             };
         }
@@ -103,7 +111,8 @@ pub(crate) struct StatisticsVerdictSink<W: Write, O: OutputTimeRepresentation> {
     output_time_representation: PhantomData<O>,
 }
 
-impl<W: Write, O: OutputTimeRepresentation> VerdictsSink<TracingVerdict<EvalTimeTracer, TotalIncremental>, O>
+impl<W: Write, O: OutputTimeRepresentation>
+    VerdictsSink<TracingVerdict<EvalTimeTracer, TotalIncremental>, O>
     for StatisticsVerdictSink<W, O>
 {
     type Error = Infallible;
@@ -179,7 +188,12 @@ impl<W: Write, O: OutputTimeRepresentation> StatisticsVerdictSink<W, O> {
             )
             .unwrap_or_else(|_| {});
         } else {
-            writeln!(self.write, "{} {} events", spinner_char, self.cached_verdict.num_cycles).unwrap_or_else(|_| {});
+            writeln!(
+                self.write,
+                "{} {} events",
+                spinner_char, self.cached_verdict.num_cycles
+            )
+            .unwrap_or_else(|_| {});
         }
     }
 
@@ -210,6 +224,11 @@ impl<W: Write, O: OutputTimeRepresentation> StatisticsVerdictSink<W, O> {
     }
 
     fn clear_progress(&mut self) {
-        execute!(self.write, MoveToPreviousLine(3u16), Clear(ClearType::FromCursorDown)).unwrap_or_else(|_| {});
+        execute!(
+            self.write,
+            MoveToPreviousLine(3u16),
+            Clear(ClearType::FromCursorDown)
+        )
+        .unwrap_or_else(|_| {});
     }
 }

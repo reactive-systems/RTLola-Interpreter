@@ -81,17 +81,13 @@ pub(crate) fn expand(input: TokenStream) -> TokenStream {
     let sub_trait = quote! {CompositFactory};
 
     let deriver: Box<dyn ComposingDeriver> = match &input.data {
-        Data::Struct(_) => {
-            match StructDeriver::new(&input) {
-                Ok(sd) => Box::new(sd),
-                Err(e) => return e.into(),
-            }
+        Data::Struct(_) => match StructDeriver::new(&input) {
+            Ok(sd) => Box::new(sd),
+            Err(e) => return e.into(),
         },
-        Data::Enum(_) => {
-            match EnumComposer::new(&input, sub_trait, true) {
-                Ok(ed) => Box::new(ed),
-                Err(e) => return e.into(),
-            }
+        Data::Enum(_) => match EnumComposer::new(&input, sub_trait, true) {
+            Ok(ed) => Box::new(ed),
+            Err(e) => return e.into(),
         },
         Data::Union(_) => abort!(&input, "Input can only be derived for structs and enums"),
     };

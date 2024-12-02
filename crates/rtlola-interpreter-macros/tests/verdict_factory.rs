@@ -2,7 +2,9 @@ use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use rtlola_interpreter::monitor::{TotalIncremental, Verdicts};
-use rtlola_interpreter::output::{FromValuesError, StructVerdictError, StructVerdictFactory, VerdictFactory};
+use rtlola_interpreter::output::{
+    FromValuesError, StructVerdictError, StructVerdictFactory, VerdictFactory,
+};
 use rtlola_interpreter::rtlola_frontend::ParserConfig;
 use rtlola_interpreter::time::RelativeFloat;
 use rtlola_interpreter::ConfigBuilder;
@@ -59,7 +61,9 @@ fn complex_types() {
         i: u64,
     }
 
-    let ir = rtlola_interpreter::rtlola_frontend::parse(&ParserConfig::for_string(spec.to_string())).unwrap();
+    let ir =
+        rtlola_interpreter::rtlola_frontend::parse(&ParserConfig::for_string(spec.to_string()))
+            .unwrap();
     let factory: &mut dyn VerdictFactory<
         TotalIncremental,
         RelativeFloat,
@@ -75,7 +79,11 @@ fn complex_types() {
         .monitor()
         .unwrap();
 
-    let Verdicts { timed: _, event, ts } = monitor
+    let Verdicts {
+        timed: _,
+        event,
+        ts,
+    } = monitor
         .accept_event(Inputs { a: -13, i: 24 }, Duration::from_secs_f64(1.2))
         .unwrap();
     let my_output = factory.get_verdict(event, ts).unwrap();
@@ -91,9 +99,12 @@ fn complex_types() {
                 .into_iter()
                 .collect(),
             c: None,
-            d: vec![((-13, true), "Parameter 1 is -13; Current a is -13".to_string())]
-                .into_iter()
-                .collect(),
+            d: vec![(
+                (-13, true),
+                "Parameter 1 is -13; Current a is -13".to_string()
+            )]
+            .into_iter()
+            .collect(),
             e: vec![("Stream a: -13".to_string(), "Stream a: -13".to_string())]
                 .into_iter()
                 .collect(),
@@ -121,7 +132,9 @@ fn parameter_mismatch() {
         a: i64,
     }
 
-    let ir = rtlola_interpreter::rtlola_frontend::parse(&ParserConfig::for_string(spec.to_string())).unwrap();
+    let ir =
+        rtlola_interpreter::rtlola_frontend::parse(&ParserConfig::for_string(spec.to_string()))
+            .unwrap();
     let factory: &mut dyn VerdictFactory<
         TotalIncremental,
         RelativeFloat,
@@ -137,7 +150,11 @@ fn parameter_mismatch() {
         .monitor()
         .unwrap();
 
-    let Verdicts { timed: _, event, ts } = monitor
+    let Verdicts {
+        timed: _,
+        event,
+        ts,
+    } = monitor
         .accept_event(Inputs { a: -13 }, Duration::from_secs_f64(1.2))
         .unwrap();
     let output_err = factory.get_verdict(event, ts).unwrap_err();
@@ -166,7 +183,9 @@ fn kind_mismatch() {
         a: i64,
     }
 
-    let ir = rtlola_interpreter::rtlola_frontend::parse(&ParserConfig::for_string(spec.to_string())).unwrap();
+    let ir =
+        rtlola_interpreter::rtlola_frontend::parse(&ParserConfig::for_string(spec.to_string()))
+            .unwrap();
     let factory: &mut dyn VerdictFactory<
         TotalIncremental,
         RelativeFloat,
@@ -182,7 +201,11 @@ fn kind_mismatch() {
         .monitor()
         .unwrap();
 
-    let Verdicts { timed: _, event, ts } = monitor
+    let Verdicts {
+        timed: _,
+        event,
+        ts,
+    } = monitor
         .accept_event(Inputs { a: -13 }, Duration::from_secs_f64(1.2))
         .unwrap();
     let output_err = factory.get_verdict(event, ts).unwrap_err();
@@ -209,7 +232,9 @@ fn expected_value() {
         a: i64,
     }
 
-    let ir = rtlola_interpreter::rtlola_frontend::parse(&ParserConfig::for_string(spec.to_string())).unwrap();
+    let ir =
+        rtlola_interpreter::rtlola_frontend::parse(&ParserConfig::for_string(spec.to_string()))
+            .unwrap();
     let factory: &mut dyn VerdictFactory<
         TotalIncremental,
         RelativeFloat,
@@ -225,7 +250,11 @@ fn expected_value() {
         .monitor()
         .unwrap();
 
-    let Verdicts { timed: _, event, ts } = monitor
+    let Verdicts {
+        timed: _,
+        event,
+        ts,
+    } = monitor
         .accept_event(Inputs { a: -13 }, Duration::from_secs_f64(1.2))
         .unwrap();
     let output_err = factory.get_verdict(event, ts).unwrap_err();
@@ -247,7 +276,9 @@ fn unkown_stream() {
         c: String,
     }
 
-    let ir = rtlola_interpreter::rtlola_frontend::parse(&ParserConfig::for_string(spec.to_string())).unwrap();
+    let ir =
+        rtlola_interpreter::rtlola_frontend::parse(&ParserConfig::for_string(spec.to_string()))
+            .unwrap();
     let err = StructVerdictFactory::<MyOutputs>::new(&ir).unwrap_err();
     assert!(matches!(err, StructVerdictError::UnknownStream(_)));
 }

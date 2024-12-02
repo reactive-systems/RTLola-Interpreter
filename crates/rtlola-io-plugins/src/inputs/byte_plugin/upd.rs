@@ -31,7 +31,10 @@ pub struct CheckedUdpSocket {
 impl CheckedUdpSocket {
     /// Creates a new [CheckedUdpSocket] form a socket and the allowed sender addresses
     pub fn new(socket: std::net::UdpSocket, allowed_sender: Vec<SocketAddr>) -> Self {
-        Self { socket, allowed_sender }
+        Self {
+            socket,
+            allowed_sender,
+        }
     }
 }
 
@@ -40,7 +43,9 @@ impl ByteSource for CheckedUdpSocket {
 
     fn read(&mut self, buffer: &mut [u8]) -> Result<Option<usize>, Self::Error> {
         match self.socket.recv_from(buffer) {
-            Ok((package_size, sender)) if self.allowed_sender.contains(&sender) => Ok(Some(package_size)),
+            Ok((package_size, sender)) if self.allowed_sender.contains(&sender) => {
+                Ok(Some(package_size))
+            }
             Ok((_, sender)) => Err(CheckUdpError::InvalidSender(sender)),
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Ok(None),
             Err(e) => Err(e.into()),

@@ -77,12 +77,12 @@ impl Display for Value {
                     }
                 }
                 write!(f, ")")
-            },
+            }
             Str(str) => write!(f, "{}", *str),
             Bytes(b) => {
                 let hex = hex::encode_upper(b);
                 write!(f, "{}", hex)
-            },
+            }
             Decimal(i) => write!(f, "{i}"),
         }
     }
@@ -99,58 +99,49 @@ impl Value {
                 return Ok(None);
             }
             match ty {
-                Type::Bool => {
-                    source
-                        .parse::<bool>()
-                        .map(Bool)
-                        .map_err(|_| ValueConvertError::ParseError(ty.clone(), source.to_string()))
-                },
-                Type::Bytes => {
-                    hex::decode(source)
-                        .map(|bytes| Bytes(bytes.into_boxed_slice()))
-                        .map_err(|_| ValueConvertError::ParseError(ty.clone(), source.to_string()))
-                },
-                Type::Int(_) => {
-                    source
-                        .parse::<i64>()
-                        .map(Signed)
-                        .map_err(|_| ValueConvertError::ParseError(ty.clone(), source.to_string()))
-                },
+                Type::Bool => source
+                    .parse::<bool>()
+                    .map(Bool)
+                    .map_err(|_| ValueConvertError::ParseError(ty.clone(), source.to_string())),
+                Type::Bytes => hex::decode(source)
+                    .map(|bytes| Bytes(bytes.into_boxed_slice()))
+                    .map_err(|_| ValueConvertError::ParseError(ty.clone(), source.to_string())),
+                Type::Int(_) => source
+                    .parse::<i64>()
+                    .map(Signed)
+                    .map_err(|_| ValueConvertError::ParseError(ty.clone(), source.to_string())),
                 Type::UInt(_) => {
                     // TODO: This is just a quickfix!! Think of something more general.
                     if source == "0.0" {
                         Ok(Unsigned(0))
                     } else {
-                        source
-                            .parse::<u64>()
-                            .map(Unsigned)
-                            .map_err(|_| ValueConvertError::ParseError(ty.clone(), source.to_string()))
+                        source.parse::<u64>().map(Unsigned).map_err(|_| {
+                            ValueConvertError::ParseError(ty.clone(), source.to_string())
+                        })
                     }
-                },
-                Type::Float(_) => {
-                    source
-                        .parse::<f64>()
-                        .map_err(|_| ValueConvertError::ParseError(ty.clone(), source.to_string()))
-                        .and_then(Value::try_from)
-                },
+                }
+                Type::Float(_) => source
+                    .parse::<f64>()
+                    .map_err(|_| ValueConvertError::ParseError(ty.clone(), source.to_string()))
+                    .and_then(Value::try_from),
                 Type::String => Ok(Str(source.into())),
                 Type::Tuple(inner) => {
                     if inner.is_empty() {
                         (source == "()")
                             .then_some(Tuple(Box::new([])))
-                            .ok_or_else(|| ValueConvertError::ParseError(ty.clone(), source.to_string()))
+                            .ok_or_else(|| {
+                                ValueConvertError::ParseError(ty.clone(), source.to_string())
+                            })
                     } else {
                         unimplemented!()
                     }
-                },
+                }
 
                 Type::Option(_) | Type::Function { args: _, ret: _ } => unreachable!(),
-                Type::Fixed(_) | Type::UFixed(_) => {
-                    source
-                        .parse::<Decimal>()
-                        .map(Decimal)
-                        .map_err(|_| ValueConvertError::ParseError(ty.clone(), source.to_string()))
-                },
+                Type::Fixed(_) | Type::UFixed(_) => source
+                    .parse::<Decimal>()
+                    .map(Decimal)
+                    .map_err(|_| ValueConvertError::ParseError(ty.clone(), source.to_string())),
             }
         } else {
             Err(ValueConvertError::NotUtf8(source.to_vec()))
@@ -712,12 +703,16 @@ impl Display for ValueConvertError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             ValueConvertError::TypeMismatch(val) => write!(f, "Failed to convert Value: {val}"),
-            ValueConvertError::NotUtf8(bytes) => write!(f, "UTF-8 decoding failed for bytes: {bytes:?}"),
-            ValueConvertError::ParseError(ty, val) => write!(f, "Failed to parse Value of type {ty} from: {val}"),
+            ValueConvertError::NotUtf8(bytes) => {
+                write!(f, "UTF-8 decoding failed for bytes: {bytes:?}")
+            }
+            ValueConvertError::ParseError(ty, val) => {
+                write!(f, "Failed to parse Value of type {ty} from: {val}")
+            }
             ValueConvertError::FloatIsNan => write!(f, "The given Float is not a number (NaN)"),
             ValueConvertError::ValueNotSupported(v) => {
                 write!(f, "The value {v:?} is not supported by the interpreter.")
-            },
+            }
         }
     }
 }

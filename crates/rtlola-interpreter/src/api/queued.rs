@@ -96,7 +96,9 @@ impl Display for QueueError {
             QueueError::ThreadPanic(reason) => write!(f, "Worker thread hung up: {}", reason),
             QueueError::ThreadSendError(msg) => write!(f, "Failed to send message: {:?}", msg),
             QueueError::MultipleStart => write!(f, "Multiple start commands sent"),
-            QueueError::EventBeforeStart => write!(f, "Received an event before a start was called"),
+            QueueError::EventBeforeStart => {
+                write!(f, "Received an event before a start was called")
+            }
         }
     }
 }
@@ -182,7 +184,9 @@ where
         if self.worker.is_some() {
             if self.worker.as_ref().unwrap().is_finished() {
                 let worker = self.worker.take().unwrap();
-                worker.join().map_err(|e| QueueError::ThreadPanic(format!("{:?}", e)))?
+                worker
+                    .join()
+                    .map_err(|e| QueueError::ThreadPanic(format!("{:?}", e)))?
             } else {
                 Ok(())
             }
@@ -225,7 +229,9 @@ where
         drop(input);
         // wait for worker to finish processing all events left in input queue
         if let Some(worker) = worker {
-            worker.join().map_err(|e| QueueError::ThreadPanic(format!("{:?}", e)))?
+            worker
+                .join()
+                .map_err(|e| QueueError::ThreadPanic(format!("{:?}", e)))?
         } else {
             Ok(())
         }
@@ -314,7 +320,8 @@ where
     }
 }
 
-impl<Source, SourceTime, Verdict, VerdictTime> QueuedMonitor<Source, OfflineMode<SourceTime>, Verdict, VerdictTime>
+impl<Source, SourceTime, Verdict, VerdictTime>
+    QueuedMonitor<Source, OfflineMode<SourceTime>, Verdict, VerdictTime>
 where
     Source: EventFactory + 'static,
     SourceTime: TimeRepresentation,
@@ -364,7 +371,12 @@ where
         config: Config<OfflineMode<SourceTime>, VerdictTime>,
         setup_data: Source::CreationData,
     ) -> QueuedMonitor<Source, OfflineMode<SourceTime>, Verdict, VerdictTime> {
-        Self::bounded_setup(config, setup_data, QueueLength::Unbounded, QueueLength::Unbounded)
+        Self::bounded_setup(
+            config,
+            setup_data,
+            QueueLength::Unbounded,
+            QueueLength::Unbounded,
+        )
     }
 }
 
@@ -417,7 +429,12 @@ where
         config: Config<OnlineMode, VerdictTime>,
         setup_data: Source::CreationData,
     ) -> QueuedMonitor<Source, OnlineMode, Verdict, VerdictTime> {
-        Self::bounded_setup(config, setup_data, QueueLength::Unbounded, QueueLength::Unbounded)
+        Self::bounded_setup(
+            config,
+            setup_data,
+            QueueLength::Unbounded,
+            QueueLength::Unbounded,
+        )
     }
 }
 
@@ -441,7 +458,10 @@ where
         output: Sender<QueuedVerdict<Verdict, VerdictTime>>,
     ) -> Result<Self, QueueError>;
 
-    fn wait_for_start(&mut self, input: &Receiver<WorkItem<Source, Mode::SourceTime>>) -> Result<(), QueueError> {
+    fn wait_for_start(
+        &mut self,
+        input: &Receiver<WorkItem<Source, Mode::SourceTime>>,
+    ) -> Result<(), QueueError> {
         // Wait for Start command
         match input.recv() {
             Ok(WorkItem::Start) => Ok(()),
@@ -485,8 +505,12 @@ where
     output: Sender<QueuedVerdict<Verdict, VerdictTime>>,
 }
 
-impl<Source: EventFactory, Verdict: VerdictRepresentation, VerdictTime: OutputTimeRepresentation>
-    Worker<Source, OnlineMode, Verdict, VerdictTime> for OnlineWorker<Source, Verdict, VerdictTime>
+impl<
+        Source: EventFactory,
+        Verdict: VerdictRepresentation,
+        VerdictTime: OutputTimeRepresentation,
+    > Worker<Source, OnlineMode, Verdict, VerdictTime>
+    for OnlineWorker<Source, Verdict, VerdictTime>
 {
     fn setup(
         config: Config<OnlineMode, VerdictTime>,
@@ -497,7 +521,8 @@ impl<Source: EventFactory, Verdict: VerdictRepresentation, VerdictTime: OutputTi
     ) -> Result<Self, QueueError> {
         // setup monitor
         let source_time = config.mode.time_representation().clone();
-        let source = Source::new(input_names, setup_data).map_err(|e| QueueError::SourceError(Box::new(e)))?;
+        let source = Source::new(input_names, setup_data)
+            .map_err(|e| QueueError::SourceError(Box::new(e)))?;
 
         // Setup evaluator
         let dyn_schedule = Rc::new(RefCell::new(DynamicSchedule::new()));
@@ -527,7 +552,10 @@ impl<Source: EventFactory, Verdict: VerdictRepresentation, VerdictTime: OutputTi
     }
 
     fn process(&mut self) -> Result<(), QueueError> {
-        let output_time = self.output_time.as_mut().expect("Init to be executed before process");
+        let output_time = self
+            .output_time
+            .as_mut()
+            .expect("Init to be executed before process");
         loop {
             let next_deadline = self.schedule_manager.get_next_due();
             let item = if let Some(due) = next_deadline {
@@ -541,7 +569,9 @@ impl<Source: EventFactory, Verdict: VerdictRepresentation, VerdictTime: OutputTi
                 };
                 self.input.recv_timeout(wait_time)
             } else {
-                self.input.recv().map_err(|_| RecvTimeoutError::Disconnected)
+                self.input
+                    .recv()
+                    .map_err(|_| RecvTimeoutError::Disconnected)
             };
             let verdict = match item {
                 Ok(WorkItem::Event(e, ts)) => {
@@ -559,13 +589,14 @@ impl<Source: EventFactory, Verdict: VerdictRepresentation, VerdictTime: OutputTi
                     self.evaluator.eval_event(&e, ts, &mut tracer);
                     tracer.eval_end();
 
-                    let verdict = Verdict::create_with_trace(RawVerdict::from(&self.evaluator), tracer);
+                    let verdict =
+                        Verdict::create_with_trace(RawVerdict::from(&self.evaluator), tracer);
                     verdict.is_empty().not().then_some(QueuedVerdict {
                         kind: VerdictKind::Event,
                         ts: output_time.convert_into(ts),
                         verdict,
                     })
-                },
+                }
                 Err(RecvTimeoutError::Timeout) => {
                     // Deadline occurred before event
                     let mut tracer = Verdict::Tracing::default();
@@ -574,24 +605,26 @@ impl<Source: EventFactory, Verdict: VerdictRepresentation, VerdictTime: OutputTi
                     //println!("Deadline at: {:?} evaluated at: {:?}", self.current_time, self.source_time.convert_from(()));
 
                     let deadline = self.schedule_manager.get_next_deadline(due);
-                    self.evaluator.eval_time_driven_tasks(deadline, due, &mut tracer);
+                    self.evaluator
+                        .eval_time_driven_tasks(deadline, due, &mut tracer);
                     tracer.eval_end();
 
-                    let verdict = Verdict::create_with_trace(RawVerdict::from(&self.evaluator), tracer);
+                    let verdict =
+                        Verdict::create_with_trace(RawVerdict::from(&self.evaluator), tracer);
                     verdict.is_empty().not().then_some(QueuedVerdict {
                         kind: VerdictKind::Timed,
                         ts: output_time.convert_into(due),
                         verdict,
                     })
-                },
+                }
                 Err(RecvTimeoutError::Disconnected) => {
                     // Channel closed, we are done here
                     return Ok(());
-                },
+                }
                 Ok(WorkItem::Start) => {
                     // Received second start command -> abort
                     return Err(QueueError::MultipleStart);
-                },
+                }
             };
 
             Self::try_send(&self.output, verdict)?;
@@ -648,7 +681,10 @@ impl<
     }
 
     fn process(&mut self) -> Result<(), QueueError> {
-        let monitor = self.monitor.as_mut().expect("Init to be called before process");
+        let monitor = self
+            .monitor
+            .as_mut()
+            .expect("Init to be called before process");
         let mut last_event = None;
         let mut done = false;
         while !done {
@@ -677,7 +713,7 @@ impl<
                         };
                         Self::try_send(&self.output, Some(verdict))?;
                     }
-                },
+                }
                 Err(_) => {
                     // Channel closed, we are done here
                     done = true;
@@ -694,11 +730,11 @@ impl<
                     } else {
                         return Ok(());
                     }
-                },
+                }
                 Ok(WorkItem::Start) => {
                     // Received second start command -> abort
                     return Err(QueueError::MultipleStart);
-                },
+                }
             }
         }
         Ok(())
@@ -724,7 +760,12 @@ mod tests {
         spec: &str,
     ) -> (
         Instant,
-        QueuedMonitor<ArrayFactory<N, Infallible, [Value; N]>, OfflineMode<RelativeFloat>, V, RelativeFloat>,
+        QueuedMonitor<
+            ArrayFactory<N, Infallible, [Value; N]>,
+            OfflineMode<RelativeFloat>,
+            V,
+            RelativeFloat,
+        >,
     ) {
         // Init Monitor API
         let monitor = ConfigBuilder::new()
@@ -737,7 +778,10 @@ mod tests {
     }
 
     fn sort_total(res: Total) -> Total {
-        let Total { inputs, mut outputs } = res;
+        let Total {
+            inputs,
+            mut outputs,
+        } = res;
         outputs.iter_mut().for_each(|s| s.sort());
         Total { inputs, outputs }
     }
@@ -776,7 +820,10 @@ mod tests {
         assert_eq!(res.outputs[0][0], (None, Some(Value::Bool(true))));
         assert_eq!(res.outputs[1][0], (None, Some(Value::Unsigned(3))));
         assert_eq!(res.outputs[2][0], (None, Some(Value::Signed(-5))));
-        assert_eq!(res.outputs[3][0], (None, Some(Value::try_from(-123.456).unwrap())));
+        assert_eq!(
+            res.outputs[3][0],
+            (None, Some(Value::try_from(-123.456).unwrap()))
+        );
         assert_eq!(res.outputs[4][0], (None, Some(Value::Str("foobar".into()))));
     }
 
@@ -795,12 +842,16 @@ mod tests {
             .accept_event([Value::Unsigned(1)], time)
             .expect("Failed to accept event");
 
-        let res: Vec<_> = (0..11).map(|_| output.recv_timeout(timeout).unwrap()).collect();
+        let res: Vec<_> = (0..11)
+            .map(|_| output.recv_timeout(timeout).unwrap())
+            .collect();
         assert!(output.is_empty());
 
         assert!(res.iter().all(|v| v.kind == VerdictKind::Timed));
         assert!(res.iter().all(|QueuedVerdict { ts, verdict, .. }| {
-            ts.as_secs() % 4 == 0 && verdict[0].0 == 0 && verdict[0].1[0] == Change::Value(None, Value::Unsigned(0))
+            ts.as_secs() % 4 == 0
+                && verdict[0].0 == 0
+                && verdict[0].1[0] == Change::Value(None, Value::Unsigned(0))
         }));
         for v in 2..=n {
             time += Duration::from_secs(1);
@@ -810,7 +861,10 @@ mod tests {
             if (v - 1) % 4 == 0 {
                 let res = output.recv_timeout(timeout).unwrap();
                 assert_eq!(res.kind, VerdictKind::Timed);
-                assert_eq!(res.verdict[0].1[0], Change::Value(None, Value::Unsigned(v - 1)));
+                assert_eq!(
+                    res.verdict[0].1[0],
+                    Change::Value(None, Value::Unsigned(v - 1))
+                );
             } else {
                 assert!(output.is_empty());
             }
@@ -845,7 +899,10 @@ mod tests {
         assert_eq!(sort_total(res.verdict), sort_total(expected));
 
         monitor
-            .accept_event([Value::Signed(20), Value::Signed(7)], Duration::from_secs(2))
+            .accept_event(
+                [Value::Signed(20), Value::Signed(7)],
+                Duration::from_secs(2),
+            )
             .expect("Failed to accept event");
         let res = output.recv_timeout(timeout).unwrap();
 

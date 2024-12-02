@@ -77,8 +77,11 @@ impl<Parse: Error + Debug, Source: Error + Debug, Time: Error + Debug> std::fmt:
     }
 }
 
-impl<Parse: Error + Debug + 'static, Source: Error + Debug + 'static, Time: Error + Debug + 'static> Error
-    for ByteEventSourceError<Parse, Source, Time>
+impl<
+        Parse: Error + Debug + 'static,
+        Source: Error + Debug + 'static,
+        Time: Error + Debug + 'static,
+    > Error for ByteEventSourceError<Parse, Source, Time>
 {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
@@ -108,19 +111,30 @@ where
 
     fn init_data(
         &self,
-    ) -> Result<<<Self::Factory as AssociatedEventFactory>::Factory as EventFactory>::CreationData, Self::Error> {
+    ) -> Result<
+        <<Self::Factory as AssociatedEventFactory>::Factory as EventFactory>::CreationData,
+        Self::Error,
+    > {
         Ok(())
     }
 
-    fn next_event(&mut self) -> EventResult<Self::Factory, <InputTime as TimeRepresentation>::InnerTime, Self::Error> {
+    fn next_event(
+        &mut self,
+    ) -> EventResult<Self::Factory, <InputTime as TimeRepresentation>::InnerTime, Self::Error> {
         loop {
-            let event = self.parser.from_bytes(&self.buffer).map(|(event, package_size)| {
-                let ts = <<Parser as ByteParser>::Output as TimeConverter<InputTime>>::convert_time(&event)
-                    .map_err(ByteEventSourceError::TimeConversion)?;
-                let slice = self.buffer.drain(0..package_size);
-                debug_assert_eq!(slice.len(), package_size);
-                Ok((event, ts))
-            });
+            let event = self
+                .parser
+                .from_bytes(&self.buffer)
+                .map(|(event, package_size)| {
+                    let ts =
+                        <<Parser as ByteParser>::Output as TimeConverter<InputTime>>::convert_time(
+                            &event,
+                        )
+                        .map_err(ByteEventSourceError::TimeConversion)?;
+                    let slice = self.buffer.drain(0..package_size);
+                    debug_assert_eq!(slice.len(), package_size);
+                    Ok((event, ts))
+                });
             match event {
                 Ok(res) => break Ok(Some(res?)),
                 Err(ByteParsingError::Incomplete) => {
@@ -131,9 +145,11 @@ where
                         .map_err(ByteEventSourceError::Source)?;
                     match package_size {
                         None | Some(0) => break Ok(None),
-                        Some(package_size) => self.buffer.extend_from_slice(&temp_buffer[0..package_size]),
+                        Some(package_size) => {
+                            self.buffer.extend_from_slice(&temp_buffer[0..package_size])
+                        }
                     }
-                },
+                }
                 Err(ByteParsingError::Inner(e)) => break Err(ByteEventSourceError::Parse(e)),
             }
         }
@@ -169,7 +185,10 @@ pub trait ByteParser {
     type Output;
     #[allow(clippy::wrong_self_convention)]
     /// Function to parse the bytestream
-    fn from_bytes(&mut self, data: &[u8]) -> Result<(Self::Output, usize), ByteParsingError<Self::Error>>
+    fn from_bytes(
+        &mut self,
+        data: &[u8],
+    ) -> Result<(Self::Output, usize), ByteParsingError<Self::Error>>
     where
         Self: Sized;
 }
@@ -197,11 +216,16 @@ impl<B: Serialize + for<'a> Deserialize<'a> + AssociatedEventFactory> Default fo
     }
 }
 
-impl<B: Serialize + for<'a> Deserialize<'a> + AssociatedEventFactory> ByteParser for SerdeParser<B> {
+impl<B: Serialize + for<'a> Deserialize<'a> + AssociatedEventFactory> ByteParser
+    for SerdeParser<B>
+{
     type Error = bincode::Error;
     type Output = B;
 
-    fn from_bytes(&mut self, data: &[u8]) -> Result<(Self::Output, usize), ByteParsingError<Self::Error>>
+    fn from_bytes(
+        &mut self,
+        data: &[u8],
+    ) -> Result<(Self::Output, usize), ByteParsingError<Self::Error>>
     where
         Self: Sized,
     {

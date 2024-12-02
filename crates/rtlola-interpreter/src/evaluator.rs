@@ -8,8 +8,9 @@ use bit_set::BitSet;
 use itertools::Itertools;
 use num::traits::Inv;
 use rtlola_frontend::mir::{
-    ActivationCondition as Activation, InputReference, OutputKind, OutputReference, PacingLocality, PacingType,
-    RtLolaMir, Stream, StreamReference, Task, TimeDrivenStream, Trigger, TriggerReference, WindowReference,
+    ActivationCondition as Activation, InputReference, OutputKind, OutputReference, PacingLocality,
+    PacingType, RtLolaMir, Stream, StreamReference, Task, TimeDrivenStream, Trigger,
+    TriggerReference, WindowReference,
 };
 use uom::si::rational64::Time as UOM_Time;
 use uom::si::time::nanosecond;
@@ -19,7 +20,8 @@ use crate::closuregen::{CompiledExpr, Expr};
 use crate::monitor::{Parameters, Tracer};
 use crate::schedule::{DynamicSchedule, EvaluationTask};
 use crate::storage::{
-    GlobalStore, InstanceAggregationTrait, InstanceStore, Value, WindowParameterization, WindowParameterizationKind,
+    GlobalStore, InstanceAggregationTrait, InstanceStore, Value, WindowParameterization,
+    WindowParameterizationKind,
 };
 use crate::Time;
 
@@ -113,34 +115,34 @@ impl EvaluatorData {
         let stream_acs = ir
             .outputs
             .iter()
-            .map(|o| {
-                match &o.eval.eval_pacing {
-                    PacingType::GlobalPeriodic(_) | PacingType::LocalPeriodic(_) => ActivationConditionOp::TimeDriven,
-                    PacingType::Event(ac) => ActivationConditionOp::new(ac, ir.inputs.len()),
-                    PacingType::Constant => ActivationConditionOp::True,
+            .map(|o| match &o.eval.eval_pacing {
+                PacingType::GlobalPeriodic(_) | PacingType::LocalPeriodic(_) => {
+                    ActivationConditionOp::TimeDriven
                 }
+                PacingType::Event(ac) => ActivationConditionOp::new(ac, ir.inputs.len()),
+                PacingType::Constant => ActivationConditionOp::True,
             })
             .collect();
         let spawn_acs = ir
             .outputs
             .iter()
-            .map(|o| {
-                match &o.spawn.pacing {
-                    PacingType::GlobalPeriodic(_) | PacingType::LocalPeriodic(_) => ActivationConditionOp::TimeDriven,
-                    PacingType::Event(ac) => ActivationConditionOp::new(ac, ir.inputs.len()),
-                    PacingType::Constant => ActivationConditionOp::True,
+            .map(|o| match &o.spawn.pacing {
+                PacingType::GlobalPeriodic(_) | PacingType::LocalPeriodic(_) => {
+                    ActivationConditionOp::TimeDriven
                 }
+                PacingType::Event(ac) => ActivationConditionOp::new(ac, ir.inputs.len()),
+                PacingType::Constant => ActivationConditionOp::True,
             })
             .collect();
         let close_acs = ir
             .outputs
             .iter()
-            .map(|o| {
-                match &o.close.pacing {
-                    PacingType::GlobalPeriodic(_) | PacingType::LocalPeriodic(_) => ActivationConditionOp::TimeDriven,
-                    PacingType::Event(ac) => ActivationConditionOp::new(ac, ir.inputs.len()),
-                    PacingType::Constant => ActivationConditionOp::True,
+            .map(|o| match &o.close.pacing {
+                PacingType::GlobalPeriodic(_) | PacingType::LocalPeriodic(_) => {
+                    ActivationConditionOp::TimeDriven
                 }
+                PacingType::Event(ac) => ActivationConditionOp::new(ac, ir.inputs.len()),
+                PacingType::Constant => ActivationConditionOp::True,
             })
             .collect();
 
@@ -241,21 +243,20 @@ impl EvaluatorData {
             .ir
             .outputs
             .iter()
-            .map(|o| {
-                match (o.spawn.expression.as_ref(), o.spawn.condition.as_ref()) {
+            .map(
+                |o| match (o.spawn.expression.as_ref(), o.spawn.condition.as_ref()) {
                     (None, None) => CompiledExpr::new(|_| Value::Tuple(vec![].into_boxed_slice())),
                     (Some(target), None) => target.clone().compile(),
-                    (None, Some(condition)) => {
-                        CompiledExpr::create_filter(
-                            condition.clone().compile(),
-                            CompiledExpr::new(|_| Value::Tuple(vec![].into_boxed_slice())),
-                        )
-                    },
-                    (Some(target), Some(condition)) => {
-                        CompiledExpr::create_filter(condition.clone().compile(), target.clone().compile())
-                    },
-                }
-            })
+                    (None, Some(condition)) => CompiledExpr::create_filter(
+                        condition.clone().compile(),
+                        CompiledExpr::new(|_| Value::Tuple(vec![].into_boxed_slice())),
+                    ),
+                    (Some(target), Some(condition)) => CompiledExpr::create_filter(
+                        condition.clone().compile(),
+                        target.clone().compile(),
+                    ),
+                },
+            )
             .collect();
 
         let compiled_close_exprs = leaked_data
@@ -326,7 +327,10 @@ impl Evaluator {
                         .spawned()
                         .map(|p| Change::Spawn(p.clone()))
                         .chain(instances.fresh().map(|p| {
-                            Change::Value(Some(p.clone()), self.peek_value(stream, p, 0).expect("Marked as fresh"))
+                            Change::Value(
+                                Some(p.clone()),
+                                self.peek_value(stream, p, 0).expect("Marked as fresh"),
+                            )
                         }))
                         .chain(instances.closed().map(|p| Change::Close(p.clone())))
                         .collect()
@@ -353,23 +357,30 @@ impl Evaluator {
                 } else {
                     vec![]
                 };
-                changes.is_empty().not().then(|| (o.reference.out_ix(), changes))
+                changes
+                    .is_empty()
+                    .not()
+                    .then(|| (o.reference.out_ix(), changes))
             })
             .collect()
     }
 
     /// NOT for external use because the values are volatile
-    pub(crate) fn peek_violated_triggers_messages(&self) -> Vec<(OutputReference, Parameters, String)> {
+    pub(crate) fn peek_violated_triggers_messages(
+        &self,
+    ) -> Vec<(OutputReference, Parameters, String)> {
         self.peek_fresh_outputs()
             .into_iter()
             .filter(|(o_ref, _)| matches!(self.ir.outputs[*o_ref].kind, OutputKind::Trigger(_)))
             .flat_map(|(o_ref, changes)| {
-                changes.into_iter().filter_map(move |change| {
-                    match change {
-                        Change::Value(parameters, Value::Str(msg)) => Some((o_ref, parameters, msg.into())),
-                        Change::Value(_, _) => unreachable!("trigger values are strings; checked by the frontend"),
-                        _ => None,
+                changes.into_iter().filter_map(move |change| match change {
+                    Change::Value(parameters, Value::Str(msg)) => {
+                        Some((o_ref, parameters, msg.into()))
                     }
+                    Change::Value(_, _) => {
+                        unreachable!("trigger values are strings; checked by the frontend")
+                    }
+                    _ => None,
                 })
             })
             .collect()
@@ -415,7 +426,12 @@ impl Evaluator {
                         .global_store
                         .get_out_instance_collection(ix)
                         .all_parameter()
-                        .map(|para| (Some(para.clone()), self.peek_value(elem.reference, para.as_ref(), 0)))
+                        .map(|para| {
+                            (
+                                Some(para.clone()),
+                                self.peek_value(elem.reference, para.as_ref(), 0),
+                            )
+                        })
                         .collect();
                     values
                 } else if elem.is_spawned() {
@@ -430,14 +446,16 @@ impl Evaluator {
     fn accept_inputs(&mut self, event: &[Value], ts: Time) {
         for (ix, v) in event.iter().enumerate() {
             match v {
-                Value::None => {},
+                Value::None => {}
                 v => self.accept_input(ix, v.clone(), ts),
             }
         }
     }
 
     fn accept_input(&mut self, input: InputReference, v: Value, ts: Time) {
-        self.global_store.get_in_instance_mut(input).push_value(v.clone());
+        self.global_store
+            .get_in_instance_mut(input)
+            .push_value(v.clone());
         self.fresh_inputs.insert(input);
         let extended = &self.ir.inputs[input];
         for (_sr, win) in &extended.aggregated_by {
@@ -453,7 +471,11 @@ impl Evaluator {
         for close in self.closing_streams {
             let ac = &self.close_activation_conditions[*close];
             if ac.is_eventdriven() && ac.eval(self.fresh_inputs) {
-                if self.ir.output(StreamReference::Out(*close)).is_parameterized() {
+                if self
+                    .ir
+                    .output(StreamReference::Out(*close))
+                    .is_parameterized()
+                {
                     let stream_instances: Vec<Vec<Value>> = self
                         .global_store
                         .get_out_instance_collection(*close)
@@ -486,7 +508,10 @@ impl Evaluator {
 
     fn eval_spawn(&mut self, output: OutputReference, ts: Time) {
         let stream = self.ir.output(StreamReference::Out(output));
-        debug_assert!(stream.is_spawned(), "tried to spawn stream that should not be spawned");
+        debug_assert!(
+            stream.is_spawned(),
+            "tried to spawn stream that should not be spawned"
+        );
 
         let expr = self.compiled_spawn_exprs[output].clone();
         let ctx = self.as_EvaluationContext(vec![], ts);
@@ -524,17 +549,24 @@ impl Evaluator {
 
             // Schedule eval if it has local pacing
             if tds.locality == PacingLocality::Local {
-                schedule.schedule_evaluation(output, parameter_values.as_slice(), ts, tds.period_in_duration());
+                schedule.schedule_evaluation(
+                    output,
+                    parameter_values.as_slice(),
+                    ts,
+                    tds.period_in_duration(),
+                );
             }
 
             // Schedule close if it has local pacing
             if let PacingType::LocalPeriodic(f) = stream.close.pacing {
                 let period = Duration::from_nanos(
-                    UOM_Time::new::<uom::si::time::second>(f.get::<uom::si::frequency::hertz>().inv())
-                        .get::<nanosecond>()
-                        .to_integer()
-                        .try_into()
-                        .expect("Period [ns] too large for u64!"),
+                    UOM_Time::new::<uom::si::time::second>(
+                        f.get::<uom::si::frequency::hertz>().inv(),
+                    )
+                    .get::<nanosecond>()
+                    .to_integer()
+                    .try_into()
+                    .expect("Period [ns] too large for u64!"),
                 );
                 schedule.schedule_close(output, parameter_values.as_slice(), ts, period);
             }
@@ -559,17 +591,19 @@ impl Evaluator {
             match (kind, global) {
                 (WindowParameterizationKind::None | WindowParameterizationKind::Caller, true) => {
                     // Only a single window with a global clock exists. nothing to do...
-                },
+                }
                 (WindowParameterizationKind::None, false) => {
                     // Caller is spawned but not parameterized
                     // activate single window now
                     let (inst, fresh) = match target {
-                        StreamReference::In(ix) => {
-                            (self.global_store.get_in_instance(ix), self.fresh_inputs.contains(ix))
-                        },
-                        StreamReference::Out(ix) => {
-                            (self.global_store.get_out_instance(ix), self.fresh_outputs.contains(ix))
-                        },
+                        StreamReference::In(ix) => (
+                            self.global_store.get_in_instance(ix),
+                            self.fresh_inputs.contains(ix),
+                        ),
+                        StreamReference::Out(ix) => (
+                            self.global_store.get_out_instance(ix),
+                            self.fresh_outputs.contains(ix),
+                        ),
                     };
                     let target_value = fresh.then(|| inst.get_value(0).unwrap());
                     let window = self.global_store.get_window_mut(win_ref);
@@ -580,7 +614,7 @@ impl Evaluator {
                             window.accept_value(val, ts);
                         }
                     }
-                },
+                }
                 (WindowParameterizationKind::Target, false) => {
                     // Caller is spawned and Target is parameterized; window evaluates at local clock
                     // activate all windows registered now
@@ -591,17 +625,19 @@ impl Evaluator {
                     self.global_store
                         .get_window_collection_mut(win_ref)
                         .activate_all(fresh_values, ts, ts);
-                },
+                }
                 (WindowParameterizationKind::Caller, false) => {
                     // Caller is parameterized and windows are evaluated at local clock
                     // Create and activate window instance of the spawned instance
                     let (inst, fresh) = match target {
-                        StreamReference::In(ix) => {
-                            (self.global_store.get_in_instance(ix), self.fresh_inputs.contains(ix))
-                        },
-                        StreamReference::Out(ix) => {
-                            (self.global_store.get_out_instance(ix), self.fresh_outputs.contains(ix))
-                        },
+                        StreamReference::In(ix) => (
+                            self.global_store.get_in_instance(ix),
+                            self.fresh_inputs.contains(ix),
+                        ),
+                        StreamReference::Out(ix) => (
+                            self.global_store.get_out_instance(ix),
+                            self.fresh_outputs.contains(ix),
+                        ),
                     };
                     let target_value = fresh.then(|| inst.get_value(0).unwrap());
                     let windows = self.global_store.get_window_collection_mut(win_ref);
@@ -613,7 +649,7 @@ impl Evaluator {
                             window.accept_value(val, ts);
                         }
                     }
-                },
+                }
                 (WindowParameterizationKind::Both, false) => {
                     // target and caller are parameterized and windows are evaluated at local clock
                     // create and activate a new set of sliding windows over all available target instances
@@ -621,13 +657,15 @@ impl Evaluator {
                         .global_store
                         .get_out_instance_collection(target.out_ix())
                         .fresh_values();
-                    let windows = self.global_store.get_two_layer_window_collection_mut(win_ref);
+                    let windows = self
+                        .global_store
+                        .get_two_layer_window_collection_mut(win_ref);
                     windows.spawn_caller_instance(fresh_values, parameter_values, ts, ts);
-                },
+                }
                 (WindowParameterizationKind::Both | WindowParameterizationKind::Target, true) => {
                     // target and caller are parameterized and windows are evaluated at global clock.
                     // nothing to do?
-                },
+                }
             }
         }
 
@@ -636,23 +674,25 @@ impl Evaluator {
             let WindowParameterization { kind, global } = self.window_parameterization(*win_ref);
             // Self is target of the window
             match (kind, global) {
-                (WindowParameterizationKind::Caller | WindowParameterizationKind::None, _) => {},
+                (WindowParameterizationKind::Caller | WindowParameterizationKind::None, _) => {}
                 (WindowParameterizationKind::Both | WindowParameterizationKind::Target, true) => {
                     let windows = self.global_store.get_window_collection_mut(*win_ref);
                     let window = windows.get_or_create(parameter_values, ts);
                     // Window is not activated by caller so we assume it to have existed since the beginning.
                     window.activate(Time::default());
-                },
+                }
                 (WindowParameterizationKind::Target, false) => {
                     let windows = self.global_store.get_window_collection_mut(*win_ref);
                     windows.create_window(parameter_values, ts);
                     // Window is activated by caller at spawn
-                },
+                }
                 (WindowParameterizationKind::Both, false) => {
-                    let windows = self.global_store.get_two_layer_window_collection_mut(*win_ref);
+                    let windows = self
+                        .global_store
+                        .get_two_layer_window_collection_mut(*win_ref);
                     windows.spawn_target_instance(parameter_values);
                     // Windows are activated by caller at spawn
-                },
+                }
             }
         }
     }
@@ -681,17 +721,19 @@ impl Evaluator {
             for win_ref in own_windows {
                 // Self is caller of the window
                 match self.window_parameterization(win_ref).kind {
-                    WindowParameterizationKind::None | WindowParameterizationKind::Target => unreachable!(),
+                    WindowParameterizationKind::None | WindowParameterizationKind::Target => {
+                        unreachable!()
+                    }
                     WindowParameterizationKind::Caller => {
                         self.global_store
                             .get_window_collection_mut(win_ref)
                             .delete_window(parameter);
-                    },
+                    }
                     WindowParameterizationKind::Both => {
                         self.global_store
                             .get_two_layer_window_collection_mut(win_ref)
                             .close_caller_instance(parameter);
-                    },
+                    }
                 }
             }
 
@@ -699,17 +741,19 @@ impl Evaluator {
             for (_, win_ref) in &stream.aggregated_by {
                 // Self is target of the window
                 match self.window_parameterization(*win_ref).kind {
-                    WindowParameterizationKind::None | WindowParameterizationKind::Caller => unreachable!(),
+                    WindowParameterizationKind::None | WindowParameterizationKind::Caller => {
+                        unreachable!()
+                    }
                     WindowParameterizationKind::Target => {
                         self.global_store
                             .get_window_collection_mut(*win_ref)
                             .schedule_deletion(parameter, ts);
-                    },
+                    }
                     WindowParameterizationKind::Both => {
                         self.global_store
                             .get_two_layer_window_collection_mut(*win_ref)
                             .close_target_instance(parameter, ts);
-                    },
+                    }
                 }
             }
         } else {
@@ -718,13 +762,15 @@ impl Evaluator {
                 match self.window_parameterization(win_ref).kind {
                     WindowParameterizationKind::None => {
                         self.global_store.get_window_mut(win_ref).deactivate();
-                    },
+                    }
                     WindowParameterizationKind::Target => {
-                        self.global_store.get_window_collection_mut(win_ref).deactivate_all();
-                    },
+                        self.global_store
+                            .get_window_collection_mut(win_ref)
+                            .deactivate_all();
+                    }
                     WindowParameterizationKind::Caller | WindowParameterizationKind::Both => {
                         unreachable!("Parameters are empty")
-                    },
+                    }
                 }
             }
         }
@@ -738,11 +784,13 @@ impl Evaluator {
             // Remove close from schedule if it depends on current instance
             if let PacingType::LocalPeriodic(f) = stream.close.pacing {
                 let period = Duration::from_nanos(
-                    UOM_Time::new::<uom::si::time::second>(f.get::<uom::si::frequency::hertz>().inv())
-                        .get::<nanosecond>()
-                        .to_integer()
-                        .try_into()
-                        .expect("Period [ns] too large for u64!"),
+                    UOM_Time::new::<uom::si::time::second>(
+                        f.get::<uom::si::frequency::hertz>().inv(),
+                    )
+                    .get::<nanosecond>()
+                    .to_integer()
+                    .try_into()
+                    .expect("Period [ns] too large for u64!"),
                 );
                 schedule.remove_close(output, parameter, period);
             }
@@ -753,8 +801,14 @@ impl Evaluator {
     fn close_streams(&mut self) {
         for o in self.closed_outputs.iter() {
             if self.ir.output(StreamReference::Out(o)).is_parameterized() {
-                let vals = self.global_store.get_out_instance_collection_mut(o).delete_instances();
-                if let Some(wrefs) = self.stream_instance_aggregations.get(&StreamReference::Out(o)) {
+                let vals = self
+                    .global_store
+                    .get_out_instance_collection_mut(o)
+                    .delete_instances();
+                if let Some(wrefs) = self
+                    .stream_instance_aggregations
+                    .get(&StreamReference::Out(o))
+                {
                     wrefs.iter().for_each(|aggr| {
                         let inst = self.global_store.get_instance_aggregation_mut(*aggr);
                         vals.iter().for_each(|v| {
@@ -768,7 +822,12 @@ impl Evaluator {
         }
     }
 
-    fn eval_event_driven_spawn(&mut self, output: OutputReference, ts: Time, tracer: &mut impl Tracer) {
+    fn eval_event_driven_spawn(
+        &mut self,
+        output: OutputReference,
+        ts: Time,
+        tracer: &mut impl Tracer,
+    ) {
         if self.spawn_activation_conditions[output].eval(self.fresh_inputs) {
             tracer.spawn_start(output);
             self.eval_spawn(output, ts);
@@ -776,8 +835,17 @@ impl Evaluator {
         }
     }
 
-    fn eval_stream_instances(&mut self, output: OutputReference, ts: Time, tracer: &mut impl Tracer) {
-        if self.ir.output(StreamReference::Out(output)).is_parameterized() {
+    fn eval_stream_instances(
+        &mut self,
+        output: OutputReference,
+        ts: Time,
+        tracer: &mut impl Tracer,
+    ) {
+        if self
+            .ir
+            .output(StreamReference::Out(output))
+            .is_parameterized()
+        {
             let parameter: Vec<Vec<Value>> = self
                 .global_store
                 .get_out_instance_collection(output)
@@ -796,14 +864,24 @@ impl Evaluator {
         }
     }
 
-    fn eval_event_driven_output(&mut self, output: OutputReference, ts: Time, tracer: &mut impl Tracer) {
+    fn eval_event_driven_output(
+        &mut self,
+        output: OutputReference,
+        ts: Time,
+        tracer: &mut impl Tracer,
+    ) {
         if self.stream_activation_conditions[output].eval(self.fresh_inputs) {
             self.eval_stream_instances(output, ts, tracer)
         }
     }
 
     /// Time is expected to be relative to the start of the monitor
-    pub(crate) fn eval_time_driven_tasks(&mut self, tasks: Vec<EvaluationTask>, ts: Time, tracer: &mut impl Tracer) {
+    pub(crate) fn eval_time_driven_tasks(
+        &mut self,
+        tasks: Vec<EvaluationTask>,
+        ts: Time,
+        tracer: &mut impl Tracer,
+    ) {
         if tasks.is_empty() {
             return;
         }
@@ -815,20 +893,20 @@ impl Evaluator {
                     tracer.instance_eval_start(idx, parameter.as_slice());
                     self.eval_stream_instance(idx, parameter.as_slice(), ts);
                     tracer.instance_eval_end(idx, parameter.as_slice());
-                },
+                }
                 EvaluationTask::EvaluateInstances(idx) => {
                     self.eval_stream_instances(idx, ts, tracer);
-                },
+                }
                 EvaluationTask::Spawn(idx) => {
                     tracer.spawn_start(idx);
                     self.eval_spawn(idx, ts);
                     tracer.spawn_end(idx);
-                },
+                }
                 EvaluationTask::Close(idx, parameter) => {
                     tracer.close_start(idx, parameter.as_slice());
                     self.eval_close(idx, parameter.as_slice(), ts);
                     tracer.close_end(idx, parameter.as_slice());
-                },
+                }
             }
         }
     }
@@ -844,17 +922,17 @@ impl Evaluator {
                     if window.is_active() {
                         window.update(ts);
                     }
-                },
+                }
                 WindowParameterizationKind::Caller | WindowParameterizationKind::Target => {
                     self.global_store
                         .get_window_collection_mut(win.reference)
                         .update_all(ts);
-                },
+                }
                 WindowParameterizationKind::Both => {
                     self.global_store
                         .get_two_layer_window_collection_mut(win.reference)
                         .update_all(ts);
-                },
+                }
             }
         }
     }
@@ -890,7 +968,10 @@ impl Evaluator {
         }
 
         // Update Instance aggregations
-        if let Some(aggrs) = self.stream_instance_aggregations.get(&StreamReference::Out(output)) {
+        if let Some(aggrs) = self
+            .stream_instance_aggregations
+            .get(&StreamReference::Out(output))
+        {
             aggrs.iter().for_each(|w| {
                 let aggr = self.global_store.get_instance_aggregation_mut(*w);
                 if let Some(old) = old_value.clone() {
@@ -911,26 +992,32 @@ impl Evaluator {
         self.global_store.window_parameterization(win)
     }
 
-    fn extend_window(&mut self, own_parameter: &[Value], win: WindowReference, value: Value, ts: Time) {
+    fn extend_window(
+        &mut self,
+        own_parameter: &[Value],
+        win: WindowReference,
+        value: Value,
+        ts: Time,
+    ) {
         match self.window_parameterization(win).kind {
-            WindowParameterizationKind::None => self.global_store.get_window_mut(win).accept_value(value, ts),
-            WindowParameterizationKind::Caller => {
-                self.global_store
-                    .get_window_collection_mut(win)
-                    .accept_value_all(value, ts)
-            },
-            WindowParameterizationKind::Target => {
-                self.global_store
-                    .get_window_collection_mut(win)
-                    .window_mut(own_parameter)
-                    .expect("tried to extend non existing window")
-                    .accept_value(value, ts)
-            },
-            WindowParameterizationKind::Both => {
-                self.global_store
-                    .get_two_layer_window_collection_mut(win)
-                    .accept_value(own_parameter, value, ts)
-            },
+            WindowParameterizationKind::None => self
+                .global_store
+                .get_window_mut(win)
+                .accept_value(value, ts),
+            WindowParameterizationKind::Caller => self
+                .global_store
+                .get_window_collection_mut(win)
+                .accept_value_all(value, ts),
+            WindowParameterizationKind::Target => self
+                .global_store
+                .get_window_collection_mut(win)
+                .window_mut(own_parameter)
+                .expect("tried to extend non existing window")
+                .accept_value(value, ts),
+            WindowParameterizationKind::Both => self
+                .global_store
+                .get_two_layer_window_collection_mut(win)
+                .accept_value(own_parameter, value, ts),
         }
     }
 
@@ -955,7 +1042,7 @@ impl Evaluator {
             StreamReference::In(ix) => {
                 assert!(args.is_empty());
                 self.global_store.get_in_instance(ix).get_value(offset)
-            },
+            }
             StreamReference::Out(ix) => {
                 if self.ir.stream(sr).is_parameterized() {
                     assert!(!args.is_empty());
@@ -966,7 +1053,7 @@ impl Evaluator {
                 } else {
                     self.global_store.get_out_instance(ix).get_value(offset)
                 }
-            },
+            }
         }
     }
 
@@ -985,12 +1072,11 @@ impl Evaluator {
 impl EvaluationContext<'_> {
     pub(crate) fn lookup_latest(&self, stream_ref: StreamReference, parameter: &[Value]) -> Value {
         match stream_ref {
-            StreamReference::In(ix) => {
-                self.global_store
-                    .get_in_instance(ix)
-                    .get_value(0)
-                    .unwrap_or(Value::None)
-            },
+            StreamReference::In(ix) => self
+                .global_store
+                .get_in_instance(ix)
+                .get_value(0)
+                .unwrap_or(Value::None),
             StreamReference::Out(ix) => {
                 if parameter.is_empty() {
                     self.global_store
@@ -1004,16 +1090,20 @@ impl EvaluationContext<'_> {
                         .and_then(|i| i.get_value(0))
                         .unwrap_or(Value::None)
                 }
-            },
+            }
         }
     }
 
-    pub(crate) fn lookup_latest_check(&self, stream_ref: StreamReference, parameter: &[Value]) -> Value {
+    pub(crate) fn lookup_latest_check(
+        &self,
+        stream_ref: StreamReference,
+        parameter: &[Value],
+    ) -> Value {
         let inst = match stream_ref {
             StreamReference::In(ix) => {
                 debug_assert!(self.fresh_inputs.contains(ix), "ix={}", ix);
                 self.global_store.get_in_instance(ix)
-            },
+            }
             StreamReference::Out(ix) => {
                 debug_assert!(self.fresh_outputs.contains(ix), "ix={}", ix);
                 if parameter.is_empty() {
@@ -1024,7 +1114,7 @@ impl EvaluationContext<'_> {
                         .instance(parameter)
                         .expect("tried to sync access non existing instance")
                 }
-            },
+            }
         };
         inst.get_value(0).unwrap_or(Value::None)
     }
@@ -1035,12 +1125,10 @@ impl EvaluationContext<'_> {
         parameter: &[Value],
     ) -> (Option<&InstanceStore>, bool) {
         match stream_ref {
-            StreamReference::In(ix) => {
-                (
-                    Some(self.global_store.get_in_instance(ix)),
-                    self.fresh_inputs.contains(ix),
-                )
-            },
+            StreamReference::In(ix) => (
+                Some(self.global_store.get_in_instance(ix)),
+                self.fresh_inputs.contains(ix),
+            ),
             StreamReference::Out(ix) => {
                 if parameter.is_empty() {
                     (
@@ -1049,9 +1137,12 @@ impl EvaluationContext<'_> {
                     )
                 } else {
                     let collection = self.global_store.get_out_instance_collection(ix);
-                    (collection.instance(parameter), collection.is_fresh(parameter))
+                    (
+                        collection.instance(parameter),
+                        collection.is_fresh(parameter),
+                    )
                 }
-            },
+            }
         }
     }
 
@@ -1060,7 +1151,12 @@ impl EvaluationContext<'_> {
         Value::Bool(fresh)
     }
 
-    pub(crate) fn lookup_with_offset(&self, stream_ref: StreamReference, parameter: &[Value], offset: i16) -> Value {
+    pub(crate) fn lookup_with_offset(
+        &self,
+        stream_ref: StreamReference,
+        parameter: &[Value],
+        offset: i16,
+    ) -> Value {
         let (inst, fresh) = self.get_instance_and_fresh(stream_ref, parameter);
         let inst = inst.expect("target stream instance to exist for sync access");
         if fresh {
@@ -1082,20 +1178,26 @@ impl EvaluationContext<'_> {
     }
 
     pub(crate) fn lookup_instance_aggr(&self, window_reference: WindowReference) -> Value {
-        self.global_store.eval_instance_aggregation(window_reference)
+        self.global_store
+            .eval_instance_aggregation(window_reference)
     }
 
-    pub(crate) fn lookup_window(&self, window_ref: WindowReference, target_parameter: &[Value]) -> Value {
+    pub(crate) fn lookup_window(
+        &self,
+        window_ref: WindowReference,
+        target_parameter: &[Value],
+    ) -> Value {
         let parameterization = self.global_store.window_parameterization(window_ref).kind;
         match parameterization {
-            WindowParameterizationKind::None => self.global_store.get_window(window_ref).get_value(self.ts),
-            WindowParameterizationKind::Caller => {
-                self.global_store
-                    .get_window_collection(window_ref)
-                    .window(self.parameter.as_slice())
-                    .expect("Own window to exist")
-                    .get_value(self.ts)
-            },
+            WindowParameterizationKind::None => {
+                self.global_store.get_window(window_ref).get_value(self.ts)
+            }
+            WindowParameterizationKind::Caller => self
+                .global_store
+                .get_window_collection(window_ref)
+                .window(self.parameter.as_slice())
+                .expect("Own window to exist")
+                .get_value(self.ts),
             WindowParameterizationKind::Target => {
                 let window_collection = self.global_store.get_window_collection(window_ref);
                 let window = window_collection.window(target_parameter);
@@ -1104,16 +1206,18 @@ impl EvaluationContext<'_> {
                 } else {
                     window_collection.default_value(self.ts)
                 }
-            },
+            }
             WindowParameterizationKind::Both => {
-                let collection = self.global_store.get_two_layer_window_collection(window_ref);
+                let collection = self
+                    .global_store
+                    .get_two_layer_window_collection(window_ref);
                 let window = collection.window(target_parameter, self.parameter.as_slice());
                 if let Some(w) = window {
                     w.get_value(self.ts)
                 } else {
                     collection.default_value(self.ts)
                 }
-            },
+            }
         }
     }
 
@@ -1277,7 +1381,10 @@ mod tests {
     macro_rules! stream_has_instance {
         ($eval:expr, $ix:expr, $parameter:expr) => {
             if $parameter.is_empty() {
-                $eval.global_store.get_out_instance($ix.out_ix()).is_active()
+                $eval
+                    .global_store
+                    .get_out_instance($ix.out_ix())
+                    .is_active()
             } else {
                 $eval
                     .global_store
@@ -1456,7 +1563,10 @@ mod tests {
         accept_input!(eval, start, in_ref, v1);
         eval_stream!(eval, start, 0, vec![]);
         eval_stream!(eval, start, 1, vec![]);
-        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), Unsigned(3));
+        assert_eq!(
+            eval.peek_value(out_ref, &Vec::new(), 0).unwrap(),
+            Unsigned(3)
+        );
     }
 
     #[test]
@@ -1480,8 +1590,16 @@ mod tests {
         eval_stream!(eval, start, 0, vec![]);
         eval_stream!(eval, start, 1, vec![]);
         eval_stream!(eval, start, 2, vec![]);
-        assert_eq!(eval.peek_value(StreamReference::Out(0), &Vec::new(), 0).unwrap(), v2);
-        assert_eq!(eval.peek_value(StreamReference::Out(1), &Vec::new(), 0).unwrap(), v1);
+        assert_eq!(
+            eval.peek_value(StreamReference::Out(0), &Vec::new(), 0)
+                .unwrap(),
+            v2
+        );
+        assert_eq!(
+            eval.peek_value(StreamReference::Out(1), &Vec::new(), 0)
+                .unwrap(),
+            v1
+        );
         assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), v2);
     }
 
@@ -1595,7 +1713,8 @@ mod tests {
 
     #[test]
     fn test_bin_op() {
-        let (_, eval, start) = setup("input a: UInt16\n input b: UInt16\noutput c: UInt16 := a + b");
+        let (_, eval, start) =
+            setup("input a: UInt16\n input b: UInt16\noutput c: UInt16 := a + b");
         let mut eval = eval.into_evaluator();
         let out_ref = StreamReference::Out(0);
         let a = StreamReference::In(0);
@@ -1611,7 +1730,8 @@ mod tests {
 
     #[test]
     fn test_bin_op_float() {
-        let (_, eval, start) = setup("input a: Float64\n input b: Float64\noutput c: Float64 := a + b");
+        let (_, eval, start) =
+            setup("input a: Float64\n input b: Float64\noutput c: Float64 := a + b");
         let mut eval = eval.into_evaluator();
         let out_ref = StreamReference::Out(0);
         let a = StreamReference::In(0);
@@ -1627,8 +1747,9 @@ mod tests {
 
     #[test]
     fn test_bin_tuple() {
-        let (_, eval, start) =
-            setup("input a: Int32\n input b: Bool\noutput c := (a, b) output d := c.0 output e := c.1");
+        let (_, eval, start) = setup(
+            "input a: Int32\n input b: Bool\noutput c := (a, b) output d := c.0 output e := c.1",
+        );
         let mut eval = eval.into_evaluator();
         let out_ref = StreamReference::Out(0);
         let out_ref0 = StreamReference::Out(1);
@@ -1679,26 +1800,42 @@ mod tests {
         eval_stream!(eval, start, 0, vec![]);
         eval_stream!(eval, start, 1, vec![]);
         eval_stream!(eval, start, 2, vec![]);
-        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), Unsigned(3));
-        assert_eq!(eval.peek_value(trig_ref, &Vec::new(), 0).unwrap(), Bool(false));
+        assert_eq!(
+            eval.peek_value(out_ref, &Vec::new(), 0).unwrap(),
+            Unsigned(3)
+        );
+        assert_eq!(
+            eval.peek_value(trig_ref, &Vec::new(), 0).unwrap(),
+            Bool(false)
+        );
         accept_input!(eval, start, in_ref, v1);
         eval_stream!(eval, start, 0, vec![]);
         eval_stream!(eval, start, 1, vec![]);
         eval_stream!(eval, start, 2, vec![]);
-        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), Unsigned(3));
-        assert_eq!(eval.peek_value(trig_ref, &Vec::new(), 0).unwrap(), Bool(false));
+        assert_eq!(
+            eval.peek_value(out_ref, &Vec::new(), 0).unwrap(),
+            Unsigned(3)
+        );
+        assert_eq!(
+            eval.peek_value(trig_ref, &Vec::new(), 0).unwrap(),
+            Bool(false)
+        );
         accept_input!(eval, start, in_ref, Unsigned(17));
         eval_stream!(eval, start, 0, vec![]);
         eval_stream!(eval, start, 1, vec![]);
         eval_stream!(eval, start, 2, vec![]);
         assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), v1);
-        assert_eq!(eval.peek_value(trig_ref, &Vec::new(), 0).unwrap(), Bool(true));
+        assert_eq!(
+            eval.peek_value(trig_ref, &Vec::new(), 0).unwrap(),
+            Bool(true)
+        );
     }
 
     #[test]
     fn test_sum_window() {
-        let (_, eval, mut time) =
-            setup_time("input a: Int16\noutput b: Int16 @0.25Hz := a.aggregate(over: 40s, using: sum)");
+        let (_, eval, mut time) = setup_time(
+            "input a: Int16\noutput b: Int16 @0.25Hz := a.aggregate(over: 40s, using: sum)",
+        );
         let mut eval = eval.into_evaluator();
         time += Duration::from_secs(45);
         let out_ref = StreamReference::Out(0);
@@ -1717,8 +1854,9 @@ mod tests {
 
     #[test]
     fn test_count_window() {
-        let (_, eval, mut time) =
-            setup_time("input a: UInt16\noutput b: UInt16 @0.25Hz := a.aggregate(over: 40s, using: count)");
+        let (_, eval, mut time) = setup_time(
+            "input a: UInt16\noutput b: UInt16 @0.25Hz := a.aggregate(over: 40s, using: count)",
+        );
         let mut eval = eval.into_evaluator();
         time += Duration::from_secs(45);
         let out_ref = StreamReference::Out(0);
@@ -1766,7 +1904,8 @@ mod tests {
 
     #[test]
     fn test_window_correct_bucketing() {
-        let (_, eval, mut time) = setup_time("input a: Float32\noutput b @2Hz := a.aggregate(over: 3s, using: sum)");
+        let (_, eval, mut time) =
+            setup_time("input a: Float32\noutput b @2Hz := a.aggregate(over: 3s, using: sum)");
         let mut eval = eval.into_evaluator();
         let out_ref = StreamReference::Out(0);
         let in_ref = StreamReference::In(0);
@@ -1885,7 +2024,10 @@ mod tests {
         eval_stream_timed!(eval, 0, vec![], time);
 
         let expected = Float(NotNan::new(-106.5).unwrap());
-        assert_eq!(eval.peek_value(out_ref, vec![].as_slice(), 0).unwrap(), expected);
+        assert_eq!(
+            eval.peek_value(out_ref, vec![].as_slice(), 0).unwrap(),
+            expected
+        );
     }
 
     #[test]
@@ -1894,7 +2036,8 @@ mod tests {
             Float(NotNan::new(f).unwrap())
         }
 
-        let (_, eval, mut time) = setup_time("input a : Int64\noutput b@1Hz := a.aggregate(over: 5s, using: integral)");
+        let (_, eval, mut time) =
+            setup_time("input a : Int64\noutput b@1Hz := a.aggregate(over: 5s, using: integral)");
         let mut eval = eval.into_evaluator();
         let out_ref = StreamReference::Out(0);
         let in_ref = StreamReference::In(0);
@@ -1905,12 +2048,16 @@ mod tests {
         accept_input_timed!(eval, in_ref, mv(8f64), time);
         eval_stream_timed!(eval, 0, vec![], time);
         let expected = Float(NotNan::new(4.0).unwrap());
-        assert_eq!(eval.peek_value(out_ref, vec![].as_slice(), 0).unwrap(), expected);
+        assert_eq!(
+            eval.peek_value(out_ref, vec![].as_slice(), 0).unwrap(),
+            expected
+        );
     }
 
     #[test]
     fn test_window_type_count() {
-        let (_, eval, start) = setup("input a: Int32\noutput b @ 10Hz := a.aggregate(over: 0.1s, using: count)");
+        let (_, eval, start) =
+            setup("input a: Int32\noutput b @ 10Hz := a.aggregate(over: 0.1s, using: count)");
         let mut eval = eval.into_evaluator();
         let out_ref = StreamReference::Out(0);
         let _a = StreamReference::In(0);
@@ -1921,8 +2068,9 @@ mod tests {
 
     #[test]
     fn test_sum_window_discrete() {
-        let (_, eval, mut time) =
-            setup_time("input a: Int16\noutput b: Int16 := a.aggregate(over_discrete: 6, using: sum)");
+        let (_, eval, mut time) = setup_time(
+            "input a: Int16\noutput b: Int16 := a.aggregate(over_discrete: 6, using: sum)",
+        );
         let mut eval = eval.into_evaluator();
         time += Duration::from_secs(45);
         let out_ref = StreamReference::Out(0);
@@ -2005,7 +2153,10 @@ mod tests {
         // 71 secs have passed. All values should be within the window.
         eval_stream_timed!(eval, 0, vec![], time);
         let expected = Unsigned(25);
-        assert_eq!(eval.peek_value(in_ref, &Vec::new(), 0).unwrap(), Unsigned(25));
+        assert_eq!(
+            eval.peek_value(in_ref, &Vec::new(), 0).unwrap(),
+            Unsigned(25)
+        );
         assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), expected);
     }
 
@@ -2064,10 +2215,17 @@ mod tests {
             let out_ref = StreamReference::Out(0);
             let in_ref = StreamReference::In(0);
             let n = 20;
-            let input_val = [1, 9, 8, 5, 4, 3, 7, 2, 10, 6, 20, 11, 19, 12, 18, 13, 17, 14, 16, 15];
+            let input_val = [
+                1, 9, 8, 5, 4, 3, 7, 2, 10, 6, 20, 11, 19, 12, 18, 13, 17, 14, 16, 15,
+            ];
             for v in 0..n {
                 time += Duration::from_secs(1);
-                accept_input_timed!(eval, in_ref, Float(NotNan::new(input_val[v] as f64).unwrap()), time);
+                accept_input_timed!(
+                    eval,
+                    in_ref,
+                    Float(NotNan::new(input_val[v] as f64).unwrap()),
+                    time
+                );
             }
             // 66 secs have passed. All values should be within the window.
             eval_stream_timed!(eval, 0, vec![], time);
@@ -2107,7 +2265,10 @@ mod tests {
             }
             // 66 secs have passed. All values should be within the window.
             eval_stream_timed!(eval, 0, vec![], time);
-            assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
+            assert_eq!(
+                eval.peek_value(out_ref, &Vec::new(), 0).unwrap(),
+                exp.clone()
+            );
         }
     }
 
@@ -2136,7 +2297,10 @@ mod tests {
             }
             // 66 secs have passed. All values should be within the window.
             eval_stream_timed!(eval, 0, vec![], time);
-            assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), exp.clone());
+            assert_eq!(
+                eval.peek_value(out_ref, &Vec::new(), 0).unwrap(),
+                exp.clone()
+            );
         }
     }
 
@@ -2159,10 +2323,17 @@ mod tests {
             let out_ref = StreamReference::Out(0);
             let in_ref = StreamReference::In(0);
             let n = 20;
-            let input_val = [1, 9, 8, 5, 4, 3, 7, 2, 10, 6, 20, 11, 19, 12, 18, 13, 17, 14, 16, 15];
+            let input_val = [
+                1, 9, 8, 5, 4, 3, 7, 2, 10, 6, 20, 11, 19, 12, 18, 13, 17, 14, 16, 15,
+            ];
             for v in 0..n {
                 time += Duration::from_secs(1);
-                accept_input_timed!(eval, in_ref, Float(NotNan::new(input_val[v] as f64).unwrap()), time);
+                accept_input_timed!(
+                    eval,
+                    in_ref,
+                    Float(NotNan::new(input_val[v] as f64).unwrap()),
+                    time
+                );
             }
             // 66 secs have passed. All values should be within the window.
             eval_stream_timed!(eval, 0, vec![], time);
@@ -2436,7 +2607,8 @@ mod tests {
             ("med", Value::try_from(23.0), true),
             ("pctl20", Value::try_from(21.5), true),
         ] {
-            let mut spec = String::from("input a: Float32\noutput b := a.aggregate(over_discrete: 5, using: ");
+            let mut spec =
+                String::from("input a: Float32\noutput b := a.aggregate(over_discrete: 5, using: ");
             spec += aggr;
             spec += ")";
             if *default {
@@ -2473,7 +2645,8 @@ mod tests {
             ("med", Signed(23), true),
             ("pctl20", Signed(21), true),
         ] {
-            let mut spec = String::from("input a: Int16\noutput b := a.aggregate(over_discrete: 5, using: ");
+            let mut spec =
+                String::from("input a: Int16\noutput b := a.aggregate(over_discrete: 5, using: ");
             spec += aggr;
             spec += ")";
             if *default {
@@ -2510,7 +2683,8 @@ mod tests {
             ("med", Unsigned(23), true),
             ("pctl20", Unsigned(21), true),
         ] {
-            let mut spec = String::from("input a: UInt16\noutput b := a.aggregate(over_discrete: 5, using: ");
+            let mut spec =
+                String::from("input a: UInt16\noutput b := a.aggregate(over_discrete: 5, using: ");
             spec += aggr;
             spec += ")";
             if *default {
@@ -2549,7 +2723,10 @@ mod tests {
 
         accept_input!(eval, start, in_ref, Signed(42));
         eval_stream!(eval, start, out_ref.out_ix(), vec![]);
-        assert_eq!(eval.peek_value(out_ref, &Vec::new(), 0).unwrap(), Signed(50));
+        assert_eq!(
+            eval.peek_value(out_ref, &Vec::new(), 0).unwrap(),
+            Signed(50)
+        );
     }
 
     #[test]
@@ -2567,7 +2744,10 @@ mod tests {
         assert!(stream_has_instance!(eval, out_ref, vec![Signed(15)]));
 
         eval_stream_instances!(eval, start, out_ref);
-        assert_eq!(eval.peek_value(out_ref, &[Signed(15)], 0).unwrap(), Signed(30));
+        assert_eq!(
+            eval.peek_value(out_ref, &[Signed(15)], 0).unwrap(),
+            Signed(30)
+        );
     }
 
     #[test]
@@ -2599,7 +2779,10 @@ mod tests {
         );
 
         eval_stream_timed!(eval, out_ref.out_ix(), vec![Signed(15)], time);
-        assert_eq!(eval.peek_value(out_ref, &[Signed(15)], 0).unwrap(), Signed(30));
+        assert_eq!(
+            eval.peek_value(out_ref, &[Signed(15)], 0).unwrap(),
+            Signed(30)
+        );
     }
 
     #[test]
@@ -2622,7 +2805,10 @@ mod tests {
         assert!(stream_has_instance!(eval, out_ref, Vec::<Value>::new()));
 
         eval_stream_instances!(eval, start, out_ref);
-        assert_eq!(eval.peek_value(out_ref, &Vec::<Value>::new(), 0).unwrap(), Signed(42));
+        assert_eq!(
+            eval.peek_value(out_ref, &Vec::<Value>::new(), 0).unwrap(),
+            Signed(42)
+        );
     }
 
     #[test]
@@ -2732,8 +2918,14 @@ mod tests {
         assert!(stream_has_instance!(eval, c_ref, vec![Signed(15)]));
         eval_stream_timed!(eval, b_ref.out_ix(), vec![Signed(15)], time);
         eval_stream_timed!(eval, c_ref.out_ix(), vec![Signed(15)], time);
-        assert_eq!(eval.peek_value(b_ref, &[Signed(15)], 0).unwrap(), Signed(30));
-        assert_eq!(eval.peek_value(c_ref, &[Signed(15)], 0).unwrap(), Signed(30));
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(15)], 0).unwrap(),
+            Signed(30)
+        );
+        assert_eq!(
+            eval.peek_value(c_ref, &[Signed(15)], 0).unwrap(),
+            Signed(30)
+        );
 
         time += Duration::from_secs(1);
         accept_input_timed!(eval, in_ref, Signed(5), time);
@@ -2747,8 +2939,14 @@ mod tests {
         eval_stream_timed!(eval, c_ref.out_ix(), vec![Signed(15)], time);
         assert_eq!(eval.peek_value(b_ref, &[Signed(5)], 0).unwrap(), Signed(10));
         assert_eq!(eval.peek_value(c_ref, &[Signed(5)], 0).unwrap(), Signed(10));
-        assert_eq!(eval.peek_value(b_ref, &[Signed(15)], 0).unwrap(), Signed(20));
-        assert_eq!(eval.peek_value(c_ref, &[Signed(15)], 0).unwrap(), Signed(50));
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(15)], 0).unwrap(),
+            Signed(20)
+        );
+        assert_eq!(
+            eval.peek_value(c_ref, &[Signed(15)], 0).unwrap(),
+            Signed(50)
+        );
 
         time += Duration::from_secs(1);
         accept_input_timed!(eval, in_ref, Signed(5), time);
@@ -2758,8 +2956,14 @@ mod tests {
         eval_stream_timed!(eval, c_ref.out_ix(), vec![Signed(15)], time);
         assert_eq!(eval.peek_value(b_ref, &[Signed(5)], 0).unwrap(), Signed(10));
         assert_eq!(eval.peek_value(c_ref, &[Signed(5)], 0).unwrap(), Signed(20));
-        assert_eq!(eval.peek_value(b_ref, &[Signed(15)], 0).unwrap(), Signed(20));
-        assert_eq!(eval.peek_value(c_ref, &[Signed(15)], 0).unwrap(), Signed(40));
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(15)], 0).unwrap(),
+            Signed(20)
+        );
+        assert_eq!(
+            eval.peek_value(c_ref, &[Signed(15)], 0).unwrap(),
+            Signed(40)
+        );
     }
 
     #[test]
@@ -2782,7 +2986,10 @@ mod tests {
         assert!(stream_has_instance!(eval, b_ref, vec![Signed(15)]));
         assert!(!stream_has_instance!(eval, c_ref, empty));
         eval_stream_timed!(eval, b_ref.out_ix(), vec![Signed(15)], time);
-        assert_eq!(eval.peek_value(b_ref, &[Signed(15)], 0).unwrap(), Signed(30));
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(15)], 0).unwrap(),
+            Signed(30)
+        );
 
         time += Duration::from_secs(1);
         eval.new_cycle(time);
@@ -2795,7 +3002,10 @@ mod tests {
         eval_stream_timed!(eval, b_ref.out_ix(), vec![Signed(15)], time);
         eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
         assert_eq!(eval.peek_value(b_ref, &[Signed(5)], 0).unwrap(), Signed(10));
-        assert_eq!(eval.peek_value(b_ref, &[Signed(15)], 0).unwrap(), Signed(20));
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(15)], 0).unwrap(),
+            Signed(20)
+        );
         assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(20));
 
         time += Duration::from_secs(1);
@@ -2805,7 +3015,10 @@ mod tests {
         eval_stream_timed!(eval, b_ref.out_ix(), vec![Signed(15)], time);
         eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
         assert_eq!(eval.peek_value(b_ref, &[Signed(5)], 0).unwrap(), Signed(10));
-        assert_eq!(eval.peek_value(b_ref, &[Signed(15)], 0).unwrap(), Signed(20));
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(15)], 0).unwrap(),
+            Signed(20)
+        );
         assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(40));
     }
 
@@ -2874,7 +3087,10 @@ mod tests {
         assert!(stream_has_instance!(eval, b_ref, vec![Bool(false)]));
         assert!(!stream_has_instance!(eval, b_ref, vec![Bool(true)]));
         eval_stream_instances_timed!(eval, time, b_ref);
-        assert_eq!(eval.peek_value(b_ref, &[Bool(false)], 0).unwrap(), Signed(15));
+        assert_eq!(
+            eval.peek_value(b_ref, &[Bool(false)], 0).unwrap(),
+            Signed(15)
+        );
 
         //Instance b(false) gets new value
         //Instance b(true) is spawned
@@ -2884,8 +3100,14 @@ mod tests {
         spawn_stream_timed!(eval, time, b_ref);
         assert!(stream_has_instance!(eval, b_ref, vec![Bool(true)]));
         eval_stream_instances_timed!(eval, time, b_ref);
-        assert_eq!(eval.peek_value(b_ref, &[Bool(false)], 0).unwrap(), Signed(42));
-        assert_eq!(eval.peek_value(b_ref, &[Bool(true)], 0).unwrap(), Signed(42));
+        assert_eq!(
+            eval.peek_value(b_ref, &[Bool(false)], 0).unwrap(),
+            Signed(42)
+        );
+        assert_eq!(
+            eval.peek_value(b_ref, &[Bool(true)], 0).unwrap(),
+            Signed(42)
+        );
         eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
         assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(57));
         eval_stream_timed!(eval, d_ref.out_ix(), vec![], time);
@@ -2897,8 +3119,14 @@ mod tests {
         time += Duration::from_secs(1);
         accept_input_timed!(eval, in_ref, Signed(42), time);
         eval_stream_instances_timed!(eval, time, b_ref);
-        assert_eq!(eval.peek_value(b_ref, &[Bool(false)], 0).unwrap(), Signed(42));
-        assert_eq!(eval.peek_value(b_ref, &[Bool(true)], 0).unwrap(), Signed(42));
+        assert_eq!(
+            eval.peek_value(b_ref, &[Bool(false)], 0).unwrap(),
+            Signed(42)
+        );
+        assert_eq!(
+            eval.peek_value(b_ref, &[Bool(true)], 0).unwrap(),
+            Signed(42)
+        );
         eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
         assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(42));
         eval_stream_timed!(eval, d_ref.out_ix(), vec![], time);
@@ -2922,7 +3150,10 @@ mod tests {
         assert!(stream_has_instance!(eval, out_ref, vec![Signed(15)]));
 
         eval_stream_instances!(eval, start, out_ref);
-        assert_eq!(eval.peek_value(out_ref, &[Signed(15)], 0).unwrap(), Signed(30));
+        assert_eq!(
+            eval.peek_value(out_ref, &[Signed(15)], 0).unwrap(),
+            Signed(30)
+        );
 
         accept_input!(eval, start, b_ref, Bool(false));
         accept_input!(eval, start, a_ref, Signed(8));
@@ -2932,8 +3163,14 @@ mod tests {
         assert!(stream_has_instance!(eval, out_ref, vec![Signed(8)]));
 
         eval_stream_instances!(eval, start, out_ref);
-        assert_eq!(eval.peek_value(out_ref, &[Signed(15)], 0).unwrap(), Signed(23));
-        assert_eq!(eval.peek_value(out_ref, &[Signed(8)], 0).unwrap(), Signed(16));
+        assert_eq!(
+            eval.peek_value(out_ref, &[Signed(15)], 0).unwrap(),
+            Signed(23)
+        );
+        assert_eq!(
+            eval.peek_value(out_ref, &[Signed(8)], 0).unwrap(),
+            Signed(16)
+        );
 
         // Close has no effect, because it is false
         eval_close!(eval, start, out_ref, vec![Signed(15)]);
@@ -2967,13 +3204,19 @@ mod tests {
         assert!(stream_has_instance!(eval, out_ref, Vec::<Value>::new()));
 
         eval_stream_instances!(eval, start, out_ref);
-        assert_eq!(eval.peek_value(out_ref, &Vec::<Value>::new(), 0).unwrap(), Signed(42));
+        assert_eq!(
+            eval.peek_value(out_ref, &Vec::<Value>::new(), 0).unwrap(),
+            Signed(42)
+        );
 
         accept_input!(eval, start, b_ref, Bool(false));
         accept_input!(eval, start, a_ref, Signed(8));
 
         eval_stream_instances!(eval, start, out_ref);
-        assert_eq!(eval.peek_value(out_ref, &Vec::<Value>::new(), 0).unwrap(), Signed(8));
+        assert_eq!(
+            eval.peek_value(out_ref, &Vec::<Value>::new(), 0).unwrap(),
+            Signed(8)
+        );
 
         // Close has no effect, because it is false
         eval_close!(eval, start, out_ref, Vec::<Value>::new());
@@ -3001,12 +3244,18 @@ mod tests {
         assert!(stream_has_instance!(eval, out_ref, Vec::<Value>::new()));
 
         eval_stream_instances!(eval, start, out_ref);
-        assert_eq!(eval.peek_value(out_ref, &Vec::<Value>::new(), 0).unwrap(), Signed(42));
+        assert_eq!(
+            eval.peek_value(out_ref, &Vec::<Value>::new(), 0).unwrap(),
+            Signed(42)
+        );
 
         accept_input!(eval, start, a_ref, Signed(1337));
 
         eval_stream_instances!(eval, start, out_ref);
-        assert_eq!(eval.peek_value(out_ref, &Vec::<Value>::new(), 0).unwrap(), Signed(1337));
+        assert_eq!(
+            eval.peek_value(out_ref, &Vec::<Value>::new(), 0).unwrap(),
+            Signed(1337)
+        );
 
         eval_close!(eval, start, out_ref, Vec::<Value>::new());
         assert!(!stream_has_instance!(eval, out_ref, Vec::<Value>::new()));
@@ -3028,15 +3277,24 @@ mod tests {
         assert!(stream_has_instance!(eval, out_ref, vec![Signed(15)]));
 
         eval_stream_instances!(eval, start, out_ref);
-        assert_eq!(eval.peek_value(out_ref, &[Signed(15)], 0).unwrap(), Signed(30));
+        assert_eq!(
+            eval.peek_value(out_ref, &[Signed(15)], 0).unwrap(),
+            Signed(30)
+        );
 
         accept_input!(eval, start, a_ref, Signed(1322));
         spawn_stream!(eval, start, out_ref);
         assert!(stream_has_instance!(eval, out_ref, vec![Signed(1322)]));
 
         eval_stream_instances!(eval, start, out_ref);
-        assert_eq!(eval.peek_value(out_ref, &[Signed(15)], 0).unwrap(), Signed(1337));
-        assert_eq!(eval.peek_value(out_ref, &[Signed(1322)], 0).unwrap(), Signed(2644));
+        assert_eq!(
+            eval.peek_value(out_ref, &[Signed(15)], 0).unwrap(),
+            Signed(1337)
+        );
+        assert_eq!(
+            eval.peek_value(out_ref, &[Signed(1322)], 0).unwrap(),
+            Signed(2644)
+        );
 
         eval_close!(eval, start, out_ref, vec![Signed(15)]);
         eval_close!(eval, start, out_ref, vec![Signed(1322)]);
@@ -3069,7 +3327,10 @@ mod tests {
         assert!(stream_has_instance!(eval, b_ref, vec![Bool(false)]));
         assert!(!stream_has_instance!(eval, b_ref, vec![Bool(true)]));
         eval_stream_instances_timed!(eval, time, b_ref);
-        assert_eq!(eval.peek_value(b_ref, &[Bool(false)], 0).unwrap(), Signed(15));
+        assert_eq!(
+            eval.peek_value(b_ref, &[Bool(false)], 0).unwrap(),
+            Signed(15)
+        );
 
         //Intance b(false) gets new value
         //Intance b(true) is spawned
@@ -3080,8 +3341,14 @@ mod tests {
         spawn_stream_timed!(eval, time, b_ref);
         assert!(stream_has_instance!(eval, b_ref, vec![Bool(true)]));
         eval_stream_instances_timed!(eval, time, b_ref);
-        assert_eq!(eval.peek_value(b_ref, &[Bool(false)], 0).unwrap(), Signed(42));
-        assert_eq!(eval.peek_value(b_ref, &[Bool(true)], 0).unwrap(), Signed(42));
+        assert_eq!(
+            eval.peek_value(b_ref, &[Bool(false)], 0).unwrap(),
+            Signed(42)
+        );
+        assert_eq!(
+            eval.peek_value(b_ref, &[Bool(true)], 0).unwrap(),
+            Signed(42)
+        );
         eval_stream_timed!(eval, c_ref.out_ix(), vec![], time);
         assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Signed(57));
         eval_stream_timed!(eval, d_ref.out_ix(), vec![], time);
@@ -3094,8 +3361,14 @@ mod tests {
         accept_input_timed!(eval, in_ref, Signed(1337), time);
         eval.prepare_evaluation(time);
         eval_stream_instances_timed!(eval, time, b_ref);
-        assert_eq!(eval.peek_value(b_ref, &[Bool(false)], 0).unwrap(), Signed(1337));
-        assert_eq!(eval.peek_value(b_ref, &[Bool(true)], 0).unwrap(), Signed(42));
+        assert_eq!(
+            eval.peek_value(b_ref, &[Bool(false)], 0).unwrap(),
+            Signed(1337)
+        );
+        assert_eq!(
+            eval.peek_value(b_ref, &[Bool(true)], 0).unwrap(),
+            Signed(42)
+        );
         eval_close_timed!(eval, time, b_ref, &vec![Bool(false)]);
         eval_close_timed!(eval, time, b_ref, &vec![Bool(true)]);
         assert!(!stream_has_instance!(eval, b_ref, vec![Bool(false)]));
@@ -3234,7 +3507,10 @@ mod tests {
 
         assert!(stream_has_instance!(eval, b_ref, vec![Signed(16)]));
 
-        assert_eq!(eval.peek_value(b_ref, &[Signed(16)], 0).unwrap(), Bool(true));
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(16)], 0).unwrap(),
+            Bool(true)
+        );
         assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(true));
 
         let mut time = start + Duration::from_secs(1);
@@ -3246,8 +3522,14 @@ mod tests {
 
         assert!(stream_has_instance!(eval, b_ref, vec![Signed(7)]));
 
-        assert_eq!(eval.peek_value(b_ref, &[Signed(16)], 0).unwrap(), Bool(true));
-        assert_eq!(eval.peek_value(b_ref, &[Signed(7)], 0).unwrap(), Bool(false));
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(16)], 0).unwrap(),
+            Bool(true)
+        );
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(7)], 0).unwrap(),
+            Bool(false)
+        );
         assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(false));
 
         time += Duration::from_secs(1);
@@ -3259,9 +3541,18 @@ mod tests {
 
         assert!(stream_has_instance!(eval, b_ref, vec![Signed(42)]));
 
-        assert_eq!(eval.peek_value(b_ref, &[Signed(16)], 0).unwrap(), Bool(true));
-        assert_eq!(eval.peek_value(b_ref, &[Signed(7)], 0).unwrap(), Bool(false));
-        assert_eq!(eval.peek_value(b_ref, &[Signed(42)], 0).unwrap(), Bool(true));
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(16)], 0).unwrap(),
+            Bool(true)
+        );
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(7)], 0).unwrap(),
+            Bool(false)
+        );
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(42)], 0).unwrap(),
+            Bool(true)
+        );
         assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(false));
 
         eval_close!(eval, time, b_ref, vec![Signed(16)]);
@@ -3277,7 +3568,10 @@ mod tests {
 
         assert!(stream_has_instance!(eval, b_ref, vec![Signed(16)]));
 
-        assert_eq!(eval.peek_value(b_ref, &[Signed(16)], 0).unwrap(), Bool(true));
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(16)], 0).unwrap(),
+            Bool(true)
+        );
         assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(true));
     }
 
@@ -3302,7 +3596,10 @@ mod tests {
 
         assert!(stream_has_instance!(eval, b_ref, vec![Signed(17)]));
 
-        assert_eq!(eval.peek_value(b_ref, &[Signed(17)], 0).unwrap(), Bool(false));
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(17)], 0).unwrap(),
+            Bool(false)
+        );
         assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(false));
 
         let mut time = start + Duration::from_secs(1);
@@ -3314,7 +3611,10 @@ mod tests {
 
         assert!(stream_has_instance!(eval, b_ref, vec![Signed(6)]));
 
-        assert_eq!(eval.peek_value(b_ref, &[Signed(17)], 0).unwrap(), Bool(false));
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(17)], 0).unwrap(),
+            Bool(false)
+        );
         assert_eq!(eval.peek_value(b_ref, &[Signed(6)], 0).unwrap(), Bool(true));
         assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(true));
 
@@ -3327,9 +3627,15 @@ mod tests {
 
         assert!(stream_has_instance!(eval, b_ref, vec![Signed(42)]));
 
-        assert_eq!(eval.peek_value(b_ref, &[Signed(17)], 0).unwrap(), Bool(false));
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(17)], 0).unwrap(),
+            Bool(false)
+        );
         assert_eq!(eval.peek_value(b_ref, &[Signed(6)], 0).unwrap(), Bool(true));
-        assert_eq!(eval.peek_value(b_ref, &[Signed(42)], 0).unwrap(), Bool(true));
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(42)], 0).unwrap(),
+            Bool(true)
+        );
         assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(true));
 
         eval_close!(eval, time, b_ref, vec![Signed(17)]);
@@ -3345,7 +3651,10 @@ mod tests {
 
         assert!(stream_has_instance!(eval, b_ref, vec![Signed(17)]));
 
-        assert_eq!(eval.peek_value(b_ref, &[Signed(17)], 0).unwrap(), Bool(false));
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(17)], 0).unwrap(),
+            Bool(false)
+        );
         assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(false));
     }
 
@@ -3373,7 +3682,10 @@ mod tests {
 
         assert!(stream_has_instance!(eval, b_ref, vec![Signed(16)]));
 
-        assert_eq!(eval.peek_value(b_ref, &[Signed(16)], 0).unwrap(), Bool(true));
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(16)], 0).unwrap(),
+            Bool(true)
+        );
         assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(true));
 
         let mut time = start + Duration::from_secs(1);
@@ -3387,8 +3699,14 @@ mod tests {
 
         assert!(stream_has_instance!(eval, b_ref, vec![Signed(6)]));
 
-        assert_eq!(eval.peek_value(b_ref, &[Signed(16)], 0).unwrap(), Bool(true));
-        assert_eq!(eval.peek_value(b_ref, &[Signed(6)], 0).unwrap(), Bool(false));
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(16)], 0).unwrap(),
+            Bool(true)
+        );
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(6)], 0).unwrap(),
+            Bool(false)
+        );
         assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(false));
 
         time += Duration::from_secs(1);
@@ -3402,9 +3720,18 @@ mod tests {
 
         assert!(stream_has_instance!(eval, b_ref, vec![Signed(11)]));
 
-        assert_eq!(eval.peek_value(b_ref, &[Signed(16)], 0).unwrap(), Bool(true));
-        assert_eq!(eval.peek_value(b_ref, &[Signed(6)], 0).unwrap(), Bool(false));
-        assert_eq!(eval.peek_value(b_ref, &[Signed(11)], 0).unwrap(), Bool(true));
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(16)], 0).unwrap(),
+            Bool(true)
+        );
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(6)], 0).unwrap(),
+            Bool(false)
+        );
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(11)], 0).unwrap(),
+            Bool(true)
+        );
         assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(true));
 
         time += Duration::from_secs(1);
@@ -3418,9 +3745,18 @@ mod tests {
 
         assert!(stream_has_instance!(eval, b_ref, vec![Signed(42)]));
 
-        assert_eq!(eval.peek_value(b_ref, &[Signed(16)], 0).unwrap(), Bool(true));
-        assert_eq!(eval.peek_value(b_ref, &[Signed(6)], 0).unwrap(), Bool(false));
-        assert_eq!(eval.peek_value(b_ref, &[Signed(11)], 0).unwrap(), Bool(true));
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(16)], 0).unwrap(),
+            Bool(true)
+        );
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(6)], 0).unwrap(),
+            Bool(false)
+        );
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(11)], 0).unwrap(),
+            Bool(true)
+        );
         assert!(eval.peek_value(b_ref, &[Signed(42)], 0).is_none());
         assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(true));
 
@@ -3440,7 +3776,10 @@ mod tests {
 
         assert!(stream_has_instance!(eval, b_ref, vec![Signed(4)]));
 
-        assert_eq!(eval.peek_value(b_ref, &[Signed(4)], 0).unwrap(), Bool(false));
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(4)], 0).unwrap(),
+            Bool(false)
+        );
         assert_eq!(eval.peek_value(c_ref, &[], 0).unwrap(), Bool(false));
     }
 
@@ -3576,7 +3915,10 @@ mod tests {
         );
         eval.eval_event(&[Signed(1)], time, &mut tracer);
         assert_eq!(eval.peek_value(b_ref, &[Signed(1)], 0).unwrap(), Bool(true));
-        assert_eq!(eval.peek_value(c_ref, &[Signed(1)], 0).unwrap(), Unsigned(1));
+        assert_eq!(
+            eval.peek_value(c_ref, &[Signed(1)], 0).unwrap(),
+            Unsigned(1)
+        );
 
         time += Duration::from_millis(1000);
         eval.eval_time_driven_tasks(
@@ -3584,7 +3926,10 @@ mod tests {
             time,
             &mut tracer,
         );
-        assert_eq!(eval.peek_value(c_ref, &[Signed(1)], 0).unwrap(), Unsigned(2));
+        assert_eq!(
+            eval.peek_value(c_ref, &[Signed(1)], 0).unwrap(),
+            Unsigned(2)
+        );
 
         // This test is correct and shows the inteded behavior. Yet it is confusing as inputs coincide with periods.
         /*
@@ -3620,7 +3965,10 @@ mod tests {
             time,
             &mut tracer,
         );
-        assert_eq!(eval.peek_value(b_ref, &[Signed(1)], 0).unwrap(), Unsigned(1));
+        assert_eq!(
+            eval.peek_value(b_ref, &[Signed(1)], 0).unwrap(),
+            Unsigned(1)
+        );
     }
 
     // Corresponds to issue #20

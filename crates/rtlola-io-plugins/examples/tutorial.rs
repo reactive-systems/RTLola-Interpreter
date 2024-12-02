@@ -37,11 +37,17 @@ const EVENTSOURCEADDR: &str = "127.0.0.1:2000";
 const VERDICTSINKADDR: &str = "127.0.0.1:2001";
 const SPEC: &str = "";
 fn main() -> Result<(), Box<dyn Error + 'static>> {
-    let mut event_source =
-        ByteEventSource::<UdpReader, _, RealTime, 128>::from_source(UdpSocket::bind(EVENTSOURCEADDR)?.into());
+    let mut event_source = ByteEventSource::<UdpReader, _, RealTime, 128>::from_source(
+        UdpSocket::bind(EVENTSOURCEADDR)?.into(),
+    );
 
-    let mut verdict_sink: BincodeSink<_, _, VerdictRepresentationFactory<_, _>, SerdeByteSerializer<_>, _> =
-        BincodeSink::from_target(TcpStream::connect(VERDICTSINKADDR)?);
+    let mut verdict_sink: BincodeSink<
+        _,
+        _,
+        VerdictRepresentationFactory<_, _>,
+        SerdeByteSerializer<_>,
+        _,
+    > = BincodeSink::from_target(TcpStream::connect(VERDICTSINKADDR)?);
 
     let mut monitor = ConfigBuilder::new()
         .spec_str(SPEC)

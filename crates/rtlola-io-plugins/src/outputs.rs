@@ -27,7 +27,10 @@ use rtlola_interpreter::time::{OutputTimeRepresentation, TimeRepresentation};
 
 /// Struct for a generic factory returning the monitor output
 #[derive(Debug)]
-pub struct VerdictRepresentationFactory<MonitorOutput: VerdictRepresentation, OutputTime: OutputTimeRepresentation> {
+pub struct VerdictRepresentationFactory<
+    MonitorOutput: VerdictRepresentation,
+    OutputTime: OutputTimeRepresentation,
+> {
     phantom: PhantomData<(MonitorOutput, OutputTime)>,
 }
 
@@ -42,18 +45,24 @@ impl<MonitorOutput: VerdictRepresentation, OutputTime: OutputTimeRepresentation>
 }
 
 impl<MonitorOutput: VerdictRepresentation, OutputTime: OutputTimeRepresentation>
-    VerdictFactory<MonitorOutput, OutputTime> for VerdictRepresentationFactory<MonitorOutput, OutputTime>
+    VerdictFactory<MonitorOutput, OutputTime>
+    for VerdictRepresentationFactory<MonitorOutput, OutputTime>
 {
     type Error = Infallible;
     type Verdict = (MonitorOutput, OutputTime::InnerTime);
 
-    fn get_verdict(&mut self, rec: MonitorOutput, ts: OutputTime::InnerTime) -> Result<Self::Verdict, Self::Error> {
+    fn get_verdict(
+        &mut self,
+        rec: MonitorOutput,
+        ts: OutputTime::InnerTime,
+    ) -> Result<Self::Verdict, Self::Error> {
         Ok((rec, ts))
     }
 }
 
 impl<MonitorOutput: VerdictRepresentation, OutputTime: OutputTimeRepresentation>
-    NewVerdictFactory<MonitorOutput, OutputTime> for VerdictRepresentationFactory<MonitorOutput, OutputTime>
+    NewVerdictFactory<MonitorOutput, OutputTime>
+    for VerdictRepresentationFactory<MonitorOutput, OutputTime>
 {
     type CreationData = ();
     type CreationError = Infallible;
@@ -78,7 +87,10 @@ pub trait VerdictsSink<V: VerdictRepresentation, T: OutputTimeRepresentation> {
     fn sink_verdicts(
         &mut self,
         verdicts: Verdicts<V, T>,
-    ) -> Result<Vec<Self::Return>, VerdictSinkError<Self::Error, <Self::Factory as VerdictFactory<V, T>>::Error>> {
+    ) -> Result<
+        Vec<Self::Return>,
+        VerdictSinkError<Self::Error, <Self::Factory as VerdictFactory<V, T>>::Error>,
+    > {
         let Verdicts { timed, event, ts } = verdicts;
         timed
             .into_iter()
@@ -91,7 +103,10 @@ pub trait VerdictsSink<V: VerdictRepresentation, T: OutputTimeRepresentation> {
         &mut self,
         ts: <T as TimeRepresentation>::InnerTime,
         verdict: V,
-    ) -> Result<Self::Return, VerdictSinkError<Self::Error, <Self::Factory as VerdictFactory<V, T>>::Error>> {
+    ) -> Result<
+        Self::Return,
+        VerdictSinkError<Self::Error, <Self::Factory as VerdictFactory<V, T>>::Error>,
+    > {
         let verdict = self
             .factory()
             .get_verdict(verdict, ts)
@@ -100,7 +115,10 @@ pub trait VerdictsSink<V: VerdictRepresentation, T: OutputTimeRepresentation> {
     }
 
     /// Function to dispatch the converted verdict to the sink
-    fn sink(&mut self, verdict: <Self::Factory as VerdictFactory<V, T>>::Verdict) -> Result<Self::Return, Self::Error>;
+    fn sink(
+        &mut self,
+        verdict: <Self::Factory as VerdictFactory<V, T>>::Verdict,
+    ) -> Result<Self::Return, Self::Error>;
 
     /// Function to return a reference to the Verdictfactory
     fn factory(&mut self) -> &mut Self::Factory;
@@ -115,7 +133,9 @@ pub enum VerdictSinkError<SinkError: Error + 'static, FactoryError: Error + 'sta
     Factory(FactoryError),
 }
 
-impl<SinkError: Error, FactoryError: Error> std::fmt::Display for VerdictSinkError<SinkError, FactoryError> {
+impl<SinkError: Error, FactoryError: Error> std::fmt::Display
+    for VerdictSinkError<SinkError, FactoryError>
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             VerdictSinkError::Sink(e) => write!(f, "{}", e),
@@ -188,13 +208,20 @@ impl<
 
 /// A sink implementation that is completely discarding the verdicts
 #[derive(Copy, Clone, Debug)]
-pub struct DiscardSink<O: OutputTimeRepresentation, V: VerdictRepresentation, F: VerdictFactory<V, O, Verdict = ()>> {
+pub struct DiscardSink<
+    O: OutputTimeRepresentation,
+    V: VerdictRepresentation,
+    F: VerdictFactory<V, O, Verdict = ()>,
+> {
     factory: F,
     verdict: PhantomData<(O, V)>,
 }
 
-impl<O: OutputTimeRepresentation, V: VerdictRepresentation, F: VerdictFactory<V, O, Verdict = ()>>
-    DiscardSink<O, V, F>
+impl<
+        O: OutputTimeRepresentation,
+        V: VerdictRepresentation,
+        F: VerdictFactory<V, O, Verdict = ()>,
+    > DiscardSink<O, V, F>
 {
     /// Creates a new [DiscardSink] for a factory that returns `()` as a verdict.
     pub fn new(factory: F) -> Self {
@@ -205,14 +232,19 @@ impl<O: OutputTimeRepresentation, V: VerdictRepresentation, F: VerdictFactory<V,
     }
 }
 
-impl<O: OutputTimeRepresentation, V: VerdictRepresentation> Default for DiscardSink<O, V, EmptyFactory> {
+impl<O: OutputTimeRepresentation, V: VerdictRepresentation> Default
+    for DiscardSink<O, V, EmptyFactory>
+{
     fn default() -> Self {
         Self::new(EmptyFactory)
     }
 }
 
-impl<O: OutputTimeRepresentation, V: VerdictRepresentation, F: VerdictFactory<V, O, Verdict = ()>> VerdictsSink<V, O>
-    for DiscardSink<O, V, F>
+impl<
+        O: OutputTimeRepresentation,
+        V: VerdictRepresentation,
+        F: VerdictFactory<V, O, Verdict = ()>,
+    > VerdictsSink<V, O> for DiscardSink<O, V, F>
 {
     type Error = Infallible;
     type Factory = F;
@@ -243,7 +275,9 @@ impl<V: VerdictRepresentation, O: OutputTimeRepresentation> VerdictFactory<V, O>
     }
 }
 
-impl<V: VerdictRepresentation, O: OutputTimeRepresentation> NewVerdictFactory<V, O> for EmptyFactory {
+impl<V: VerdictRepresentation, O: OutputTimeRepresentation> NewVerdictFactory<V, O>
+    for EmptyFactory
+{
     type CreationData = ();
     type CreationError = Infallible;
 
@@ -283,13 +317,20 @@ impl VerbosityAnnotations {
     }
 
     /// Parses the annotated tags in the specification and additionally mark all streams in `debug_streams` as debug.
-    pub fn new_with_debug(ir: &RtLolaMir, debug_streams: &[String]) -> Result<VerbosityAnnotations, RtLolaError> {
+    pub fn new_with_debug(
+        ir: &RtLolaMir,
+        debug_streams: &[String],
+    ) -> Result<VerbosityAnnotations, RtLolaError> {
         let annotations = Self::new(ir)?;
         let debug_streams = debug_streams
             .into_iter()
             .map(|sname| {
                 ir.get_stream_by_name(sname.as_str())
-                    .ok_or_else(|| format!("stream {sname} marked for debugging, but not found in specification"))
+                    .ok_or_else(|| {
+                        format!(
+                            "stream {sname} marked for debugging, but not found in specification"
+                        )
+                    })
                     .map(|stream| stream.as_stream_ref())
             })
             .collect::<Result<Vec<_>, String>>()

@@ -58,7 +58,9 @@ fn main() {
         i: u64,
     }
 
-    let ir = rtlola_interpreter::rtlola_frontend::parse(&ParserConfig::for_string(SPEC.to_string())).unwrap();
+    let ir =
+        rtlola_interpreter::rtlola_frontend::parse(&ParserConfig::for_string(SPEC.to_string()))
+            .unwrap();
 
     let factory: &mut dyn VerdictFactory<TotalIncremental, RelativeFloat, Error = _, Verdict = _> =
         &mut <<MyOutputs as AssociatedVerdictFactory<TotalIncremental, RelativeFloat>>::Factory>::new(&ir).unwrap();
@@ -71,7 +73,11 @@ fn main() {
         .monitor()
         .unwrap();
 
-    let Verdicts { timed: _, event, ts } = monitor
+    let Verdicts {
+        timed: _,
+        event,
+        ts,
+    } = monitor
         .accept_event(Inputs { a: -13, i: 24 }, Duration::from_secs_f64(1.2))
         .unwrap();
     let my_output = factory.get_verdict(event, ts).unwrap();
@@ -88,9 +94,12 @@ fn main() {
                 .into_iter()
                 .collect(),
             c: None,
-            d: vec![((-13, true), "Parameter 1 is -13; Current a is -13".to_string())]
-                .into_iter()
-                .collect(),
+            d: vec![(
+                (-13, true),
+                "Parameter 1 is -13; Current a is -13".to_string()
+            )]
+            .into_iter()
+            .collect(),
             e: vec![("Stream a: -13".to_string(), "Stream a: -13".to_string())]
                 .into_iter()
                 .collect(),

@@ -49,7 +49,11 @@ impl<Source: EventFactory, Mode: ExecutionMode> ConfigState for InputConfigured<
 
 /// An API configuration state in which the input source is configured but the input time is not.
 #[derive(Debug, Clone)]
-pub struct VerdictConfigured<Mode: ExecutionMode, Source: EventFactory, Verdict: VerdictRepresentation> {
+pub struct VerdictConfigured<
+    Mode: ExecutionMode,
+    Source: EventFactory,
+    Verdict: VerdictRepresentation,
+> {
     ir: RtLolaMir,
     mode: Mode,
     source: PhantomData<Source>,
@@ -231,7 +235,9 @@ impl<OutputTime: OutputTimeRepresentation> ConfigBuilder<IrConfigured, OutputTim
     }
 }
 
-impl<Mode: ExecutionMode, OutputTime: OutputTimeRepresentation> ConfigBuilder<ModeConfigured<Mode>, OutputTime> {
+impl<Mode: ExecutionMode, OutputTime: OutputTimeRepresentation>
+    ConfigBuilder<ModeConfigured<Mode>, OutputTime>
+{
     /// Use the predefined [ArrayFactory] method to provide inputs to the API.
     pub fn with_array_events<
         const N: usize,
@@ -280,7 +286,9 @@ impl<Mode: ExecutionMode, OutputTime: OutputTimeRepresentation> ConfigBuilder<Mo
     }
 
     /// Use a custom input method to provide inputs to the API.
-    pub fn with_event_factory<Source: EventFactory>(self) -> ConfigBuilder<InputConfigured<Mode, Source>, OutputTime> {
+    pub fn with_event_factory<Source: EventFactory>(
+        self,
+    ) -> ConfigBuilder<InputConfigured<Mode, Source>, OutputTime> {
         let ConfigBuilder {
             output_time_representation,
             start_time,
@@ -334,7 +342,8 @@ impl<
     /// Adds tracing functionality to the evaluator
     pub fn with_tracer<T: Tracer>(
         self,
-    ) -> ConfigBuilder<VerdictConfigured<Mode, Source, TracingVerdict<T, Verdict>>, OutputTime> {
+    ) -> ConfigBuilder<VerdictConfigured<Mode, Source, TracingVerdict<T, Verdict>>, OutputTime>
+    {
         let ConfigBuilder {
             output_time_representation,
             start_time,
@@ -417,7 +426,9 @@ impl<
 
     #[cfg(feature = "queued-api")]
     /// Create a [QueuedMonitor] from the configuration. The entrypoint of the API.
-    pub fn queued_monitor(self) -> QueuedMonitor<Source, OfflineMode<SourceTime>, Verdict, OutputTime>
+    pub fn queued_monitor(
+        self,
+    ) -> QueuedMonitor<Source, OfflineMode<SourceTime>, Verdict, OutputTime>
     where
         Source: EventFactory<CreationData = ()> + 'static,
     {
@@ -425,8 +436,11 @@ impl<
     }
 }
 
-impl<Source: EventFactory + 'static, Verdict: VerdictRepresentation, OutputTime: OutputTimeRepresentation>
-    ConfigBuilder<VerdictConfigured<OnlineMode, Source, Verdict>, OutputTime>
+impl<
+        Source: EventFactory + 'static,
+        Verdict: VerdictRepresentation,
+        OutputTime: OutputTimeRepresentation,
+    > ConfigBuilder<VerdictConfigured<OnlineMode, Source, Verdict>, OutputTime>
 {
     #[cfg(feature = "queued-api")]
     /// Create a [QueuedMonitor] from the configuration. The entrypoint of the API. The data is provided to the [Input](crate::input::EventFactory) source at creation.

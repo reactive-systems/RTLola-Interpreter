@@ -7,7 +7,9 @@ use std::marker::PhantomData;
 use rtlola_interpreter::monitor::{Change, Parameters, TotalIncremental};
 use rtlola_interpreter::output::NewVerdictFactory;
 use rtlola_interpreter::rtlola_frontend::tag_parser::verbosity_parser::StreamVerbosity;
-use rtlola_interpreter::rtlola_mir::{OutputReference, RtLolaMir, StreamReference, TriggerReference};
+use rtlola_interpreter::rtlola_mir::{
+    OutputReference, RtLolaMir, StreamReference, TriggerReference,
+};
 use rtlola_interpreter::time::OutputTimeRepresentation;
 use rtlola_interpreter::Value;
 use termcolor::{Ansi, Color, ColorSpec, NoColor, WriteColor};
@@ -114,7 +116,9 @@ pub struct LogPrinter<OutputTime: OutputTimeRepresentation, W: IndirectWriteColo
     writer: PhantomData<W>,
 }
 
-impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> LogPrinter<OutputTime, W> {
+impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>>
+    LogPrinter<OutputTime, W>
+{
     /// Construct a new LogPrinter based on the given verbosity
     pub fn new(verbosity: Verbosity, ir: &RtLolaMir) -> Result<Self, String> {
         let annotations = VerbosityAnnotations::new(ir).map_err(|e| e.to_string())?;
@@ -127,7 +131,10 @@ impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> LogPr
         ir: &RtLolaMir,
         annotations: VerbosityAnnotations,
     ) -> Result<Self, String> {
-        let stream_names = ir.all_streams().map(|s| (s, ir.stream(s).name().to_owned())).collect();
+        let stream_names = ir
+            .all_streams()
+            .map(|s| (s, ir.stream(s).name().to_owned()))
+            .collect();
         let trigger_ids = ir
             .triggers
             .iter()
@@ -137,7 +144,10 @@ impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> LogPr
             .all_streams()
             .map(|stream| Ok((stream, Verbosity::from(annotations.verbosity(stream)))))
             .collect::<Result<_, String>>()?;
-        let debug_streams = ir.all_streams().filter(|sr| annotations.debug(*sr)).collect();
+        let debug_streams = ir
+            .all_streams()
+            .filter(|sr| annotations.debug(*sr))
+            .collect();
         Ok(Self {
             output_time: OutputTime::default(),
             verbosity,
@@ -158,7 +168,11 @@ impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> LogPr
         if let Some(paras) = paras {
             format!(
                 "({})",
-                paras.iter().map(|p| p.to_string()).collect::<Vec<String>>().join(", ")
+                paras
+                    .iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<String>>()
+                    .join(", ")
             )
         } else {
             String::new()
@@ -173,8 +187,8 @@ impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> LogPr
     }
 }
 
-impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> VerdictFactory<TotalIncremental, OutputTime>
-    for LogPrinter<OutputTime, W>
+impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>>
+    VerdictFactory<TotalIncremental, OutputTime> for LogPrinter<OutputTime, W>
 {
     type Error = std::io::Error;
     type Verdict = Vec<u8>;
@@ -221,11 +235,18 @@ impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> Verdi
                     Change::Spawn(parameter) => {
                         self.debug(
                             &mut writer,
-                            |w| write!(w, "{}][Spawn] = {}", name, Self::display_parameter(Some(parameter))),
+                            |w| {
+                                write!(
+                                    w,
+                                    "{}][Spawn] = {}",
+                                    name,
+                                    Self::display_parameter(Some(parameter))
+                                )
+                            },
                             &ts,
                             sr,
                         )?;
-                    },
+                    }
                     Change::Value(parameter, val) => {
                         let msg = move |w: &mut W| {
                             write!(
@@ -237,15 +258,22 @@ impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> Verdi
                             )
                         };
                         self.emit(&mut writer, self.stream_verbosity[&sr], msg, &ts, sr)?;
-                    },
+                    }
                     Change::Close(parameter) => {
                         self.debug(
                             &mut writer,
-                            move |w| write!(w, "{}][Close] = {}", name, Self::display_parameter(Some(parameter))),
+                            move |w| {
+                                write!(
+                                    w,
+                                    "{}][Close] = {}",
+                                    name,
+                                    Self::display_parameter(Some(parameter))
+                                )
+                            },
                             &ts,
                             sr,
                         )?;
-                    },
+                    }
                 }
             }
         }
@@ -269,7 +297,14 @@ impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>>
 impl<O: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> LogPrinter<O, W> {
     /// Accepts a message and forwards it to the appropriate output channel.
     /// If the configuration prohibits printing the message, `msg` is never called.
-    fn emit<F>(&self, out: &mut W, kind: Verbosity, msg: F, ts: &str, sr: StreamReference) -> std::io::Result<()>
+    fn emit<F>(
+        &self,
+        out: &mut W,
+        kind: Verbosity,
+        msg: F,
+        ts: &str,
+        sr: StreamReference,
+    ) -> std::io::Result<()>
     where
         F: FnOnce(&mut W) -> std::io::Result<()>,
     {

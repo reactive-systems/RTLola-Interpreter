@@ -22,7 +22,8 @@ impl StructDeriver {
             Data::Enum(_) | Data::Union(_) => unreachable!(),
         };
 
-        let attributes: Result<Vec<FactoryAttr>, _> = fields.iter().map(deluxe::parse_attributes).collect();
+        let attributes: Result<Vec<FactoryAttr>, _> =
+            fields.iter().map(deluxe::parse_attributes).collect();
         let attributes = match attributes {
             Ok(v) => v,
             Err(e) => return Err(e.into_compile_error()),
@@ -92,18 +93,21 @@ impl ComposingDeriver for StructDeriver {
             .collect();
         let factory = &self.field_names;
 
-        let (deconstructor, event_generator): (TokenStream2, TokenStream2) = if !self.fields.is_empty() {
+        let (deconstructor, event_generator): (TokenStream2, TokenStream2) = if !self
+            .fields
+            .is_empty()
+        {
             let deconstructor = match &self.fields {
                 Fields::Named(_) => {
                     quote! {
                         let #name {#(#names),* , ..} = rec;
                     }
-                },
+                }
                 Fields::Unnamed(_) => {
                     quote! {
                         let #name (#(#names),* , ..) = rec;
                     }
-                },
+                }
                 Fields::Unit => TokenStream2::new(),
             };
             (
