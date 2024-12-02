@@ -136,7 +136,10 @@ impl<O: OutputTimeRepresentation> JsonFactory<O> {
             .all_streams()
             .map(|stream| Ok((stream, JsonVerbosity::from(annotations.verbosity(stream)))))
             .collect::<Result<_, String>>()?;
-        let debug_streams = ir.all_streams().filter(|sr| annotations.debug(*sr)).collect();
+        let debug_streams = ir
+            .all_streams()
+            .filter(|sr| annotations.debug(*sr))
+            .collect();
         Ok(Self {
             stream_names,
             output_time: Default::default(),
@@ -152,14 +155,15 @@ impl<O: OutputTimeRepresentation> JsonFactory<O> {
     }
 
     fn include_stream(&self, stream: StreamReference) -> bool {
-        self.verbosity >= *self.stream_verbosity.get(&stream).unwrap() || self.debug_streams.contains(&stream)
+        self.verbosity >= *self.stream_verbosity.get(&stream).unwrap()
+            || self.debug_streams.contains(&stream)
     }
 
     fn include_change(&self, change: &Change, sr: StreamReference) -> bool {
         match change {
             Change::Spawn(_) | Change::Close(_) => {
                 self.verbosity >= JsonVerbosity::Debug || self.debug_streams.contains(&sr)
-            },
+            }
             Change::Value(_, _) => true,
         }
     }
@@ -240,7 +244,11 @@ impl<O: OutputTimeRepresentation> VerdictFactory<TotalIncremental, O> for JsonFa
     type Error = Infallible;
     type Verdict = Option<JsonVerdict>;
 
-    fn get_verdict(&mut self, rec: TotalIncremental, ts: O::InnerTime) -> Result<Self::Verdict, Self::Error> {
+    fn get_verdict(
+        &mut self,
+        rec: TotalIncremental,
+        ts: O::InnerTime,
+    ) -> Result<Self::Verdict, Self::Error> {
         if self.verbosity == JsonVerbosity::Silent && self.debug_streams.is_empty() {
             return Ok(None);
         }
@@ -261,20 +269,27 @@ impl<O: OutputTimeRepresentation> VerdictFactory<TotalIncremental, O> for JsonFa
                         Change::Spawn(i) | Change::Value(Some(i), _) | Change::Close(i) => Some(i),
                         Change::Value(None, _) => None,
                     };
-                    let entry = instances.entry(instance).or_insert_with_key(InstanceUpdate::new);
+                    let entry = instances
+                        .entry(instance)
+                        .or_insert_with_key(InstanceUpdate::new);
                     match &change {
                         Change::Spawn(_) => {
                             entry.spawn = true;
-                        },
+                        }
                         Change::Value(_, v) => {
                             entry.eval = Some(json_value(v));
-                        },
+                        }
                         Change::Close(_) => {
                             entry.close = true;
-                        },
+                        }
                     }
                 }
-                (!instances.is_empty()).then(|| (stream_name.clone(), instances.into_values().collect::<Vec<_>>()))
+                (!instances.is_empty()).then(|| {
+                    (
+                        stream_name.clone(),
+                        instances.into_values().collect::<Vec<_>>(),
+                    )
+                })
             })
             .chain(
                 rec.inputs

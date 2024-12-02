@@ -18,7 +18,11 @@ pub(crate) struct TestInput {
 
 impl TestInput {
     pub(crate) fn new(ts: Duration, a: f64, d: Message) -> Self {
-        Self { timestamp: ts, a, d }
+        Self {
+            timestamp: ts,
+            a,
+            d,
+        }
     }
 }
 
@@ -38,29 +42,23 @@ impl InputMap for TestInput {
     ) -> Result<rtlola_interpreter::ValueGetter<Self, Self::Error>, Self::Error> {
         match name {
             "a" => Ok(Box::new(|data: &Self| Ok(data.a.try_into()?))),
-            "b" => {
-                Ok(Box::new(|data: &Self| {
-                    match data.d {
-                        Message::M0 { b } => Ok(b.try_into()?),
-                        _ => Ok(Value::None),
-                    }
-                }))
-            },
-            "c" => {
-                Ok(Box::new(|data: &Self| {
-                    match data.d {
-                        Message::M1 { c } => Ok(c.into()),
-                        _ => Ok(Value::None),
-                    }
-                }))
-            },
+            "b" => Ok(Box::new(|data: &Self| match data.d {
+                Message::M0 { b } => Ok(b.try_into()?),
+                _ => Ok(Value::None),
+            })),
+            "c" => Ok(Box::new(|data: &Self| match data.d {
+                Message::M1 { c } => Ok(c.into()),
+                _ => Ok(Value::None),
+            })),
             _ => unimplemented!(),
         }
     }
 }
 
 impl TimeConverter<AbsoluteFloat> for TestInput {
-    fn convert_time(&self) -> Result<<AbsoluteFloat as TimeRepresentation>::InnerTime, <Self as InputMap>::Error> {
+    fn convert_time(
+        &self,
+    ) -> Result<<AbsoluteFloat as TimeRepresentation>::InnerTime, <Self as InputMap>::Error> {
         Ok(self.timestamp)
     }
 }

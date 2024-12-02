@@ -8,7 +8,9 @@ use std::io::stdin;
 use std::marker::PhantomData;
 use std::path::PathBuf;
 
-use csv::{ByteRecord, Reader as CSVReader, ReaderBuilder, Result as ReaderResult, StringRecord, Trim};
+use csv::{
+    ByteRecord, Reader as CSVReader, ReaderBuilder, Result as ReaderResult, StringRecord, Trim,
+};
 use rtlola_interpreter::input::{EventFactoryError, InputMap, ValueGetter};
 use rtlola_interpreter::rtlola_frontend::mir::InputStream;
 use rtlola_interpreter::rtlola_mir::{RtLolaMir, Type};
@@ -105,7 +107,10 @@ impl InputMap for CsvRecord {
     type CreationData = CsvColumnMapping;
     type Error = CsvError;
 
-    fn func_for_input(name: &str, data: Self::CreationData) -> Result<ValueGetter<Self, Self::Error>, Self::Error> {
+    fn func_for_input(
+        name: &str,
+        data: Self::CreationData,
+    ) -> Result<ValueGetter<Self, Self::Error>, Self::Error> {
         let col_idx = data.name2col[name];
         let ty = data.name2type[name].clone();
         let name = name.to_string();
@@ -141,7 +146,10 @@ impl CsvColumnMapping {
             })
             .collect::<Result<HashMap<String, usize>, String>>()?;
 
-        let name2type: HashMap<String, Type> = inputs.iter().map(|i| (i.name.clone(), i.ty.clone())).collect();
+        let name2type: HashMap<String, Type> = inputs
+            .iter()
+            .map(|i| (i.name.clone(), i.ty.clone()))
+            .collect();
 
         let time_ix = time_col.map(|col| col - 1).or_else(|| {
             header
@@ -207,9 +215,10 @@ impl<InputTime: TimeRepresentation> CsvEventSource<InputTime> {
             CsvInputSourceKind::File(path) => ReaderWrapper::File(reader_builder.from_path(path)?),
             CsvInputSourceKind::Buffer(data) => {
                 ReaderWrapper::Buffer(reader_builder.from_reader(VecDeque::from(data.into_bytes())))
-            },
+            }
         };
-        let csv_column_mapping = CsvColumnMapping::from_header(ir.inputs.as_slice(), wrapper.header()?, time_col)?;
+        let csv_column_mapping =
+            CsvColumnMapping::from_header(ir.inputs.as_slice(), wrapper.header()?, time_col)?;
 
         if InputTime::requires_timestamp() && csv_column_mapping.time_ix.is_none() {
             return Err(Box::from("Missing 'time' column in CSV input file."));
@@ -218,10 +227,15 @@ impl<InputTime: TimeRepresentation> CsvEventSource<InputTime> {
         if let Some(time_ix) = csv_column_mapping.time_ix {
             let get_time = Box::new(move |rec: &CsvRecord| {
                 let ts = rec.0.get(time_ix).expect("time index to exist.");
-                let ts_str = std::str::from_utf8(ts)
-                    .map_err(|e| CsvError::Value(format!("Could not parse timestamp: {:?}. Utf8 error: {}", ts, e)))?;
-                InputTime::parse(ts_str)
-                    .map_err(|e| CsvError::Value(format!("Could not parse timestamp to time format: {}", e)))
+                let ts_str = std::str::from_utf8(ts).map_err(|e| {
+                    CsvError::Value(format!(
+                        "Could not parse timestamp: {:?}. Utf8 error: {}",
+                        ts, e
+                    ))
+                })?;
+                InputTime::parse(ts_str).map_err(|e| {
+                    CsvError::Value(format!("Could not parse timestamp to time format: {}", e))
+                })
             });
             Ok(CsvEventSource {
                 reader: wrapper,

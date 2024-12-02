@@ -4,7 +4,9 @@ use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 use syn::{Data, DeriveInput, Field, Fields, Type, TypeTuple};
 
-use crate::helper::{hashmap_types, hashset_types, is_bool, is_bool_generic, new_snake_ident, option_inner_type};
+use crate::helper::{
+    hashmap_types, hashset_types, is_bool, is_bool_generic, new_snake_ident, option_inner_type,
+};
 use crate::FactoryAttr;
 
 const TIME_NAMES: [&str; 3] = ["time", "ts", "timestamp"];
@@ -146,19 +148,26 @@ pub(crate) fn expand_named_struct(input: &DeriveInput) -> TokenStream {
         })
         .collect();
 
-    let time_type = time_field.as_ref().map(|tf| tf.ty.clone()).unwrap_or_else(|| {
-        Type::Tuple(TypeTuple {
-            paren_token: Default::default(),
-            elems: Default::default(),
-        })
-    });
+    let time_type = time_field
+        .as_ref()
+        .map(|tf| tf.ty.clone())
+        .unwrap_or_else(|| {
+            Type::Tuple(TypeTuple {
+                paren_token: Default::default(),
+                elems: Default::default(),
+            })
+        });
     let time_init = time_field
         .as_ref()
         .and_then(|f| f.ident.as_ref())
         .map(|id| quote! {#id: ts});
     let num_streams = stream_names.len();
 
-    let initializers: Vec<TokenStream> = time_init.into_iter().chain(field_init).chain(ignored_fields).collect();
+    let initializers: Vec<TokenStream> = time_init
+        .into_iter()
+        .chain(field_init)
+        .chain(ignored_fields)
+        .collect();
 
     quote! {
         impl #impl_generics rtlola_interpreter::output::FromValues for #name #ty_generics #where_clause {

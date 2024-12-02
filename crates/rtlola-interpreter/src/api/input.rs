@@ -32,7 +32,10 @@ pub trait EventFactory: Sized {
     type CreationData: Clone + Send;
 
     /// Creates a new input source from a HashMap mapping the names of the inputs in the specification to their position in the event.
-    fn new(map: HashMap<String, InputReference>, setup_data: Self::CreationData) -> Result<Self, EventFactoryError> {
+    fn new(
+        map: HashMap<String, InputReference>,
+        setup_data: Self::CreationData,
+    ) -> Result<Self, EventFactoryError> {
         let all = map.keys().cloned().collect::<HashSet<_>>();
         let (i, found) = Self::try_new(map, setup_data)?;
         let found = found.into_iter().collect::<HashSet<_>>();
@@ -65,7 +68,10 @@ pub trait InputMap: Send {
     /// The error returned if anything goes wrong.
     type Error: Into<EventFactoryError> + Send + 'static;
     /// Given the name of an input this function returns a function that given self returns the value for that input.
-    fn func_for_input(name: &str, data: Self::CreationData) -> Result<ValueGetter<Self, Self::Error>, Self::Error>;
+    fn func_for_input(
+        name: &str,
+        data: Self::CreationData,
+    ) -> Result<ValueGetter<Self, Self::Error>, Self::Error>;
 }
 
 /// A trait to annotate Self with an [EventFactory] that accepts Self as a Record.
@@ -102,16 +108,19 @@ impl Display for EventFactoryError {
                     "The following input stream(s) cannot be served by the input: {}",
                     name.join(", ")
                 )
-            },
+            }
             EventFactoryError::ValueNotSupported(val) => {
-                write!(f, "The type of {val:?} is not supported by the interpreter.")
-            },
+                write!(
+                    f,
+                    "The type of {val:?} is not supported by the interpreter."
+                )
+            }
             EventFactoryError::Other(e) => {
                 write!(f, "Event Factory Error: {e}.")
-            },
+            }
             EventFactoryError::VariantIgnored(variant) => {
                 write!(f, "Received ignored variant: {variant}.")
-            },
+            }
         }
     }
 }
@@ -213,7 +222,7 @@ impl<Inner: InputMap> EventFactory for MappedFactory<Inner> {
                 Ok(projection) => {
                     translators[index] = Some(projection);
                     found.push(input_name.clone());
-                },
+                }
                 Err(e) => {
                     let ie: EventFactoryError = e.into();
                     if matches!(ie, EventFactoryError::InputStreamUnknown(_)) {
@@ -221,7 +230,7 @@ impl<Inner: InputMap> EventFactory for MappedFactory<Inner> {
                     } else {
                         return Err(ie);
                     }
-                },
+                }
             }
         }
         let translators = translators.into_iter().map(Option::unwrap).collect();
@@ -229,7 +238,10 @@ impl<Inner: InputMap> EventFactory for MappedFactory<Inner> {
     }
 
     fn get_event(&self, rec: Inner) -> Result<Event, EventFactoryError> {
-        self.translators.iter().map(|f| f(&rec).map_err(|e| e.into())).collect()
+        self.translators
+            .iter()
+            .map(|f| f(&rec).map_err(|e| e.into()))
+            .collect()
     }
 }
 
@@ -322,7 +334,7 @@ impl<I: Error + Send + 'static> Display for VectorFactoryError<I> {
             VectorFactoryError::Inner(inner) => <I as Display>::fmt(inner, f),
             VectorFactoryError::InvalidSize { expected, got } => {
                 write!(f, "Invalid size(expected: {expected}, got: {got})")
-            },
+            }
         }
     }
 }
@@ -346,15 +358,19 @@ impl<I: Error + Send + 'static> From<VectorFactoryError<I>> for EventFactoryErro
 /// the user must provide the length of the vector that is returned in the conversion. The implementation then checks
 /// dynamically if this size is satisfied.
 #[derive(Debug, Clone)]
-pub struct VectorFactory<I: Error + Send + 'static, E: TryInto<Vec<Value>, Error = I> + CondSerialize + CondDeserialize>
-{
+pub struct VectorFactory<
+    I: Error + Send + 'static,
+    E: TryInto<Vec<Value>, Error = I> + CondSerialize + CondDeserialize,
+> {
     num_inputs: usize,
     len_vector: usize,
     phantom: PhantomData<E>,
 }
 
-impl<I: Error + Send + 'static, E: TryInto<Vec<Value>, Error = I> + Send + CondSerialize + CondDeserialize> EventFactory
-    for VectorFactory<I, E>
+impl<
+        I: Error + Send + 'static,
+        E: TryInto<Vec<Value>, Error = I> + Send + CondSerialize + CondDeserialize,
+    > EventFactory for VectorFactory<I, E>
 {
     type CreationData = usize;
     type Error = VectorFactoryError<I>;

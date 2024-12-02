@@ -11,18 +11,18 @@ pub(crate) fn expand(input: TokenStream) -> TokenStream {
     let input: DeriveInput = parse_macro_input!(input as DeriveInput);
 
     let res = match &input.data {
-        Data::Struct(s) => {
-            match s.fields {
-                Fields::Named(_) => expand_named_struct(&input),
-                Fields::Unnamed(_) | Fields::Unit => {
-                    abort!(
-                        input,
-                        "LinearVerdict can only be derived for Structs with named fields!"
-                    )
-                },
+        Data::Struct(s) => match s.fields {
+            Fields::Named(_) => expand_named_struct(&input),
+            Fields::Unnamed(_) | Fields::Unit => {
+                abort!(
+                    input,
+                    "LinearVerdict can only be derived for Structs with named fields!"
+                )
             }
         },
-        Data::Enum(_) | Data::Union(_) => abort!(input, "LinearVerdict can only be derived for Structs!"),
+        Data::Enum(_) | Data::Union(_) => {
+            abort!(input, "LinearVerdict can only be derived for Structs!")
+        }
     };
 
     proc_macro::TokenStream::from(res)

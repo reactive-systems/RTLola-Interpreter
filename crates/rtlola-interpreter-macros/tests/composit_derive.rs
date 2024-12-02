@@ -125,7 +125,9 @@ fn ignore() {
     ];
     assert_eq!(input.get_event(t2).unwrap(), expected);
 
-    assert!(matches!(input.get_event(Rec::Var3), Err(EventFactoryError::VariantIgnored(name)) if name == "Var3"));
+    assert!(
+        matches!(input.get_event(Rec::Var3), Err(EventFactoryError::VariantIgnored(name)) if name == "Var3")
+    );
     assert!(
         matches!(input.get_event(Rec::Var4("Asd".to_string())), Err(EventFactoryError::VariantIgnored(name)) if name == "Var4")
     );
@@ -169,11 +171,22 @@ fn overlap() {
     let input = <Rec as AssociatedEventFactory>::Factory::new(map, ()).unwrap();
 
     let t1 = Rec::Var1(Msg1 { a: 42, time: 13.37 });
-    let expected = vec![Value::Unsigned(42), Value::None, Value::try_from(13.37).unwrap()];
+    let expected = vec![
+        Value::Unsigned(42),
+        Value::None,
+        Value::try_from(13.37).unwrap(),
+    ];
     assert_eq!(input.get_event(t1).unwrap(), expected);
 
-    let t2 = Rec::Var2(Msg2 { b: -1337, time: 42.42 });
-    let expected = vec![Value::None, Value::Signed(-1337), Value::try_from(42.42).unwrap()];
+    let t2 = Rec::Var2(Msg2 {
+        b: -1337,
+        time: 42.42,
+    });
+    let expected = vec![
+        Value::None,
+        Value::Signed(-1337),
+        Value::try_from(42.42).unwrap(),
+    ];
     assert_eq!(input.get_event(t2).unwrap(), expected);
 }
 

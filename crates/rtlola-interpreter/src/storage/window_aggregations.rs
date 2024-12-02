@@ -172,7 +172,7 @@ impl<G: WindowGeneric> Add for AvgIv<G> {
                     num,
                     _marker: PhantomData,
                 }
-            },
+            }
         }
     }
 }
@@ -227,11 +227,14 @@ impl<G: WindowGeneric> Add for IntegralIv<G> {
             (false, false) => return self,
             (false, true) => return other,
             (true, false) => return self,
-            (true, true) => {},
+            (true, true) => {}
         }
 
         let start_volume = self.volume + other.volume;
-        assert!(other.start_time >= self.end_time, "Time does not behave monotonically!");
+        assert!(
+            other.start_time >= self.end_time,
+            "Time does not behave monotonically!"
+        );
         let time_diff_dur = other.start_time - self.end_time;
         let time_diff = (Decimal::from(time_diff_dur.as_secs()))
             + (Decimal::from(time_diff_dur.subsec_nanos()) / Decimal::from(100_000_000));
@@ -456,28 +459,28 @@ impl<G: WindowGeneric> Add for LastIv<G> {
                 } else {
                     (Value::Unsigned(rhs), r_ts)
                 }
-            },
+            }
             (Value::Signed(lhs), l_ts, Value::Signed(rhs), r_ts) => {
                 if l_ts > r_ts {
                     (Value::Signed(lhs), l_ts)
                 } else {
                     (Value::Signed(rhs), r_ts)
                 }
-            },
+            }
             (Value::Float(lhs), l_ts, Value::Float(rhs), r_ts) => {
                 if l_ts > r_ts {
                     (Value::Float(lhs), l_ts)
                 } else {
                     (Value::Float(rhs), r_ts)
                 }
-            },
+            }
             (Value::Decimal(lhs), l_ts, Value::Decimal(rhs), r_ts) => {
                 if l_ts > r_ts {
                     (Value::Decimal(lhs), l_ts)
                 } else {
                     (Value::Decimal(rhs), r_ts)
                 }
-            },
+            }
             _ => unreachable!("mixed types in sliding window aggregation"),
         };
         LastIv {
@@ -521,14 +524,12 @@ impl<G: WindowGeneric> PercentileIv<G> {
             count: _,
             _marker: _,
         } = self;
-        values.sort_unstable_by(|a, b| {
-            match (a, b) {
-                (Value::Signed(x), Value::Signed(y)) => x.cmp(y),
-                (Value::Unsigned(x), Value::Unsigned(y)) => x.cmp(y),
-                (Value::Float(x), Value::Float(y)) => x.partial_cmp(y).unwrap(),
-                (Value::Decimal(x), Value::Decimal(y)) => x.partial_cmp(y).unwrap(),
-                _ => unimplemented!("only primitive types implemented for percentile"),
-            }
+        values.sort_unstable_by(|a, b| match (a, b) {
+            (Value::Signed(x), Value::Signed(y)) => x.cmp(y),
+            (Value::Unsigned(x), Value::Unsigned(y)) => x.cmp(y),
+            (Value::Float(x), Value::Float(y)) => x.partial_cmp(y).unwrap(),
+            (Value::Decimal(x), Value::Decimal(y)) => x.partial_cmp(y).unwrap(),
+            _ => unimplemented!("only primitive types implemented for percentile"),
         });
         let values = values;
         let v_idx = values[int_idx].clone();
@@ -666,8 +667,10 @@ impl<G: WindowGeneric> Add for VarianceIv<G> {
 
         let mean_diff = (o_sum / (Decimal::from(o_count))) - (sum / Decimal::from(count));
 
-        let new_var =
-            var + o_var + mean_diff * mean_diff * (Decimal::from(count * o_count)) / (Decimal::from(count + o_count));
+        let new_var = var
+            + o_var
+            + mean_diff * mean_diff * (Decimal::from(count * o_count))
+                / (Decimal::from(count + o_count));
 
         let new_count = count + o_count;
         VarianceIv {
@@ -800,8 +803,9 @@ impl<G: WindowGeneric> Add for CovIv<G> {
         let mean_diff_x = (o_sum_x / o_count) - (sum_x / count);
         let mean_diff_y = (o_sum_y / o_count) - (sum_y / count);
 
-        let new_co_moment =
-            co_moment + o_co_moment + mean_diff_x * mean_diff_y * (count * o_count / Decimal::from(new_count));
+        let new_co_moment = co_moment
+            + o_co_moment
+            + mean_diff_x * mean_diff_y * (count * o_count / Decimal::from(new_count));
 
         CovIv {
             count: new_count,

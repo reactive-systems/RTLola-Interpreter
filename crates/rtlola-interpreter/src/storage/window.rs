@@ -72,7 +72,9 @@ macro_rules! create_percentile_instance {
 macro_rules! create_discrete_window_instance {
     ($type: ty, $dur: ident, $wait: ident, $ts: ident, $active: ident) => {
         Self {
-            inner: Box::new(DiscreteWindowInstance::<$type>::new($dur, $wait, $ts, $active)),
+            inner: Box::new(DiscreteWindowInstance::<$type>::new(
+                $dur, $wait, $ts, $active,
+            )),
         }
     };
 }
@@ -97,92 +99,134 @@ impl SlidingWindow {
     pub(crate) fn from_sliding(ts: Time, window: &MirSlidingWindow, active: bool) -> SlidingWindow {
         match (window.op, &window.ty) {
             (WinOp::Count, _) => create_window_instance!(CountIv, window, ts, active),
-            (WinOp::Min, Type::UInt(_)) => create_window_instance!(MinIv<WindowUnsigned>, window, ts, active),
-            (WinOp::Min, Type::Int(_)) => create_window_instance!(MinIv<WindowSigned>, window, ts, active),
-            (WinOp::Min, Type::Float(_)) => create_window_instance!(MinIv<WindowFloat>, window, ts, active),
+            (WinOp::Min, Type::UInt(_)) => {
+                create_window_instance!(MinIv<WindowUnsigned>, window, ts, active)
+            }
+            (WinOp::Min, Type::Int(_)) => {
+                create_window_instance!(MinIv<WindowSigned>, window, ts, active)
+            }
+            (WinOp::Min, Type::Float(_)) => {
+                create_window_instance!(MinIv<WindowFloat>, window, ts, active)
+            }
             (WinOp::Min, Type::Fixed(_) | Type::UFixed(_)) => {
                 create_window_instance!(MinIv<WindowDecimal>, window, ts, active)
-            },
-            (WinOp::Max, Type::UInt(_)) => create_window_instance!(MaxIv<WindowUnsigned>, window, ts, active),
-            (WinOp::Max, Type::Int(_)) => create_window_instance!(MaxIv<WindowSigned>, window, ts, active),
-            (WinOp::Max, Type::Float(_)) => create_window_instance!(MaxIv<WindowFloat>, window, ts, active),
+            }
+            (WinOp::Max, Type::UInt(_)) => {
+                create_window_instance!(MaxIv<WindowUnsigned>, window, ts, active)
+            }
+            (WinOp::Max, Type::Int(_)) => {
+                create_window_instance!(MaxIv<WindowSigned>, window, ts, active)
+            }
+            (WinOp::Max, Type::Float(_)) => {
+                create_window_instance!(MaxIv<WindowFloat>, window, ts, active)
+            }
             (WinOp::Max, Type::Fixed(_) | Type::UFixed(_)) => {
                 create_window_instance!(MaxIv<WindowDecimal>, window, ts, active)
-            },
-            (WinOp::Sum, Type::UInt(_)) => create_window_instance!(SumIv<WindowUnsigned>, window, ts, active),
-            (WinOp::Sum, Type::Int(_)) => create_window_instance!(SumIv<WindowSigned>, window, ts, active),
-            (WinOp::Sum, Type::Float(_)) => create_window_instance!(SumIv<WindowFloat>, window, ts, active),
+            }
+            (WinOp::Sum, Type::UInt(_)) => {
+                create_window_instance!(SumIv<WindowUnsigned>, window, ts, active)
+            }
+            (WinOp::Sum, Type::Int(_)) => {
+                create_window_instance!(SumIv<WindowSigned>, window, ts, active)
+            }
+            (WinOp::Sum, Type::Float(_)) => {
+                create_window_instance!(SumIv<WindowFloat>, window, ts, active)
+            }
             (WinOp::Sum, Type::Fixed(_) | Type::UFixed(_)) => {
                 create_window_instance!(SumIv<WindowDecimal>, window, ts, active)
-            },
-            (WinOp::Sum, Type::Bool) => create_window_instance!(SumIv<WindowBool>, window, ts, active),
-            (WinOp::Average, Type::UInt(_)) => create_window_instance!(AvgIv<WindowUnsigned>, window, ts, active),
-            (WinOp::Average, Type::Int(_)) => create_window_instance!(AvgIv<WindowSigned>, window, ts, active),
-            (WinOp::Average, Type::Float(_)) => create_window_instance!(AvgIv<WindowFloat>, window, ts, active),
+            }
+            (WinOp::Sum, Type::Bool) => {
+                create_window_instance!(SumIv<WindowBool>, window, ts, active)
+            }
+            (WinOp::Average, Type::UInt(_)) => {
+                create_window_instance!(AvgIv<WindowUnsigned>, window, ts, active)
+            }
+            (WinOp::Average, Type::Int(_)) => {
+                create_window_instance!(AvgIv<WindowSigned>, window, ts, active)
+            }
+            (WinOp::Average, Type::Float(_)) => {
+                create_window_instance!(AvgIv<WindowFloat>, window, ts, active)
+            }
             (WinOp::Average, Type::Fixed(_) | Type::UFixed(_)) => {
                 create_window_instance!(AvgIv<WindowDecimal>, window, ts, active)
-            },
-            (WinOp::Integral, Type::Float(_)) | (WinOp::Integral, Type::Int(_)) | (WinOp::Integral, Type::UInt(_)) => {
+            }
+            (WinOp::Integral, Type::Float(_))
+            | (WinOp::Integral, Type::Int(_))
+            | (WinOp::Integral, Type::UInt(_)) => {
                 create_window_instance!(IntegralIv<WindowFloat>, window, ts, active)
-            },
+            }
             (WinOp::Integral, Type::Fixed(_) | Type::UFixed(_)) => {
                 create_window_instance!(IntegralIv<WindowDecimal>, window, ts, active)
-            },
+            }
             (WinOp::Conjunction, Type::Bool) => create_window_instance!(ConjIv, window, ts, active),
             (WinOp::Disjunction, Type::Bool) => create_window_instance!(DisjIv, window, ts, active),
-            (_, Type::Option(t)) => {
-                Self::from_sliding(
-                    ts,
-                    &MirSlidingWindow {
-                        target: window.target,
-                        caller: window.caller,
-                        duration: window.duration,
-                        num_buckets: window.num_buckets,
-                        bucket_size: window.bucket_size,
-                        wait: window.wait,
-                        op: window.op,
-                        reference: window.reference,
-                        ty: t.as_ref().clone(),
-                    },
-                    active,
-                )
-            },
+            (_, Type::Option(t)) => Self::from_sliding(
+                ts,
+                &MirSlidingWindow {
+                    target: window.target,
+                    caller: window.caller,
+                    duration: window.duration,
+                    num_buckets: window.num_buckets,
+                    bucket_size: window.bucket_size,
+                    wait: window.wait,
+                    op: window.op,
+                    reference: window.reference,
+                    ty: t.as_ref().clone(),
+                },
+                active,
+            ),
             (WinOp::Conjunction, _) | (WinOp::Disjunction, _) => {
                 panic!("conjunction and disjunction only defined on bool")
-            },
-            (WinOp::Min, _) | (WinOp::Max, _) | (WinOp::Sum, _) | (WinOp::Average, _) | (WinOp::Integral, _) => {
+            }
+            (WinOp::Min, _)
+            | (WinOp::Max, _)
+            | (WinOp::Sum, _)
+            | (WinOp::Average, _)
+            | (WinOp::Integral, _) => {
                 panic!("arithmetic operation only defined on atomic numerics")
-            },
-            (WinOp::Last, Type::Int(_)) => create_window_instance!(LastIv<WindowSigned>, window, ts, active),
-            (WinOp::Last, Type::UInt(_)) => create_window_instance!(LastIv<WindowUnsigned>, window, ts, active),
-            (WinOp::Last, Type::Float(_)) => create_window_instance!(LastIv<WindowFloat>, window, ts, active),
-            (WinOp::Last, Type::Fixed(_)) => create_window_instance!(LastIv<WindowDecimal>, window, ts, active),
+            }
+            (WinOp::Last, Type::Int(_)) => {
+                create_window_instance!(LastIv<WindowSigned>, window, ts, active)
+            }
+            (WinOp::Last, Type::UInt(_)) => {
+                create_window_instance!(LastIv<WindowUnsigned>, window, ts, active)
+            }
+            (WinOp::Last, Type::Float(_)) => {
+                create_window_instance!(LastIv<WindowFloat>, window, ts, active)
+            }
+            (WinOp::Last, Type::Fixed(_)) => {
+                create_window_instance!(LastIv<WindowDecimal>, window, ts, active)
+            }
             (WinOp::NthPercentile(x), Type::Int(_)) => {
                 create_percentile_instance!(PercentileIv<WindowSigned>, window, ts, active, x)
-            },
+            }
             (WinOp::NthPercentile(x), Type::UInt(_)) => {
                 create_percentile_instance!(PercentileIv<WindowUnsigned>, window, ts, active, x)
-            },
+            }
             (WinOp::NthPercentile(x), Type::Float(_)) => {
                 create_percentile_instance!(PercentileIv<WindowFloat>, window, ts, active, x)
-            },
+            }
             (WinOp::NthPercentile(x), Type::Fixed(_) | Type::UFixed(_)) => {
                 create_percentile_instance!(PercentileIv<WindowDecimal>, window, ts, active, x)
-            },
-            (WinOp::Variance, Type::Float(_)) => create_window_instance!(VarianceIv<WindowFloat>, window, ts, active),
+            }
+            (WinOp::Variance, Type::Float(_)) => {
+                create_window_instance!(VarianceIv<WindowFloat>, window, ts, active)
+            }
             (WinOp::Variance, Type::Fixed(_) | Type::UFixed(_)) => {
                 create_window_instance!(VarianceIv<WindowDecimal>, window, ts, active)
-            },
+            }
             (WinOp::StandardDeviation, Type::Float(_)) => {
                 create_window_instance!(SdIv<WindowFloat>, window, ts, active)
-            },
+            }
             (WinOp::StandardDeviation, Type::Fixed(_) | Type::UFixed(_)) => {
                 create_window_instance!(SdIv<WindowDecimal>, window, ts, active)
-            },
-            (WinOp::Covariance, Type::Float(_)) => create_window_instance!(CovIv<WindowFloat>, window, ts, active),
+            }
+            (WinOp::Covariance, Type::Float(_)) => {
+                create_window_instance!(CovIv<WindowFloat>, window, ts, active)
+            }
             (WinOp::Covariance, Type::Fixed(_) | Type::UFixed(_)) => {
                 create_window_instance!(CovIv<WindowDecimal>, window, ts, active)
-            },
+            }
             (WinOp::Product, _) => unimplemented!("product not implemented"),
             (WinOp::Last, _) => unimplemented!(),
             (WinOp::Variance, _) => unimplemented!(),
@@ -204,104 +248,150 @@ impl SlidingWindow {
             (WinOp::Count, _) => create_discrete_window_instance!(CountIv, size, wait, ts, active),
             (WinOp::Min, Type::UInt(_)) => {
                 create_discrete_window_instance!(MinIv<WindowUnsigned>, size, wait, ts, active)
-            },
-            (WinOp::Min, Type::Int(_)) => create_discrete_window_instance!(MinIv<WindowSigned>, size, wait, ts, active),
+            }
+            (WinOp::Min, Type::Int(_)) => {
+                create_discrete_window_instance!(MinIv<WindowSigned>, size, wait, ts, active)
+            }
             (WinOp::Min, Type::Float(_)) => {
                 create_discrete_window_instance!(MinIv<WindowFloat>, size, wait, ts, active)
-            },
+            }
             (WinOp::Min, Type::Fixed(_) | Type::UFixed(_)) => {
                 create_discrete_window_instance!(MinIv<WindowDecimal>, size, wait, ts, active)
-            },
+            }
             (WinOp::Max, Type::UInt(_)) => {
                 create_discrete_window_instance!(MaxIv<WindowUnsigned>, size, wait, ts, active)
-            },
-            (WinOp::Max, Type::Int(_)) => create_discrete_window_instance!(MaxIv<WindowSigned>, size, wait, ts, active),
+            }
+            (WinOp::Max, Type::Int(_)) => {
+                create_discrete_window_instance!(MaxIv<WindowSigned>, size, wait, ts, active)
+            }
             (WinOp::Max, Type::Float(_)) => {
                 create_discrete_window_instance!(MaxIv<WindowFloat>, size, wait, ts, active)
-            },
+            }
             (WinOp::Max, Type::Fixed(_) | Type::UFixed(_)) => {
                 create_discrete_window_instance!(MaxIv<WindowDecimal>, size, wait, ts, active)
-            },
+            }
             (WinOp::Sum, Type::UInt(_)) => {
                 create_discrete_window_instance!(SumIv<WindowUnsigned>, size, wait, ts, active)
-            },
-            (WinOp::Sum, Type::Int(_)) => create_discrete_window_instance!(SumIv<WindowSigned>, size, wait, ts, active),
+            }
+            (WinOp::Sum, Type::Int(_)) => {
+                create_discrete_window_instance!(SumIv<WindowSigned>, size, wait, ts, active)
+            }
             (WinOp::Sum, Type::Float(_)) => {
                 create_discrete_window_instance!(SumIv<WindowFloat>, size, wait, ts, active)
-            },
+            }
             (WinOp::Sum, Type::Fixed(_) | Type::UFixed(_)) => {
                 create_discrete_window_instance!(SumIv<WindowDecimal>, size, wait, ts, active)
-            },
-            (WinOp::Sum, Type::Bool) => create_discrete_window_instance!(SumIv<WindowBool>, size, wait, ts, active),
+            }
+            (WinOp::Sum, Type::Bool) => {
+                create_discrete_window_instance!(SumIv<WindowBool>, size, wait, ts, active)
+            }
             (WinOp::Average, Type::UInt(_)) => {
                 create_discrete_window_instance!(AvgIv<WindowUnsigned>, size, wait, ts, active)
-            },
+            }
             (WinOp::Average, Type::Int(_)) => {
                 create_discrete_window_instance!(AvgIv<WindowSigned>, size, wait, ts, active)
-            },
+            }
             (WinOp::Average, Type::Float(_)) => {
                 create_discrete_window_instance!(AvgIv<WindowFloat>, size, wait, ts, active)
-            },
+            }
             (WinOp::Average, Type::Fixed(_) | Type::UFixed(_)) => {
                 create_discrete_window_instance!(AvgIv<WindowDecimal>, size, wait, ts, active)
-            },
-            (WinOp::Integral, Type::Float(_)) | (WinOp::Integral, Type::Int(_)) | (WinOp::Integral, Type::UInt(_)) => {
+            }
+            (WinOp::Integral, Type::Float(_))
+            | (WinOp::Integral, Type::Int(_))
+            | (WinOp::Integral, Type::UInt(_)) => {
                 create_discrete_window_instance!(IntegralIv<WindowFloat>, size, wait, ts, active)
-            },
+            }
             (WinOp::Integral, Type::Fixed(_) | Type::UFixed(_)) => {
                 create_discrete_window_instance!(IntegralIv<WindowDecimal>, size, wait, ts, active)
-            },
-            (WinOp::Conjunction, Type::Bool) => create_discrete_window_instance!(ConjIv, size, wait, ts, active),
-            (WinOp::Disjunction, Type::Bool) => create_discrete_window_instance!(DisjIv, size, wait, ts, active),
+            }
+            (WinOp::Conjunction, Type::Bool) => {
+                create_discrete_window_instance!(ConjIv, size, wait, ts, active)
+            }
+            (WinOp::Disjunction, Type::Bool) => {
+                create_discrete_window_instance!(DisjIv, size, wait, ts, active)
+            }
             (_, Type::Option(t)) => Self::from_discrete(size, wait, op, ts, t, active),
             (WinOp::Conjunction, _) | (WinOp::Disjunction, _) => {
                 panic!("conjunction and disjunction only defined on bool")
-            },
-            (WinOp::Min, _) | (WinOp::Max, _) | (WinOp::Sum, _) | (WinOp::Average, _) | (WinOp::Integral, _) => {
+            }
+            (WinOp::Min, _)
+            | (WinOp::Max, _)
+            | (WinOp::Sum, _)
+            | (WinOp::Average, _)
+            | (WinOp::Integral, _) => {
                 panic!("arithmetic operation only defined on atomic numerics")
-            },
+            }
             (WinOp::Last, Type::Int(_)) => {
                 create_discrete_window_instance!(LastIv<WindowSigned>, size, wait, ts, active)
-            },
+            }
             (WinOp::Last, Type::UInt(_)) => {
                 create_discrete_window_instance!(LastIv<WindowUnsigned>, size, wait, ts, active)
-            },
+            }
             (WinOp::Last, Type::Float(_)) => {
                 create_discrete_window_instance!(LastIv<WindowFloat>, size, wait, ts, active)
-            },
+            }
             (WinOp::Last, Type::Fixed(_) | Type::UFixed(_)) => {
                 create_discrete_window_instance!(LastIv<WindowDecimal>, size, wait, ts, active)
-            },
+            }
             (WinOp::NthPercentile(x), Type::Int(_)) => {
-                create_discrete_percentile_instance!(PercentileIv<WindowSigned>, size, wait, ts, active, x)
-            },
+                create_discrete_percentile_instance!(
+                    PercentileIv<WindowSigned>,
+                    size,
+                    wait,
+                    ts,
+                    active,
+                    x
+                )
+            }
             (WinOp::NthPercentile(x), Type::UInt(_)) => {
-                create_discrete_percentile_instance!(PercentileIv<WindowUnsigned>, size, wait, ts, active, x)
-            },
+                create_discrete_percentile_instance!(
+                    PercentileIv<WindowUnsigned>,
+                    size,
+                    wait,
+                    ts,
+                    active,
+                    x
+                )
+            }
             (WinOp::NthPercentile(x), Type::Float(_)) => {
-                create_discrete_percentile_instance!(PercentileIv<WindowFloat>, size, wait, ts, active, x)
-            },
+                create_discrete_percentile_instance!(
+                    PercentileIv<WindowFloat>,
+                    size,
+                    wait,
+                    ts,
+                    active,
+                    x
+                )
+            }
             (WinOp::NthPercentile(x), Type::Fixed(_) | Type::UFixed(_)) => {
-                create_discrete_percentile_instance!(PercentileIv<WindowDecimal>, size, wait, ts, active, x)
-            },
+                create_discrete_percentile_instance!(
+                    PercentileIv<WindowDecimal>,
+                    size,
+                    wait,
+                    ts,
+                    active,
+                    x
+                )
+            }
             (WinOp::Variance, Type::Float(_)) => {
                 create_discrete_window_instance!(VarianceIv<WindowFloat>, size, wait, ts, active)
-            },
+            }
             (WinOp::Variance, Type::Fixed(_) | Type::UFixed(_)) => {
                 create_discrete_window_instance!(VarianceIv<WindowDecimal>, size, wait, ts, active)
-            },
+            }
             (WinOp::StandardDeviation, Type::Float(_)) => {
                 create_discrete_window_instance!(SdIv<WindowFloat>, size, wait, ts, active)
-            },
+            }
             (WinOp::StandardDeviation, Type::Fixed(_) | Type::UFixed(_)) => {
                 create_discrete_window_instance!(SdIv<WindowDecimal>, size, wait, ts, active)
-            },
+            }
             (WinOp::Covariance, Type::Float(_)) => {
                 create_discrete_window_instance!(CovIv<WindowFloat>, size, wait, ts, active)
-            },
+            }
             (WinOp::Covariance, Type::Fixed(_) | Type::UFixed(_)) => {
                 create_discrete_window_instance!(CovIv<WindowDecimal>, size, wait, ts, active)
-            },
+            }
             (WinOp::Product, _) => unimplemented!("product not implemented"),
             (WinOp::Last, _) => unimplemented!(),
             (WinOp::Variance, _) => unimplemented!(),
@@ -440,11 +530,11 @@ impl<IV: WindowIv> WindowInstanceTrait for RealTimeWindowInstance<IV> {
                     Ordering::Less => {
                         self.clear_buckets(ts, last + 1, self.buckets.len());
                         self.clear_buckets(ts, 0, curr + 1);
-                    },
+                    }
                     Ordering::Greater => {
                         self.clear_buckets(ts, last + 1, curr + 1);
-                    },
-                    Ordering::Equal => {},
+                    }
+                    Ordering::Equal => {}
                 }
             }
 
@@ -516,12 +606,16 @@ impl<IV: WindowIv> RealTimeWindowInstance<IV> {
         } else {
             (current_time - self.start_time) / self.total_duration
         };
-        self.start_time + period * self.total_duration + (self.current_bucket + 1) as u64 * self.bucket_duration
+        self.start_time
+            + period * self.total_duration
+            + (self.current_bucket + 1) as u64 * self.bucket_duration
     }
 
     // clear buckets starting from `start` to `last` including start, excluding end
     fn clear_buckets(&mut self, ts: Time, start: usize, end: usize) {
-        self.buckets[start..end].iter_mut().for_each(|x| *x = IV::default(ts));
+        self.buckets[start..end]
+            .iter_mut()
+            .for_each(|x| *x = IV::default(ts));
     }
 
     fn clear_all_buckets(&mut self, ts: Time) {
@@ -535,13 +629,17 @@ pub(crate) struct PercentileWindow<IC: WindowInstanceTrait> {
     pub(crate) percentile: u8,
 }
 
-impl<G: WindowGeneric> WindowInstanceTrait for PercentileWindow<RealTimeWindowInstance<PercentileIv<G>>> {
+impl<G: WindowGeneric> WindowInstanceTrait
+    for PercentileWindow<RealTimeWindowInstance<PercentileIv<G>>>
+{
     fn get_value(&self, ts: Time) -> Value {
         if !self.is_active() {
             return PercentileIv::<G>::default(ts).into();
         }
         // Reversal is essential for non-commutative operations.
-        if self.inner.wait && (ts.as_nanos() as u64) - self.inner.start_time < self.inner.total_duration {
+        if self.inner.wait
+            && (ts.as_nanos() as u64) - self.inner.start_time < self.inner.total_duration
+        {
             return Value::None;
         }
         self.inner

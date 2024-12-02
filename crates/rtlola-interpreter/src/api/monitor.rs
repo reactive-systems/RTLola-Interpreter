@@ -107,7 +107,9 @@ pub struct TracingVerdict<T: Tracer, V: VerdictRepresentation> {
     pub verdict: V,
 }
 
-impl<T: Tracer, V: VerdictRepresentation<Tracing = NoTracer>> VerdictRepresentation for TracingVerdict<T, V> {
+impl<T: Tracer, V: VerdictRepresentation<Tracing = NoTracer>> VerdictRepresentation
+    for TracingVerdict<T, V>
+{
     type Tracing = T;
 
     fn create(data: RawVerdict) -> Self {
@@ -154,11 +156,9 @@ impl Display for Change {
         match self {
             Change::Spawn(para) => write!(f, "Spawn<{}>", para.iter().join(", ")),
             Change::Close(para) => write!(f, "Close<{}>", para.iter().join(", ")),
-            Change::Value(para, value) => {
-                match para {
-                    Some(para) => write!(f, "Instance<{}> = {}", para.iter().join(", "), value),
-                    None => write!(f, "Value = {}", value),
-                }
+            Change::Value(para, value) => match para {
+                Some(para) => write!(f, "Instance<{}> = {}", para.iter().join(", "), value),
+                None => write!(f, "Value = {}", value),
             },
         }
     }
@@ -377,7 +377,10 @@ where
 
             self.eval.eval_time_driven_tasks(deadline, due, &mut tracer);
             tracer.eval_end();
-            timed.push((due, Verdict::create_with_trace(RawVerdict::from(&self.eval), tracer)))
+            timed.push((
+                due,
+                Verdict::create_with_trace(RawVerdict::from(&self.eval), tracer),
+            ))
         }
         timed
     }
@@ -550,7 +553,9 @@ where
     }
 
     /// Switch [VerdictRepresentation]s of the [Monitor].
-    pub fn with_verdict_representation<T: VerdictRepresentation>(self) -> Monitor<Source, Mode, T, VerdictTime> {
+    pub fn with_verdict_representation<T: VerdictRepresentation>(
+        self,
+    ) -> Monitor<Source, Mode, T, VerdictTime> {
         let Monitor {
             ir,
             eval,
@@ -589,7 +594,12 @@ mod tests {
         spec: &str,
     ) -> (
         Instant,
-        Monitor<ArrayFactory<N, Infallible, [Value; N]>, OfflineMode<RelativeFloat>, V, RelativeFloat>,
+        Monitor<
+            ArrayFactory<N, Infallible, [Value; N]>,
+            OfflineMode<RelativeFloat>,
+            V,
+            RelativeFloat,
+        >,
     ) {
         // Init Monitor API
         let monitor = ConfigBuilder::new()
@@ -603,7 +613,10 @@ mod tests {
     }
 
     fn sort_total(res: Total) -> Total {
-        let Total { inputs, mut outputs } = res;
+        let Total {
+            inputs,
+            mut outputs,
+        } = res;
         outputs.iter_mut().for_each(|s| s.sort());
         Total { inputs, outputs }
     }
@@ -636,7 +649,10 @@ mod tests {
         assert_eq!(res.outputs[0][0], (None, Some(Value::Bool(true))));
         assert_eq!(res.outputs[1][0], (None, Some(Value::Unsigned(3))));
         assert_eq!(res.outputs[2][0], (None, Some(Value::Signed(-5))));
-        assert_eq!(res.outputs[3][0], (None, Some(Value::try_from(-123.456).unwrap())));
+        assert_eq!(
+            res.outputs[3][0],
+            (None, Some(Value::try_from(-123.456).unwrap()))
+        );
         assert_eq!(res.outputs[4][0], (None, Some(Value::Str("foobar".into()))));
     }
 
@@ -654,7 +670,9 @@ mod tests {
         assert!(res.event.is_empty());
         assert_eq!(res.timed.len(), 11);
         assert!(res.timed.iter().all(|(time, change)| {
-            time.as_secs() % 4 == 0 && change[0].0 == 0 && change[0].1[0] == Change::Value(None, Value::Unsigned(0))
+            time.as_secs() % 4 == 0
+                && change[0].0 == 0
+                && change[0].1[0] == Change::Value(None, Value::Unsigned(0))
         }));
         for v in 2..=n {
             time += Duration::from_secs(1);
@@ -665,7 +683,10 @@ mod tests {
             assert_eq!(res.event.len(), 0);
             if (v - 1) % 4 == 0 {
                 assert_eq!(res.timed.len(), 1);
-                assert_eq!(res.timed[0].1[0].1[0], Change::Value(None, Value::Unsigned(v - 1)));
+                assert_eq!(
+                    res.timed[0].1[0].1[0],
+                    Change::Value(None, Value::Unsigned(v - 1))
+                );
             } else {
                 assert_eq!(res.timed.len(), 0);
             }
@@ -695,7 +716,10 @@ mod tests {
         assert_eq!(res.timed.len(), 0);
 
         let res = monitor
-            .accept_event([Value::Signed(20), Value::Signed(7)], Duration::from_secs(2))
+            .accept_event(
+                [Value::Signed(20), Value::Signed(7)],
+                Duration::from_secs(2),
+            )
             .expect("Failed to accept value");
         let expected = Total {
             inputs: vec![Some(Value::Signed(20)), Some(Value::Signed(7))],

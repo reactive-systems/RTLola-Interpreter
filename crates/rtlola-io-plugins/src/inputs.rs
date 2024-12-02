@@ -24,7 +24,10 @@ pub trait EventSource<InputTime: TimeRepresentation> {
     /// Return the data needed by the monitor to initialize the input source.
     fn init_data(
         &self,
-    ) -> Result<<<Self::Factory as AssociatedEventFactory>::Factory as EventFactory>::CreationData, Self::Error>;
+    ) -> Result<
+        <<Self::Factory as AssociatedEventFactory>::Factory as EventFactory>::CreationData,
+        Self::Error,
+    >;
 
     /// Queries the event source for a new Record(Event) in a blocking fashion.
     /// If there are no more records, None is returned.

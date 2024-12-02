@@ -55,12 +55,17 @@ impl<
     type Factory = Factory;
     type Return = ();
 
-    fn sink(&mut self, verdict: <Self::Factory as VerdictFactory<V, T>>::Verdict) -> Result<Self::Return, Self::Error> {
+    fn sink(
+        &mut self,
+        verdict: <Self::Factory as VerdictFactory<V, T>>::Verdict,
+    ) -> Result<Self::Return, Self::Error> {
         let buffer = self
             .serializer
             .into_bytes(verdict)
             .map_err(ByteVerdictSinkError::Serializer)?;
-        self.target.write(&buffer).map_err(ByteVerdictSinkError::Target)
+        self.target
+            .write(&buffer)
+            .map_err(ByteVerdictSinkError::Target)
     }
 
     fn factory(&mut self) -> &mut Self::Factory {
@@ -70,7 +75,11 @@ impl<
 
 /// Enum to collect the errors with for a [ByteVerdictSink].
 #[derive(Debug)]
-pub enum ByteVerdictSinkError<Factory: Error + 'static, Serializer: Error + 'static, Target: Error + 'static> {
+pub enum ByteVerdictSinkError<
+    Factory: Error + 'static,
+    Serializer: Error + 'static,
+    Target: Error + 'static,
+> {
     #[allow(missing_docs)]
     Factory(Factory),
     #[allow(missing_docs)]
@@ -79,8 +88,8 @@ pub enum ByteVerdictSinkError<Factory: Error + 'static, Serializer: Error + 'sta
     Serializer(Serializer),
 }
 
-impl<Factory: Error + 'static, Serializer: Error + 'static, Target: Error + 'static> std::fmt::Display
-    for ByteVerdictSinkError<Factory, Serializer, Target>
+impl<Factory: Error + 'static, Serializer: Error + 'static, Target: Error + 'static>
+    std::fmt::Display for ByteVerdictSinkError<Factory, Serializer, Target>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

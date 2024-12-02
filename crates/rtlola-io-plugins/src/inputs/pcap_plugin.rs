@@ -9,8 +9,8 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use etherparse::{
-    Ethernet2Header, InternetSlice, Ipv4Header, Ipv6Header, LinkSlice, SlicedPacket, TcpHeader, TransportSlice,
-    UdpHeader,
+    Ethernet2Header, InternetSlice, Ipv4Header, Ipv6Header, LinkSlice, SlicedPacket, TcpHeader,
+    TransportSlice, UdpHeader,
 };
 use ip_network::IpNetwork;
 use pcap::{Activated, Capture, Device, Error as PCAPError, Packet};
@@ -27,10 +27,8 @@ use super::EventSource;
 //ethernet functions
 fn get_ethernet_header(packet: &SlicedPacket) -> Option<Ethernet2Header> {
     match &packet.link {
-        Some(s) => {
-            match s {
-                LinkSlice::Ethernet2(hdr) => Some(hdr.to_header()),
-            }
+        Some(s) => match s {
+            LinkSlice::Ethernet2(hdr) => Some(hdr.to_header()),
         },
         None => None,
     }
@@ -71,11 +69,9 @@ fn ethernet_type(packet: &SlicedPacket) -> Value {
 //Ipv4 functions
 fn get_ipv4_header(packet: &SlicedPacket) -> Option<Ipv4Header> {
     match &packet.ip {
-        Some(int_slice) => {
-            match int_slice {
-                InternetSlice::Ipv4(h, _) => Some(h.to_header()),
-                InternetSlice::Ipv6(_, _) => None,
-            }
+        Some(int_slice) => match int_slice {
+            InternetSlice::Ipv4(h, _) => Some(h.to_header()),
+            InternetSlice::Ipv6(_, _) => None,
         },
         None => None,
     }
@@ -186,11 +182,9 @@ fn ipv4_flags_mf(packet: &SlicedPacket) -> Value {
 //IPv6 functions
 fn get_ipv6_header(packet: &SlicedPacket) -> Option<Ipv6Header> {
     match &packet.ip {
-        Some(int_slice) => {
-            match int_slice {
-                InternetSlice::Ipv4(_, _) => None,
-                InternetSlice::Ipv6(h, _) => Some(h.to_header()),
-            }
+        Some(int_slice) => match int_slice {
+            InternetSlice::Ipv4(_, _) => None,
+            InternetSlice::Ipv6(h, _) => Some(h.to_header()),
         },
         None => None,
     }
@@ -253,11 +247,9 @@ fn ipv6_hop_limit(packet: &SlicedPacket) -> Value {
 fn get_tcp_header(packet: &SlicedPacket) -> Option<TcpHeader> {
     use TransportSlice::*;
     match &packet.transport {
-        Some(t) => {
-            match t {
-                Tcp(h) => Some(h.to_header()),
-                Udp(_) | Icmpv4(_) | Icmpv6(_) | Unknown(_) => None,
-            }
+        Some(t) => match t {
+            Tcp(h) => Some(h.to_header()),
+            Udp(_) | Icmpv4(_) | Icmpv6(_) | Unknown(_) => None,
         },
         None => None,
     }
@@ -387,11 +379,9 @@ fn tcp_urgent_pointer(packet: &SlicedPacket) -> Value {
 fn get_udp_header(packet: &SlicedPacket) -> Option<UdpHeader> {
     use TransportSlice::*;
     match &packet.transport {
-        Some(t) => {
-            match t {
-                Tcp(_) | Icmpv4(_) | Icmpv6(_) | Unknown(_) => None,
-                Udp(h) => Some(h.to_header()),
-            }
+        Some(t) => match t {
+            Tcp(_) | Icmpv4(_) | Icmpv6(_) | Unknown(_) => None,
+            Udp(h) => Some(h.to_header()),
         },
         None => None,
     }
@@ -432,34 +422,24 @@ fn get_packet_payload(packet: &SlicedPacket) -> Value {
 
 fn get_packet_protocol(packet: &SlicedPacket) -> Value {
     match &packet.transport {
-        Some(transport) => {
-            match transport {
-                TransportSlice::Tcp(_) => Value::Str("TCP".into()),
-                TransportSlice::Udp(_) => Value::Str("UDP".into()),
-                TransportSlice::Icmpv4(_) => Value::Str("ICMPv4".into()),
-                TransportSlice::Icmpv6(_) => Value::Str("ICMPv6".into()),
-                TransportSlice::Unknown(_) => Value::Str("Unknown".into()),
-            }
+        Some(transport) => match transport {
+            TransportSlice::Tcp(_) => Value::Str("TCP".into()),
+            TransportSlice::Udp(_) => Value::Str("UDP".into()),
+            TransportSlice::Icmpv4(_) => Value::Str("ICMPv4".into()),
+            TransportSlice::Icmpv6(_) => Value::Str("ICMPv6".into()),
+            TransportSlice::Unknown(_) => Value::Str("Unknown".into()),
         },
-        None => {
-            match &packet.ip {
-                Some(ip) => {
-                    match ip {
-                        InternetSlice::Ipv4(_, _) => Value::Str("IPv4".into()),
-                        InternetSlice::Ipv6(_, _) => Value::Str("IPv6".into()),
-                    }
+        None => match &packet.ip {
+            Some(ip) => match ip {
+                InternetSlice::Ipv4(_, _) => Value::Str("IPv4".into()),
+                InternetSlice::Ipv6(_, _) => Value::Str("IPv6".into()),
+            },
+            None => match &packet.link {
+                Some(link) => match link {
+                    LinkSlice::Ethernet2(_) => Value::Str("Ethernet2".into()),
                 },
-                None => {
-                    match &packet.link {
-                        Some(link) => {
-                            match link {
-                                LinkSlice::Ethernet2(_) => Value::Str("Ethernet2".into()),
-                            }
-                        },
-                        None => Value::Str("Unknown".into()),
-                    }
-                },
-            }
+                None => Value::Str("Unknown".into()),
+            },
         },
     }
 }
@@ -492,12 +472,20 @@ impl Display for PcapError {
                     d,
                     available.join(", ")
                 )
-            },
+            }
             PcapError::InvalidLocalNetwork(name, e) => {
-                write!(f, "Could not parse local network range: {}. Error: {}", *name, e)
-            },
-            PcapError::TimeParseError(e) => write!(f, "Could not parse timestamp from packet: {}", e),
-            PcapError::TimeFormatError(e) => write!(f, "Could not parse timestamp to time format: {}", e),
+                write!(
+                    f,
+                    "Could not parse local network range: {}. Error: {}",
+                    *name, e
+                )
+            }
+            PcapError::TimeParseError(e) => {
+                write!(f, "Could not parse timestamp from packet: {}", e)
+            }
+            PcapError::TimeFormatError(e) => {
+                write!(f, "Could not parse timestamp to time format: {}", e)
+            }
             PcapError::Pcap(e) => write!(f, "Could not process packet: {}", e),
         }
     }
@@ -533,7 +521,10 @@ impl InputMap for PcapRecord {
     type CreationData = IpNetwork;
     type Error = PcapError;
 
-    fn func_for_input(name: &str, data: Self::CreationData) -> Result<ValueGetter<Self, PcapError>, PcapError> {
+    fn func_for_input(
+        name: &str,
+        data: Self::CreationData,
+    ) -> Result<ValueGetter<Self, PcapError>, PcapError> {
         let local_net = data;
         let layers: Vec<&str> = name.split("::").collect();
         if layers.len() > 3 || layers.is_empty() {
@@ -542,11 +533,9 @@ impl InputMap for PcapRecord {
 
         let get_packet_direction = move |packet: &SlicedPacket| -> Value {
             let addr: IpAddr = match &packet.ip {
-                Some(ip) => {
-                    match ip {
-                        InternetSlice::Ipv4(header, _) => IpAddr::V4(header.destination_addr()),
-                        InternetSlice::Ipv6(header, _) => IpAddr::V6(header.destination_addr()),
-                    }
+                Some(ip) => match ip {
+                    InternetSlice::Ipv4(header, _) => IpAddr::V4(header.destination_addr()),
+                    InternetSlice::Ipv6(header, _) => IpAddr::V6(header.destination_addr()),
                 },
                 None => return Value::None,
             };
@@ -568,9 +557,9 @@ impl InputMap for PcapRecord {
                     "type" => Box::new(ethernet_type),
                     _ => {
                         return Err(PcapError::UnknownInput(name.to_string()));
-                    },
+                    }
                 }
-            },
+            }
             "IPv4" => {
                 if layers.len() < 2 {
                     return Err(PcapError::UnknownInput(name.to_string()));
@@ -596,14 +585,14 @@ impl InputMap for PcapRecord {
                             "mf" => Box::new(ipv4_flags_mf),
                             _ => {
                                 return Err(PcapError::UnknownInput(name.to_string()));
-                            },
+                            }
                         }
-                    },
+                    }
                     _ => {
                         return Err(PcapError::UnknownInput(name.to_string()));
-                    },
+                    }
                 }
-            },
+            }
             "IPv6" => {
                 if layers.len() < 2 {
                     return Err(PcapError::UnknownInput(name.to_string()));
@@ -617,9 +606,9 @@ impl InputMap for PcapRecord {
                     "hop_limit" => Box::new(ipv6_hop_limit),
                     _ => {
                         return Err(PcapError::UnknownInput(name.to_string()));
-                    },
+                    }
                 }
-            },
+            }
             //"ICMP" => {},
             "TCP" => {
                 if layers.len() < 2 {
@@ -650,14 +639,14 @@ impl InputMap for PcapRecord {
                             "cwr" => Box::new(tcp_flags_cwr),
                             _ => {
                                 return Err(PcapError::UnknownInput(name.to_string()));
-                            },
+                            }
                         }
-                    },
+                    }
                     _ => {
                         return Err(PcapError::UnknownInput(name.to_string()));
-                    },
+                    }
                 }
-            },
+            }
             "UDP" => {
                 if layers.len() < 2 {
                     return Err(PcapError::UnknownInput(name.to_string()));
@@ -669,18 +658,19 @@ impl InputMap for PcapRecord {
                     "checksum" => Box::new(udp_checksum),
                     _ => {
                         return Err(PcapError::UnknownInput(name.to_string()));
-                    },
+                    }
                 }
-            },
+            }
             "payload" => Box::new(get_packet_payload),
             "direction" => Box::new(get_packet_direction),
             "protocol" => Box::new(get_packet_protocol),
             _ => {
                 return Err(PcapError::UnknownInput(name.to_string()));
-            },
+            }
         };
         Ok(Box::new(move |packet: &PcapRecord| {
-            let packet = SlicedPacket::from_ethernet(packet.0.as_slice()).expect("Could not parse packet!");
+            let packet =
+                SlicedPacket::from_ethernet(packet.0.as_slice()).expect("Could not parse packet!");
             Ok(inner_fn(&packet))
         }))
     }
@@ -735,11 +725,11 @@ impl<InputTime: TimeRepresentation> PcapEventSource<InputTime> {
                     .open()
                     .map_err(PcapError::Pcap)?;
                 capture_handle.into()
-            },
+            }
             PcapInputSource::File { path, .. } => {
                 let capture_handle = Capture::from_file(path).map_err(PcapError::Pcap)?;
                 capture_handle.into()
-            },
+            }
         };
 
         let local_network_range = match src {
@@ -774,7 +764,9 @@ impl<InputTime: TimeRepresentation> EventSource<InputTime> for PcapEventSource<I
         let p = (*raw_packet).to_vec();
 
         let (secs, nanos) = u64::try_from(raw_packet.header.ts.tv_sec)
-            .and_then(|secs| u32::try_from(raw_packet.header.ts.tv_usec * 1000).map(|sub_secs| (secs, sub_secs)))
+            .and_then(|secs| {
+                u32::try_from(raw_packet.header.ts.tv_usec * 1000).map(|sub_secs| (secs, sub_secs))
+            })
             .map_err(PcapError::TimeParseError)?;
         let time_str = format!("{}.{:09}", secs, nanos);
         let time = InputTime::parse(&time_str).map_err(PcapError::TimeFormatError)?;

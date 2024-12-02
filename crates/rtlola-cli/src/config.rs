@@ -94,7 +94,9 @@ impl TryFrom<Verbosity> for CsvVerbosity {
             Verbosity::Public => Ok(CsvVerbosity::Public),
             Verbosity::Outputs => Ok(CsvVerbosity::Outputs),
             Verbosity::Streams => Ok(CsvVerbosity::Streams),
-            Verbosity::Debug => Err("Debug verbosity not supported with csv output format. Use JSON instead.".into()),
+            Verbosity::Debug => Err(
+                "Debug verbosity not supported with csv output format. Use JSON instead.".into(),
+            ),
         }
     }
 }

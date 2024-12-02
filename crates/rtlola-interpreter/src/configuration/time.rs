@@ -97,7 +97,9 @@ pub fn parse_float_time(s: &str) -> Result<Duration, String> {
 }
 
 /// The functionality a time format has to provide.
-pub trait TimeRepresentation: TimeMode + Clone + Send + Default + CondSerialize + CondDeserialize + 'static {
+pub trait TimeRepresentation:
+    TimeMode + Clone + Send + Default + CondSerialize + CondDeserialize + 'static
+{
     /// The internal representation of the time format.
     type InnerTime: Debug + Clone + Send + CondSerialize + CondDeserialize;
 
@@ -297,7 +299,9 @@ impl TimeRepresentation for AbsoluteFloat {
         let current = SystemTime::UNIX_EPOCH + ts;
         let st_read = *self.start.read().unwrap();
         if let Some(st) = st_read {
-            current.duration_since(st).expect("Time did not behave monotonically!")
+            current
+                .duration_since(st)
+                .expect("Time did not behave monotonically!")
         } else {
             *self.start.write().unwrap() = Some(current);
             Duration::ZERO
@@ -357,7 +361,9 @@ impl TimeRepresentation for AbsoluteRfc {
         let current = rfc.get_ref();
         let st_read = *self.start.read().unwrap();
         if let Some(st) = st_read {
-            current.duration_since(st).expect("Time did not behave monotonically!")
+            current
+                .duration_since(st)
+                .expect("Time did not behave monotonically!")
         } else {
             *self.start.write().unwrap() = Some(*current);
             Duration::ZERO
@@ -470,7 +476,9 @@ impl TimeRepresentation for RealTime {
         let current = SystemTime::now();
         let st_read = *self.start.read().unwrap();
         self.last_ts = if let Some(st) = st_read {
-            current.duration_since(st).expect("Time did not behave monotonically!")
+            current
+                .duration_since(st)
+                .expect("Time did not behave monotonically!")
         } else {
             *self.start.write().unwrap() = Some(current);
             Duration::ZERO

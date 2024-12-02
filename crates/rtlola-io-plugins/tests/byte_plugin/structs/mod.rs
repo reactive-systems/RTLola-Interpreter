@@ -12,7 +12,11 @@ pub(crate) fn create_verdicts() -> Vec<Incremental> {
 }
 
 pub(crate) fn check_verdict(v: Verdicts<Incremental, AbsoluteFloat>, expected: Incremental) {
-    let Verdicts { timed, event, ts: _ } = v;
+    let Verdicts {
+        timed,
+        event,
+        ts: _,
+    } = v;
     assert_eq!(event.len(), expected.len());
     assert!(timed.is_empty());
     event

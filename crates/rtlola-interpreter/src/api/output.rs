@@ -14,8 +14,10 @@ use crate::time::{OutputTimeRepresentation, TimeConversion};
 use crate::{Value, ValueConvertError};
 
 /// Extends the [VerdictFactory] trait with a new method.
-pub trait NewVerdictFactory<MonitorOutput: VerdictRepresentation, OutputTime: OutputTimeRepresentation>:
-    VerdictFactory<MonitorOutput, OutputTime> + Sized
+pub trait NewVerdictFactory<
+    MonitorOutput: VerdictRepresentation,
+    OutputTime: OutputTimeRepresentation,
+>: VerdictFactory<MonitorOutput, OutputTime> + Sized
 {
     /// A custom data type supplied when creating the factory.
     type CreationData;
@@ -28,7 +30,8 @@ pub trait NewVerdictFactory<MonitorOutput: VerdictRepresentation, OutputTime: Ou
 
 /// This trait provides the functionally to convert the monitor output.
 /// You can either implement this trait for your own datatype or use one of the predefined output methods from the `rtlola-io-plugins` crate.
-pub trait VerdictFactory<MonitorOutput: VerdictRepresentation, OutputTime: OutputTimeRepresentation> {
+pub trait VerdictFactory<MonitorOutput: VerdictRepresentation, OutputTime: OutputTimeRepresentation>
+{
     /// Type of the expected Output representation.
     type Verdict;
 
@@ -36,11 +39,19 @@ pub trait VerdictFactory<MonitorOutput: VerdictRepresentation, OutputTime: Outpu
     type Error: Error + 'static;
 
     /// This function converts a monitor to a verdict.
-    fn get_verdict(&mut self, rec: MonitorOutput, ts: OutputTime::InnerTime) -> Result<Self::Verdict, Self::Error>;
+    fn get_verdict(
+        &mut self,
+        rec: MonitorOutput,
+        ts: OutputTime::InnerTime,
+    ) -> Result<Self::Verdict, Self::Error>;
 }
 
 /// A trait to annotate Self with an [VerdictFactory] that outputs Self as a Verdict.
-pub trait AssociatedVerdictFactory<MonitorOutput: VerdictRepresentation, OutputTime: OutputTimeRepresentation> {
+pub trait AssociatedVerdictFactory<
+    MonitorOutput: VerdictRepresentation,
+    OutputTime: OutputTimeRepresentation,
+>
+{
     /// The associated factory.
     type Factory: NewVerdictFactory<MonitorOutput, OutputTime>;
 }
@@ -117,7 +128,7 @@ impl Display for FromValuesError {
                     "The value for stream {} was expected to exist but was not present in the monitor verdict.",
                     stream_name
                 )
-            },
+            }
             FromValuesError::InvalidHashMap {
                 stream_name,
                 expected_num_params,
@@ -128,13 +139,13 @@ impl Display for FromValuesError {
                     "Mismatch in the number of parameters of stream {}\nExpected {} parameters, but got {}",
                     stream_name, expected_num_params, got_number_params
                 )
-            },
+            }
             FromValuesError::StreamKindMismatch => {
                 write!(
                     f,
                     "Expected a parameterized stream but got a non-parameterized stream or vice-versa."
                 )
-            },
+            }
         }
     }
 }
@@ -167,7 +178,9 @@ pub enum StructVerdictError {
 impl Display for StructVerdictError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            StructVerdictError::UnknownStream(field) => write!(f, "No stream found for struct field: {}", field),
+            StructVerdictError::UnknownStream(field) => {
+                write!(f, "No stream found for struct field: {}", field)
+            }
             StructVerdictError::ValueError(ve) => write!(f, "{}", ve),
         }
     }
@@ -212,7 +225,9 @@ impl<V: FromValues> StructVerdictFactory<V> {
                             .then(|| name.split_once('_'))
                             .flatten()
                             .and_then(|(_, trg_idx)| trg_idx.parse::<usize>().ok())
-                            .and_then(|trg_idx| ir.triggers.get(trg_idx).map(|trg| trg.output_reference))
+                            .and_then(|trg_idx| {
+                                ir.triggers.get(trg_idx).map(|trg| trg.output_reference)
+                            })
                     })
                     .ok_or_else(|| StructVerdictError::UnknownStream(name.to_string()))
             })
@@ -245,22 +260,18 @@ where
         let values: Vec<StreamValue> = self
             .map
             .iter()
-            .map(|sr| {
-                match sr {
-                    StreamReference::In(i) => StreamValue::Stream(rec.inputs[*i].clone()),
-                    StreamReference::Out(o) if !self.parameterized_streams.contains(o) => {
-                        StreamValue::Stream(rec.outputs[*o][0].1.clone())
-                    },
-                    StreamReference::Out(o) => {
-                        StreamValue::Instances(
-                            rec.outputs[*o]
-                                .iter()
-                                .filter(|(_, value)| value.is_some())
-                                .map(|(inst, val)| (inst.clone().unwrap(), val.clone().unwrap()))
-                                .collect(),
-                        )
-                    },
+            .map(|sr| match sr {
+                StreamReference::In(i) => StreamValue::Stream(rec.inputs[*i].clone()),
+                StreamReference::Out(o) if !self.parameterized_streams.contains(o) => {
+                    StreamValue::Stream(rec.outputs[*o][0].1.clone())
                 }
+                StreamReference::Out(o) => StreamValue::Instances(
+                    rec.outputs[*o]
+                        .iter()
+                        .filter(|(_, value)| value.is_some())
+                        .map(|(inst, val)| (inst.clone().unwrap(), val.clone().unwrap()))
+                        .collect(),
+                ),
             })
             .collect();
         let time = O::into(ts);
@@ -289,7 +300,11 @@ where
     type Error = StructVerdictError;
     type Verdict = V;
 
-    fn get_verdict(&mut self, rec: TotalIncremental, ts: O::InnerTime) -> Result<Self::Verdict, Self::Error> {
+    fn get_verdict(
+        &mut self,
+        rec: TotalIncremental,
+        ts: O::InnerTime,
+    ) -> Result<Self::Verdict, Self::Error> {
         let mut values: Vec<StreamValue> = self
             .map
             .iter()

@@ -13,8 +13,8 @@ use human_panic::setup_panic;
 use rtlola_interpreter::config::{ExecutionMode, OfflineMode, OnlineMode};
 use rtlola_interpreter::rtlola_frontend;
 use rtlola_interpreter::time::{
-    parse_float_time, AbsoluteFloat, AbsoluteRfc, DelayTime, OffsetFloat, OffsetNanos, RealTime, RelativeFloat,
-    RelativeNanos,
+    parse_float_time, AbsoluteFloat, AbsoluteRfc, DelayTime, OffsetFloat, OffsetNanos, RealTime,
+    RelativeFloat, RelativeNanos,
 };
 use rtlola_io_plugins::inputs::csv_plugin::{CsvEventSource, CsvInputSourceKind};
 #[cfg(feature = "pcap_interface")]
@@ -356,7 +356,8 @@ impl From<CliStartTime> for Option<SystemTime> {
 macro_rules! run_config {
     ($it:expr, $ot: expr, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr, $annotations:expr) => {
         match $it {
-            CliInputTimeRepresentation::RelativeNanos | CliInputTimeRepresentation::RelativeUintNanos => {
+            CliInputTimeRepresentation::RelativeNanos
+            | CliInputTimeRepresentation::RelativeUintNanos => {
                 run_config_it!(
                     RelativeNanos::default(),
                     $ot,
@@ -370,7 +371,7 @@ macro_rules! run_config {
                     $of,
                     $annotations
                 )
-            },
+            }
             CliInputTimeRepresentation::Relative
             | CliInputTimeRepresentation::RelativeSecs
             | CliInputTimeRepresentation::RelativeFloatSecs => {
@@ -387,8 +388,9 @@ macro_rules! run_config {
                     $of,
                     $annotations
                 )
-            },
-            CliInputTimeRepresentation::OffsetNanos | CliInputTimeRepresentation::OffsetUintNanos => {
+            }
+            CliInputTimeRepresentation::OffsetNanos
+            | CliInputTimeRepresentation::OffsetUintNanos => {
                 run_config_it!(
                     OffsetNanos::default(),
                     $ot,
@@ -402,7 +404,7 @@ macro_rules! run_config {
                     $of,
                     $annotations
                 )
-            },
+            }
             CliInputTimeRepresentation::Offset
             | CliInputTimeRepresentation::OffsetSecs
             | CliInputTimeRepresentation::OffsetFloatSecs => {
@@ -419,7 +421,7 @@ macro_rules! run_config {
                     $of,
                     $annotations
                 )
-            },
+            }
             CliInputTimeRepresentation::Absolute | CliInputTimeRepresentation::AbsoluteUnix => {
                 run_config_it!(
                     AbsoluteFloat::default(),
@@ -434,8 +436,9 @@ macro_rules! run_config {
                     $of,
                     $annotations
                 )
-            },
-            CliInputTimeRepresentation::AbsoluteRfc | CliInputTimeRepresentation::AbsoluteRfc3339 => {
+            }
+            CliInputTimeRepresentation::AbsoluteRfc
+            | CliInputTimeRepresentation::AbsoluteRfc3339 => {
                 run_config_it!(
                     AbsoluteRfc::default(),
                     $ot,
@@ -449,7 +452,7 @@ macro_rules! run_config {
                     $of,
                     $annotations
                 )
-            },
+            }
         }
     };
 }
@@ -457,7 +460,8 @@ macro_rules! run_config {
 macro_rules! run_config_it {
     ($it:expr, $ot: expr, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr, $annotations:expr) => {
         match $ot {
-            CliOutputTimeRepresentation::RelativeNanos | CliOutputTimeRepresentation::RelativeUintNanos => {
+            CliOutputTimeRepresentation::RelativeNanos
+            | CliOutputTimeRepresentation::RelativeUintNanos => {
                 run_config_it_ot!(
                     $it,
                     RelativeNanos,
@@ -471,7 +475,7 @@ macro_rules! run_config_it {
                     $of,
                     $annotations
                 )
-            },
+            }
             CliOutputTimeRepresentation::Relative
             | CliOutputTimeRepresentation::RelativeSecs
             | CliOutputTimeRepresentation::RelativeFloatSecs => {
@@ -488,7 +492,7 @@ macro_rules! run_config_it {
                     $of,
                     $annotations
                 )
-            },
+            }
             CliOutputTimeRepresentation::Absolute | CliOutputTimeRepresentation::AbsoluteUnix => {
                 run_config_it_ot!(
                     $it,
@@ -503,8 +507,9 @@ macro_rules! run_config_it {
                     $of,
                     $annotations
                 )
-            },
-            CliOutputTimeRepresentation::AbsoluteRfc | CliOutputTimeRepresentation::AbsoluteRfc3339 => {
+            }
+            CliOutputTimeRepresentation::AbsoluteRfc
+            | CliOutputTimeRepresentation::AbsoluteRfc3339 => {
                 run_config_it_ot!(
                     $it,
                     AbsoluteRfc,
@@ -518,7 +523,7 @@ macro_rules! run_config_it {
                     $of,
                     $annotations
                 )
-            },
+            }
         }
     };
 }
@@ -541,7 +546,7 @@ macro_rules! run_config_it_ot {
                     $of,
                     $annotations
                 )
-            },
+            }
             #[cfg(feature = "pcap_interface")]
             EventSourceConfig::Pcap(cfg) => {
                 let src: PcapEventSource<_> = PcapEventSource::setup(&cfg)?;
@@ -558,7 +563,7 @@ macro_rules! run_config_it_ot {
                     $of,
                     $annotations
                 )
-            },
+            }
         }
     };
 }
@@ -581,7 +586,7 @@ macro_rules! run_config_it_ot_src {
                     atty::is(atty::Stream::Stdout),
                     $annotations
                 )
-            },
+            }
             OutputChannel::StdErr => {
                 run_config_it_ot_src2!(
                     $it,
@@ -597,7 +602,7 @@ macro_rules! run_config_it_ot_src {
                     atty::is(atty::Stream::Stderr),
                     $annotations
                 )
-            },
+            }
             OutputChannel::File(f) => {
                 let file = File::create(f.as_path()).expect("Could not open output file");
                 let writer = BufWriter::new(file);
@@ -615,7 +620,7 @@ macro_rules! run_config_it_ot_src {
                     false,
                     $annotations
                 )
-            },
+            }
         }
     };
 }
@@ -624,24 +629,74 @@ macro_rules! run_config_it_ot_src2 {
     ($it:expr, $ot:ty, $ir: expr, $source: expr, $statistics: expr, $verbosity: expr, $output: expr, $mode: ty, $start_time: expr, $of: expr, $colored: expr, $annotations:expr) => {{
         match $of {
             CliOutputFormat::Logger if $colored => {
-                let sink = LogPrinter::<_, Ansi<_>>::new_with_annotations($verbosity.try_into()?, &$ir, $annotations)?
-                    .sink($output);
-                run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
-            },
+                let sink = LogPrinter::<_, Ansi<_>>::new_with_annotations(
+                    $verbosity.try_into()?,
+                    &$ir,
+                    $annotations,
+                )?
+                .sink($output);
+                run_config_it_ot_src_of!(
+                    $it,
+                    $ot,
+                    $ir,
+                    $source,
+                    $statistics,
+                    $mode,
+                    $start_time,
+                    sink
+                )
+            }
             CliOutputFormat::Logger => {
-                let sink =
-                    LogPrinter::<_, NoColor<_>>::new_with_annotations($verbosity.try_into()?, &$ir, $annotations)?
-                        .sink($output);
-                run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
-            },
+                let sink = LogPrinter::<_, NoColor<_>>::new_with_annotations(
+                    $verbosity.try_into()?,
+                    &$ir,
+                    $annotations,
+                )?
+                .sink($output);
+                run_config_it_ot_src_of!(
+                    $it,
+                    $ot,
+                    $ir,
+                    $source,
+                    $statistics,
+                    $mode,
+                    $start_time,
+                    sink
+                )
+            }
             CliOutputFormat::Json => {
-                let sink = JsonFactory::new_with_annotations(&$ir, $verbosity.try_into()?, $annotations)?.sink($output);
-                run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
-            },
+                let sink =
+                    JsonFactory::new_with_annotations(&$ir, $verbosity.try_into()?, $annotations)?
+                        .sink($output);
+                run_config_it_ot_src_of!(
+                    $it,
+                    $ot,
+                    $ir,
+                    $source,
+                    $statistics,
+                    $mode,
+                    $start_time,
+                    sink
+                )
+            }
             CliOutputFormat::Csv => {
-                let sink = CsvVerdictSink::for_verbosity(&$ir, $output, $verbosity.try_into()?, $annotations)?;
-                run_config_it_ot_src_of!($it, $ot, $ir, $source, $statistics, $mode, $start_time, sink)
-            },
+                let sink = CsvVerdictSink::for_verbosity(
+                    &$ir,
+                    $output,
+                    $verbosity.try_into()?,
+                    $annotations,
+                )?;
+                run_config_it_ot_src_of!(
+                    $it,
+                    $ot,
+                    $ir,
+                    $source,
+                    $statistics,
+                    $mode,
+                    $start_time,
+                    sink
+                )
+            }
         }
     }};
 }
@@ -696,7 +751,7 @@ fn monitor(
         Err(e) => {
             handler.emit_error(&e);
             std::process::exit(1);
-        },
+        }
     };
 
     let source = EventSourceConfig::from(input.clone());
@@ -716,8 +771,10 @@ fn monitor(
                 output_format,
                 annotations
             )?;
-        },
-        CliExecutionMode { offline: Some(it), .. } => {
+        }
+        CliExecutionMode {
+            offline: Some(it), ..
+        } => {
             if let Some(d) = input.input_delay {
                 run_config_it!(
                     DelayTime::new(Duration::from_millis(d)),
@@ -747,7 +804,7 @@ fn monitor(
                     annotations
                 )?;
             }
-        },
+        }
         _ => unreachable!("Ensured by Clap"),
     }
     Ok(())
@@ -778,9 +835,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                 Err(e) => {
                     handler.emit_error(&e);
                     std::process::exit(1)
-                },
+                }
             }
-        },
+        }
         Cli::Monitor {
             spec,
             input,
@@ -808,7 +865,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 eprintln!("{e}");
                 std::process::exit(1);
             }
-        },
+        }
 
         #[cfg(feature = "pcap_interface")]
         Cli::Ids {
@@ -840,7 +897,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 Err(e) => {
                     handler.emit_error(&e);
                     std::process::exit(1);
-                },
+                }
             };
 
             let source = input.clone().into_event_source(local_network);
@@ -888,7 +945,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     annotations
                 )?;
             }
-        },
+        }
 
         Cli::Completions { shell } => shell.generate(),
     }

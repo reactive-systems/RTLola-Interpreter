@@ -22,7 +22,9 @@ pub struct EvalTimeTracer {
 impl EvalTimeTracer {
     /// Returns the duration the traced evaluation cycle took.
     pub fn eval_duration(&self) -> Duration {
-        self.eval_end.unwrap().duration_since(self.eval_start.unwrap())
+        self.eval_end
+            .unwrap()
+            .duration_since(self.eval_start.unwrap())
     }
 
     /// Returns the duration the traced evaluation cycle took.
@@ -79,7 +81,8 @@ pub struct StatisticsVerdict {
     pub elapsed_parse: Duration,
 }
 
-impl<OutputTime: OutputTimeRepresentation> VerdictFactory<TracingVerdict<EvalTimeTracer, TotalIncremental>, OutputTime>
+impl<OutputTime: OutputTimeRepresentation>
+    VerdictFactory<TracingVerdict<EvalTimeTracer, TotalIncremental>, OutputTime>
     for StatisticsFactory
 {
     type Error = Infallible;
@@ -100,7 +103,8 @@ impl<OutputTime: OutputTimeRepresentation> VerdictFactory<TracingVerdict<EvalTim
 }
 
 impl<OutputTime: OutputTimeRepresentation>
-    NewVerdictFactory<TracingVerdict<EvalTimeTracer, TotalIncremental>, OutputTime> for StatisticsFactory
+    NewVerdictFactory<TracingVerdict<EvalTimeTracer, TotalIncremental>, OutputTime>
+    for StatisticsFactory
 {
     type CreationData = usize;
     type CreationError = Infallible;
@@ -124,9 +128,11 @@ impl StatisticsFactory {
 
     /// Return the current statistics
     pub fn verdict(&self) -> StatisticsVerdict {
-        let cycles_per_second = (self.num_cycles > 0)
-            .then(|| (self.num_cycles * Duration::from_secs(1).as_nanos()) / self.elapsed_eval.as_nanos());
-        let nanos_per_cycle = (self.num_cycles > 0).then(|| self.elapsed_eval.as_nanos() / self.num_cycles);
+        let cycles_per_second = (self.num_cycles > 0).then(|| {
+            (self.num_cycles * Duration::from_secs(1).as_nanos()) / self.elapsed_eval.as_nanos()
+        });
+        let nanos_per_cycle =
+            (self.num_cycles > 0).then(|| self.elapsed_eval.as_nanos() / self.num_cycles);
 
         StatisticsVerdict {
             cycles_per_second,
