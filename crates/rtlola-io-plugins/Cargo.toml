@@ -17,7 +17,7 @@ authors = [
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[dependencies ]
+[dependencies]
 rtlola-interpreter = { path = "../rtlola-interpreter" }
 
 # Csv plugin dependencies
@@ -36,6 +36,9 @@ termcolor = { version = "1.4.1", optional = true }
 serde_json = { version = "1.0.120", optional = true }
 rust_decimal = "1.36.0"
 
+# Statistics plugin dependencies
+crossterm = { version = "0.27.0", optional = true }
+
 [features]
 default = []
 pcap_plugin = ["pcap", "etherparse", "ip_network"]
@@ -43,7 +46,7 @@ csv_plugin = ["csv"]
 byte_plugin = ["serde", "bincode", "rtlola-interpreter/serde"]
 json_plugin = ["serde", "jsonl", "serde_json"]
 log_printer = ["termcolor"]
-statistics_plugin = ["serde"]
+statistics_plugin = ["serde", "crossterm"]
 
 [dev-dependencies]
 portpicker = "0.1.1"

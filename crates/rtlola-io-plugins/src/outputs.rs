@@ -49,13 +49,13 @@ impl<MonitorOutput: VerdictRepresentation, OutputTime: OutputTimeRepresentation>
     for VerdictRepresentationFactory<MonitorOutput, OutputTime>
 {
     type Error = Infallible;
-    type Verdict = (MonitorOutput, OutputTime::InnerTime);
+    type Record = (MonitorOutput, OutputTime::InnerTime);
 
     fn get_verdict(
         &mut self,
         rec: MonitorOutput,
         ts: OutputTime::InnerTime,
-    ) -> Result<Self::Verdict, Self::Error> {
+    ) -> Result<Self::Record, Self::Error> {
         Ok((rec, ts))
     }
 }
@@ -117,7 +117,7 @@ pub trait VerdictsSink<V: VerdictRepresentation, T: OutputTimeRepresentation> {
     /// Function to dispatch the converted verdict to the sink
     fn sink(
         &mut self,
-        verdict: <Self::Factory as VerdictFactory<V, T>>::Verdict,
+        verdict: <Self::Factory as VerdictFactory<V, T>>::Record,
     ) -> Result<Self::Return, Self::Error>;
 
     /// Function to return a reference to the Verdictfactory
@@ -157,9 +157,10 @@ impl<SinkError: Error, FactoryError: Error> Error for VerdictSinkError<SinkError
 #[derive(Debug)]
 pub struct ByteSink<
     W: Write,
-    Factory: VerdictFactory<MonitorOutput, OutputTime>,
+    Factory: VerdictFactory<MonitorOutput, OutputTime, Record = Verdict>,
     MonitorOutput: VerdictRepresentation,
     OutputTime: OutputTimeRepresentation,
+    Verdict: Into<Vec<u8>>,
 > {
     factory: Factory,
     writer: W,
@@ -168,10 +169,11 @@ pub struct ByteSink<
 }
 impl<
         W: Write,
-        Factory: VerdictFactory<MonitorOutput, OutputTime, Verdict = Vec<u8>>,
+        Factory: VerdictFactory<MonitorOutput, OutputTime, Record = Verdict>,
         MonitorOutput: VerdictRepresentation,
         OutputTime: OutputTimeRepresentation,
-    > ByteSink<W, Factory, MonitorOutput, OutputTime>
+        Verdict: Into<Vec<u8>>,
+    > ByteSink<W, Factory, MonitorOutput, OutputTime, Verdict>
 {
     /// Create a new [ByteSink] that receives bytes and forwards them to a writer
     pub fn new(writer: W, factory: Factory) -> Self {
@@ -186,17 +188,20 @@ impl<
 
 impl<
         W: Write,
-        Factory: VerdictFactory<MonitorOutput, OutputTime, Verdict = Vec<u8>>,
+        Factory: VerdictFactory<MonitorOutput, OutputTime, Record = Verdict>,
         MonitorOutput: VerdictRepresentation,
         OutputTime: OutputTimeRepresentation,
-    > VerdictsSink<MonitorOutput, OutputTime> for ByteSink<W, Factory, MonitorOutput, OutputTime>
+        Verdict: Into<Vec<u8>>,
+    > VerdictsSink<MonitorOutput, OutputTime>
+    for ByteSink<W, Factory, MonitorOutput, OutputTime, Verdict>
 {
     type Error = std::io::Error;
     type Factory = Factory;
     type Return = ();
 
-    fn sink(&mut self, verdict: Vec<u8>) -> Result<Self::Return, Self::Error> {
-        self.writer.write_all(&verdict[..])?;
+    fn sink(&mut self, verdict: Verdict) -> Result<Self::Return, Self::Error> {
+        let bytes: Vec<u8> = verdict.into();
+        self.writer.write_all(&bytes[..])?;
         self.writer.flush()?;
         Ok(())
     }
@@ -211,7 +216,7 @@ impl<
 pub struct DiscardSink<
     O: OutputTimeRepresentation,
     V: VerdictRepresentation,
-    F: VerdictFactory<V, O, Verdict = ()>,
+    F: VerdictFactory<V, O>,
 > {
     factory: F,
     verdict: PhantomData<(O, V)>,
@@ -220,7 +225,7 @@ pub struct DiscardSink<
 impl<
         O: OutputTimeRepresentation,
         V: VerdictRepresentation,
-        F: VerdictFactory<V, O, Verdict = ()>,
+        F: VerdictFactory<V, O, Record = ()>,
     > DiscardSink<O, V, F>
 {
     /// Creates a new [DiscardSink] for a factory that returns `()` as a verdict.
@@ -240,11 +245,8 @@ impl<O: OutputTimeRepresentation, V: VerdictRepresentation> Default
     }
 }
 
-impl<
-        O: OutputTimeRepresentation,
-        V: VerdictRepresentation,
-        F: VerdictFactory<V, O, Verdict = ()>,
-    > VerdictsSink<V, O> for DiscardSink<O, V, F>
+impl<O: OutputTimeRepresentation, V: VerdictRepresentation, F: VerdictFactory<V, O>>
+    VerdictsSink<V, O> for DiscardSink<O, V, F>
 {
     type Error = Infallible;
     type Factory = F;
@@ -252,7 +254,7 @@ impl<
 
     fn sink(
         &mut self,
-        _verdict: <Self::Factory as VerdictFactory<V, O>>::Verdict,
+        _verdict: <Self::Factory as VerdictFactory<V, O>>::Record,
     ) -> Result<Self::Return, Self::Error> {
         Ok(())
     }
@@ -268,9 +270,9 @@ pub struct EmptyFactory;
 
 impl<V: VerdictRepresentation, O: OutputTimeRepresentation> VerdictFactory<V, O> for EmptyFactory {
     type Error = Infallible;
-    type Verdict = ();
+    type Record = ();
 
-    fn get_verdict(&mut self, _rec: V, _ts: O::InnerTime) -> Result<Self::Verdict, Self::Error> {
+    fn get_verdict(&mut self, _rec: V, _ts: O::InnerTime) -> Result<Self::Record, Self::Error> {
         Ok(())
     }
 }

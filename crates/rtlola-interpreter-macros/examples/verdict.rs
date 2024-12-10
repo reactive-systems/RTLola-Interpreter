@@ -62,7 +62,7 @@ fn main() {
         rtlola_interpreter::rtlola_frontend::parse(&ParserConfig::for_string(SPEC.to_string()))
             .unwrap();
 
-    let factory: &mut dyn VerdictFactory<TotalIncremental, RelativeFloat, Error = _, Verdict = _> =
+    let factory: &mut dyn VerdictFactory<TotalIncremental, RelativeFloat, Error = _, Record = _> =
         &mut <<MyOutputs as AssociatedVerdictFactory<TotalIncremental, RelativeFloat>>::Factory>::new(&ir).unwrap();
 
     let mut monitor = ConfigBuilder::new()

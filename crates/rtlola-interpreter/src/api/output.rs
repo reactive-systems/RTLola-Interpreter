@@ -33,7 +33,7 @@ pub trait NewVerdictFactory<
 pub trait VerdictFactory<MonitorOutput: VerdictRepresentation, OutputTime: OutputTimeRepresentation>
 {
     /// Type of the expected Output representation.
-    type Verdict;
+    type Record;
 
     /// Error when converting the monitor output to the verdict.
     type Error: Error + 'static;
@@ -43,7 +43,7 @@ pub trait VerdictFactory<MonitorOutput: VerdictRepresentation, OutputTime: Outpu
         &mut self,
         rec: MonitorOutput,
         ts: OutputTime::InnerTime,
-    ) -> Result<Self::Verdict, Self::Error>;
+    ) -> Result<Self::Record, Self::Error>;
 }
 
 /// A trait to annotate Self with an [VerdictFactory] that outputs Self as a Verdict.
@@ -254,9 +254,9 @@ where
     O: OutputTimeRepresentation + TimeConversion<I>,
 {
     type Error = StructVerdictError;
-    type Verdict = V;
+    type Record = V;
 
-    fn get_verdict(&mut self, rec: Total, ts: O::InnerTime) -> Result<Self::Verdict, Self::Error> {
+    fn get_verdict(&mut self, rec: Total, ts: O::InnerTime) -> Result<Self::Record, Self::Error> {
         let values: Vec<StreamValue> = self
             .map
             .iter()
@@ -298,13 +298,13 @@ where
     O: OutputTimeRepresentation + TimeConversion<I>,
 {
     type Error = StructVerdictError;
-    type Verdict = V;
+    type Record = V;
 
     fn get_verdict(
         &mut self,
         rec: TotalIncremental,
         ts: O::InnerTime,
-    ) -> Result<Self::Verdict, Self::Error> {
+    ) -> Result<Self::Record, Self::Error> {
         let mut values: Vec<StreamValue> = self
             .map
             .iter()

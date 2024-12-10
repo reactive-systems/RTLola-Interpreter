@@ -15,7 +15,7 @@ pub struct BincodeSink<
     V: VerdictRepresentation,
     T: OutputTimeRepresentation,
     Factory: VerdictFactory<V, T>,
-    Serializer: ByteSerializer,
+    Serializer: ByteSerializer<Input = Factory::Record>,
     Target: ByteTarget,
 > {
     factory: Factory,
@@ -28,7 +28,7 @@ impl<
         V: VerdictRepresentation,
         T: OutputTimeRepresentation,
         Factory: VerdictFactory<V, T>,
-        Serializer: ByteSerializer<Input = Factory::Verdict>,
+        Serializer: ByteSerializer<Input = Factory::Record>,
         Target: ByteTarget,
     > BincodeSink<V, T, Factory, Serializer, Target>
 {
@@ -47,7 +47,7 @@ impl<
         V: VerdictRepresentation,
         T: OutputTimeRepresentation,
         Factory: VerdictFactory<V, T>,
-        Serializer: ByteSerializer<Input = Factory::Verdict>,
+        Serializer: ByteSerializer<Input = Factory::Record>,
         Target: ByteTarget,
     > VerdictsSink<V, T> for BincodeSink<V, T, Factory, Serializer, Target>
 {
@@ -57,7 +57,7 @@ impl<
 
     fn sink(
         &mut self,
-        verdict: <Self::Factory as VerdictFactory<V, T>>::Verdict,
+        verdict: <Self::Factory as VerdictFactory<V, T>>::Record,
     ) -> Result<Self::Return, Self::Error> {
         let buffer = self
             .serializer
@@ -158,7 +158,7 @@ impl<
         V: VerdictRepresentation,
         T: OutputTimeRepresentation,
         Factory: VerdictFactory<V, T> + Default,
-        Serializer: ByteSerializer<Input = Factory::Verdict> + Default,
+        Serializer: ByteSerializer<Input = Factory::Record> + Default,
         Target: ByteTarget,
     > BincodeSink<V, T, Factory, Serializer, Target>
 {
@@ -172,7 +172,7 @@ impl<
         V: VerdictRepresentation,
         T: OutputTimeRepresentation,
         Factory: VerdictFactory<V, T> + Default,
-        Serializer: ByteSerializer<Input = Factory::Verdict> + Default,
+        Serializer: ByteSerializer<Input = Factory::Record> + Default,
         Target: ByteTarget,
     > From<Target> for BincodeSink<V, T, Factory, Serializer, Target>
 {

@@ -25,7 +25,10 @@ authors = [
 [dependencies]
 rtlola-interpreter = { path = "../rtlola-interpreter" }
 rtlola-io-plugins = { path = "../rtlola-io-plugins", default-features = false, features = [
-    "csv_plugin", "json_plugin", "statistics_plugin", "log_printer"
+    "csv_plugin",
+    "json_plugin",
+    "statistics_plugin",
+    "log_printer",
 ] }
 clap = { version = "4.0.9", features = [
     "derive",
@@ -36,7 +39,6 @@ clap_complete = "4.0.2"
 human-panic = { version = "1.0.1", optional = true }
 humantime = "2.0"
 atty = "0.2.14"
-crossterm = "0.27.0"
 termcolor = "1.4.1"
 
 [features]

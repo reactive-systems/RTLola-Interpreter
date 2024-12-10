@@ -17,7 +17,7 @@ type EventResult<MappedEvent, Time, Error> = Result<Option<(MappedEvent, Time)>,
 /// The main trait that has to be implemented by an input plugin
 pub trait EventSource<InputTime: TimeRepresentation> {
     /// Type of the Event given to the monitor
-    type Factory: AssociatedEventFactory;
+    type Record: AssociatedEventFactory;
     /// Error type when buildin the next Event
     type Error: Error;
 
@@ -25,11 +25,11 @@ pub trait EventSource<InputTime: TimeRepresentation> {
     fn init_data(
         &self,
     ) -> Result<
-        <<Self::Factory as AssociatedEventFactory>::Factory as EventFactory>::CreationData,
+        <<Self::Record as AssociatedEventFactory>::Factory as EventFactory>::CreationData,
         Self::Error,
     >;
 
     /// Queries the event source for a new Record(Event) in a blocking fashion.
     /// If there are no more records, None is returned.
-    fn next_event(&mut self) -> EventResult<Self::Factory, InputTime::InnerTime, Self::Error>;
+    fn next_event(&mut self) -> EventResult<Self::Record, InputTime::InnerTime, Self::Error>;
 }

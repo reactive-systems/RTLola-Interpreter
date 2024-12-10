@@ -19,10 +19,10 @@ use rtlola_io_plugins::inputs::pcap_plugin::PcapInputSource;
 use rtlola_io_plugins::inputs::EventSource;
 use rtlola_io_plugins::outputs::csv_plugin::CsvVerbosity;
 use rtlola_io_plugins::outputs::json_plugin::JsonVerbosity;
-use rtlola_io_plugins::outputs::statistics_plugin::EvalTimeTracer;
+use rtlola_io_plugins::outputs::statistics_plugin::{EvalTimeTracer, StatisticsVerdictSink};
 use rtlola_io_plugins::outputs::{log_printer, VerdictsSink};
 
-use crate::output::{OutputHandler, StatisticsVerdictSink};
+use crate::output::OutputHandler;
 
 /**
 `Config` combines an RTLola specification in [RtLolaMir] form with various configuration parameters for the interpreter.
@@ -158,8 +158,8 @@ impl<
         W: Write + Send + 'static,
     > Config<Source, OfflineMode<InputTime>, InputTime, OutputTime, VerdictSink, W>
 where
-    Source::Factory:
-        InputMap<CreationData = <<Source::Factory as AssociatedEventFactory>::Factory as EventFactory>::CreationData>,
+    Source::Record:
+        InputMap<CreationData = <<Source::Record as AssociatedEventFactory>::Factory as EventFactory>::CreationData>,
 {
     pub(crate) fn run(self) -> Result<(), Box<dyn Error>> {
         // Convert config
@@ -185,12 +185,12 @@ where
 
         // init monitor
         let mut monitor: QueuedMonitor<
-            MappedFactory<Source::Factory>,
+            MappedFactory<Source::Record>,
             OfflineMode<InputTime>,
             TracingVerdict<EvalTimeTracer, TotalIncremental>,
             OutputTime,
         > = <QueuedMonitor<
-            MappedFactory<Source::Factory>,
+            MappedFactory<Source::Record>,
             OfflineMode<InputTime>,
             TracingVerdict<EvalTimeTracer, TotalIncremental>,
             OutputTime,
@@ -219,8 +219,8 @@ impl<
         W: Write + Send + 'static,
     > Config<Source, OnlineMode, RealTime, OutputTime, VerdictSink, W>
 where
-    Source::Factory:
-        InputMap<CreationData = <<Source::Factory as AssociatedEventFactory>::Factory as EventFactory>::CreationData>,
+    Source::Record:
+        InputMap<CreationData = <<Source::Record as AssociatedEventFactory>::Factory as EventFactory>::CreationData>,
 {
     pub(crate) fn run(self) -> Result<(), Box<dyn Error>> {
         // Convert config
@@ -246,12 +246,12 @@ where
 
         // init monitor
         let mut monitor: QueuedMonitor<
-            MappedFactory<Source::Factory>,
+            MappedFactory<Source::Record>,
             OnlineMode,
             TracingVerdict<EvalTimeTracer, TotalIncremental>,
             OutputTime,
         > = <QueuedMonitor<
-            MappedFactory<Source::Factory>,
+            MappedFactory<Source::Record>,
             OnlineMode,
             TracingVerdict<EvalTimeTracer, TotalIncremental>,
             OutputTime,

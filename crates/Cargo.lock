@@ -1376,7 +1376,6 @@ dependencies = [
  "atty",
  "clap",
  "clap_complete",
- "crossterm 0.27.0",
  "human-panic",
  "humantime",
  "rtlola-interpreter",
@@ -1474,6 +1473,7 @@ name = "rtlola-io-plugins"
 version = "0.2.0"
 dependencies = [
  "bincode",
+ "crossterm 0.27.0",
  "csv",
  "etherparse",
  "ip_network",
