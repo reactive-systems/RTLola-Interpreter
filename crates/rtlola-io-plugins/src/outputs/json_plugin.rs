@@ -50,7 +50,7 @@ impl<
 }
 
 impl<
-        Factory: VerdictFactory<MonitorOutput, OutputTime, Verdict = Option<FactoryVerdict>>,
+        Factory: VerdictFactory<MonitorOutput, OutputTime, Record = Option<FactoryVerdict>>,
         MonitorOutput: VerdictRepresentation,
         OutputTime: OutputTimeRepresentation,
         W: Write,
@@ -242,13 +242,13 @@ fn json_value(value: &Value) -> JsonValue {
 
 impl<O: OutputTimeRepresentation> VerdictFactory<TotalIncremental, O> for JsonFactory<O> {
     type Error = Infallible;
-    type Verdict = Option<JsonVerdict>;
+    type Record = Option<JsonVerdict>;
 
     fn get_verdict(
         &mut self,
         rec: TotalIncremental,
         ts: O::InnerTime,
-    ) -> Result<Self::Verdict, Self::Error> {
+    ) -> Result<Self::Record, Self::Error> {
         if self.verbosity == JsonVerbosity::Silent && self.debug_streams.is_empty() {
             return Ok(None);
         }

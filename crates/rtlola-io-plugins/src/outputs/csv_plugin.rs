@@ -162,13 +162,13 @@ pub struct CsvVerdictFactory<O: OutputTimeRepresentation> {
 
 impl<O: OutputTimeRepresentation> VerdictFactory<TotalIncremental, O> for CsvVerdictFactory<O> {
     type Error = Infallible;
-    type Verdict = Option<Vec<String>>;
+    type Record = Option<Vec<String>>;
 
     fn get_verdict(
         &mut self,
         rec: TotalIncremental,
         ts: O::InnerTime,
-    ) -> Result<Self::Verdict, Self::Error> {
+    ) -> Result<Self::Record, Self::Error> {
         if self.stream_map.is_empty() {
             return Ok(None);
         }

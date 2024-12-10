@@ -22,11 +22,12 @@ use rtlola_io_plugins::inputs::pcap_plugin::{PcapEventSource, PcapInputSource};
 use rtlola_io_plugins::outputs::csv_plugin::CsvVerdictSink;
 use rtlola_io_plugins::outputs::json_plugin::JsonFactory;
 use rtlola_io_plugins::outputs::log_printer::LogPrinter;
+use rtlola_io_plugins::outputs::statistics_plugin::StatisticsVerdictSink;
 use rtlola_io_plugins::outputs::VerbosityAnnotations;
 use termcolor::{Ansi, NoColor};
 
 use crate::config::{Config, EventSourceConfig, Statistics, Verbosity};
-use crate::output::{OutputChannel, StatisticsVerdictSink};
+use crate::output::OutputChannel;
 
 mod config;
 mod output;

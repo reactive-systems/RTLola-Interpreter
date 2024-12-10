@@ -68,7 +68,7 @@ fn complex_types() {
         TotalIncremental,
         RelativeFloat,
         Error = StructVerdictError,
-        Verdict = MyOutputs,
+        Record = MyOutputs,
     > = &mut StructVerdictFactory::<MyOutputs>::new(&ir).unwrap();
 
     let mut monitor = ConfigBuilder::new()
@@ -139,7 +139,7 @@ fn parameter_mismatch() {
         TotalIncremental,
         RelativeFloat,
         Error = StructVerdictError,
-        Verdict = MyOutputs,
+        Record = MyOutputs,
     > = &mut StructVerdictFactory::<MyOutputs>::new(&ir).unwrap();
 
     let mut monitor = ConfigBuilder::new()
@@ -190,7 +190,7 @@ fn kind_mismatch() {
         TotalIncremental,
         RelativeFloat,
         Error = StructVerdictError,
-        Verdict = MyOutputs,
+        Record = MyOutputs,
     > = &mut StructVerdictFactory::<MyOutputs>::new(&ir).unwrap();
 
     let mut monitor = ConfigBuilder::new()
@@ -239,7 +239,7 @@ fn expected_value() {
         TotalIncremental,
         RelativeFloat,
         Error = StructVerdictError,
-        Verdict = MyOutputs,
+        Record = MyOutputs,
     > = &mut StructVerdictFactory::<MyOutputs>::new(&ir).unwrap();
 
     let mut monitor = ConfigBuilder::new()

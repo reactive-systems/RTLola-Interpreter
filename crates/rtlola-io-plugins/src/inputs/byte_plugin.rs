@@ -107,12 +107,12 @@ where
         Source::Error,
         <<Parser::Output as AssociatedEventFactory>::Factory as EventFactory>::Error,
     >;
-    type Factory = Parser::Output;
+    type Record = Parser::Output;
 
     fn init_data(
         &self,
     ) -> Result<
-        <<Self::Factory as AssociatedEventFactory>::Factory as EventFactory>::CreationData,
+        <<Self::Record as AssociatedEventFactory>::Factory as EventFactory>::CreationData,
         Self::Error,
     > {
         Ok(())
@@ -120,7 +120,7 @@ where
 
     fn next_event(
         &mut self,
-    ) -> EventResult<Self::Factory, <InputTime as TimeRepresentation>::InnerTime, Self::Error> {
+    ) -> EventResult<Self::Record, <InputTime as TimeRepresentation>::InnerTime, Self::Error> {
         loop {
             let event = self
                 .parser

@@ -1,7 +1,7 @@
 //! Module that contains the implementation of the default [VerdictsSink](crate::outputs::VerdictsSink) used by the CLI for printing log messages
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
-use std::io::Write;
+use std::io::{self, Write};
 use std::marker::PhantomData;
 
 use rtlola_interpreter::monitor::{Change, Parameters, TotalIncremental};
@@ -160,7 +160,10 @@ impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>>
     }
 
     /// Turn the LogPrinter into a VerdictSink writing the logs into a writer
-    pub fn sink<OW: Write>(self, writer: OW) -> ByteSink<OW, Self, TotalIncremental, OutputTime> {
+    pub fn sink<OW: Write>(
+        self,
+        writer: OW,
+    ) -> ByteSink<OW, Self, TotalIncremental, OutputTime, String> {
         ByteSink::new(writer, self)
     }
 
@@ -190,14 +193,14 @@ impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>>
 impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>>
     VerdictFactory<TotalIncremental, OutputTime> for LogPrinter<OutputTime, W>
 {
-    type Error = std::io::Error;
-    type Verdict = Vec<u8>;
+    type Error = io::Error;
+    type Record = String;
 
     fn get_verdict(
         &mut self,
         verdict: TotalIncremental,
         ts: OutputTime::InnerTime,
-    ) -> Result<Self::Verdict, Self::Error> {
+    ) -> Result<Self::Record, Self::Error> {
         let TotalIncremental {
             inputs,
             outputs,
@@ -205,7 +208,7 @@ impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>>
         } = verdict;
 
         if self.verbosity == Verbosity::Silent && self.debug_streams.is_empty() {
-            return Ok(Vec::new());
+            return Ok(String::new());
         }
 
         let ts = self.output_time.to_string(ts);
@@ -279,7 +282,7 @@ impl<OutputTime: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>>
         }
 
         writer.flush()?;
-        Ok(writer.into_inner())
+        String::from_utf8(writer.into_inner()).map_err(|e| io::Error::other(e))
     }
 }
 
@@ -304,9 +307,9 @@ impl<O: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> LogPrinter<O, 
         msg: F,
         ts: &str,
         sr: StreamReference,
-    ) -> std::io::Result<()>
+    ) -> io::Result<()>
     where
-        F: FnOnce(&mut W) -> std::io::Result<()>,
+        F: FnOnce(&mut W) -> io::Result<()>,
     {
         if kind <= self.verbosity || self.debug_streams.contains(&sr) {
             write!(out, "[{}]", ts)?;
@@ -319,9 +322,9 @@ impl<O: OutputTimeRepresentation, W: IndirectWriteColor<Vec<u8>>> LogPrinter<O, 
         }
     }
 
-    fn debug<F>(&self, out: &mut W, msg: F, ts: &str, sr: StreamReference) -> std::io::Result<()>
+    fn debug<F>(&self, out: &mut W, msg: F, ts: &str, sr: StreamReference) -> io::Result<()>
     where
-        F: FnOnce(&mut W) -> std::io::Result<()>,
+        F: FnOnce(&mut W) -> io::Result<()>,
     {
         self.emit(out, Verbosity::Debug, msg, ts, sr)
     }
