@@ -99,7 +99,8 @@ pub(crate) struct EvaluationContext<'e> {
     global_store: &'e GlobalStore,
     fresh_inputs: &'e BitSet,
     fresh_outputs: &'e BitSet,
-    pub(crate) parameter: Vec<Value>,
+    pub(crate) parameter: &'e [Value],
+    pub(crate) lambda_parameter: Option<&'e [Value]>,
 }
 
 impl EvaluatorData {
@@ -471,27 +472,7 @@ impl Evaluator {
         for close in self.closing_streams {
             let ac = &self.close_activation_conditions[*close];
             if ac.is_eventdriven() && ac.eval(self.fresh_inputs) {
-                if self
-                    .ir
-                    .output(StreamReference::Out(*close))
-                    .is_parameterized()
-                {
-                    let stream_instances: Vec<Vec<Value>> = self
-                        .global_store
-                        .get_out_instance_collection(*close)
-                        .all_parameter()
-                        .cloned()
-                        .collect();
-                    for instance in stream_instances {
-                        tracer.close_start(*close, instance.as_slice());
-                        self.eval_close(*close, instance.as_slice(), ts);
-                        tracer.close_end(*close, instance.as_slice());
-                    }
-                } else if self.global_store.get_out_instance(*close).is_active() {
-                    tracer.close_start(*close, &[]);
-                    self.eval_close(*close, &[], ts);
-                    tracer.close_end(*close, &[]);
-                }
+                self.eval_close_instances(*close, ts, tracer);
             }
         }
     }
@@ -514,7 +495,8 @@ impl Evaluator {
         );
 
         let expr = self.compiled_spawn_exprs[output].clone();
-        let ctx = self.as_EvaluationContext(vec![], ts);
+        let parameter = vec![];
+        let ctx = self.as_EvaluationContext(&parameter, ts);
         let res = expr.execute(&ctx);
 
         let parameter_values = match res {
@@ -701,7 +683,7 @@ impl Evaluator {
         let stream = self.ir.output(StreamReference::Out(output));
 
         let expr = self.compiled_close_exprs[output].clone();
-        let ctx = self.as_EvaluationContext(parameter.to_vec(), ts);
+        let ctx = self.as_EvaluationContext(parameter, ts);
         let res = expr.execute(&ctx);
         if !res.as_bool() {
             return;
@@ -722,7 +704,7 @@ impl Evaluator {
                 // Self is caller of the window
                 match self.window_parameterization(win_ref).kind {
                     WindowParameterizationKind::None | WindowParameterizationKind::Target => {
-                        unreachable!()
+                        // Do nothing! closing is handled by target
                     }
                     WindowParameterizationKind::Caller => {
                         self.global_store
@@ -864,6 +846,35 @@ impl Evaluator {
         }
     }
 
+    fn eval_close_instances(
+        &mut self,
+        output: OutputReference,
+        ts: Time,
+        tracer: &mut impl Tracer,
+    ) {
+        if self
+            .ir
+            .output(StreamReference::Out(output))
+            .is_parameterized()
+        {
+            let parameter: Vec<Vec<Value>> = self
+                .global_store
+                .get_out_instance_collection(output)
+                .all_parameter()
+                .cloned()
+                .collect();
+            for instance in parameter {
+                tracer.close_start(output, instance.as_slice());
+                self.eval_close(output, instance.as_slice(), ts);
+                tracer.close_end(output, instance.as_slice());
+            }
+        } else if self.global_store.get_out_instance(output).is_active() {
+            tracer.close_start(output, &[]);
+            self.eval_close(output, &[], ts);
+            tracer.close_end(output, &[]);
+        }
+    }
+
     fn eval_event_driven_output(
         &mut self,
         output: OutputReference,
@@ -907,6 +918,9 @@ impl Evaluator {
                     self.eval_close(idx, parameter.as_slice(), ts);
                     tracer.close_end(idx, parameter.as_slice());
                 }
+                EvaluationTask::CloseInstances(idx) => {
+                    self.eval_close_instances(idx, ts, tracer);
+                }
             }
         }
     }
@@ -941,7 +955,7 @@ impl Evaluator {
         let ix = output;
 
         let expr = self.compiled_stream_exprs[ix].clone();
-        let ctx = self.as_EvaluationContext(parameter.to_vec(), ts);
+        let ctx = self.as_EvaluationContext(parameter, ts);
         let res = expr.execute(&ctx);
 
         // Filter evaluated to false
@@ -1058,13 +1072,18 @@ impl Evaluator {
     }
 
     #[allow(non_snake_case)]
-    fn as_EvaluationContext(&mut self, parameter: Vec<Value>, ts: Time) -> EvaluationContext {
+    fn as_EvaluationContext<'a>(
+        &'a mut self,
+        parameter: &'a [Value],
+        ts: Time,
+    ) -> EvaluationContext {
         EvaluationContext {
             ts,
             global_store: self.global_store,
             fresh_inputs: self.fresh_inputs,
             fresh_outputs: self.fresh_outputs,
             parameter,
+            lambda_parameter: None,
         }
     }
 }
@@ -1177,9 +1196,16 @@ impl EvaluationContext<'_> {
         }
     }
 
+    /// Immediately evaluates the instance aggregation given all instances.
     pub(crate) fn lookup_instance_aggr(&self, window_reference: WindowReference) -> Value {
-        self.global_store
-            .eval_instance_aggregation(window_reference)
+        if let WindowReference::Instance(idx) = window_reference {
+            let aggr = &self.global_store.instance_aggregations[idx];
+            let target = &self.global_store.p_outputs
+                [self.global_store.stream_index_map[aggr.target.out_ix()]];
+            aggr.get_value_with_ctx(target, self)
+        } else {
+            unreachable!("Called update_instance_aggregation for non instance");
+        }
     }
 
     pub(crate) fn lookup_window(
@@ -1195,7 +1221,7 @@ impl EvaluationContext<'_> {
             WindowParameterizationKind::Caller => self
                 .global_store
                 .get_window_collection(window_ref)
-                .window(self.parameter.as_slice())
+                .window(self.parameter)
                 .expect("Own window to exist")
                 .get_value(self.ts),
             WindowParameterizationKind::Target => {
@@ -1211,7 +1237,7 @@ impl EvaluationContext<'_> {
                 let collection = self
                     .global_store
                     .get_two_layer_window_collection(window_ref);
-                let window = collection.window(target_parameter, self.parameter.as_slice());
+                let window = collection.window(target_parameter, self.parameter);
                 if let Some(w) = window {
                     w.get_value(self.ts)
                 } else {
@@ -1223,6 +1249,25 @@ impl EvaluationContext<'_> {
 
     pub(crate) fn is_active(&self, ac: &ActivationConditionOp) -> bool {
         ac.eval(self.fresh_inputs)
+    }
+
+    pub(crate) fn with_new_instance<'a>(&'a self, inst: &'a Vec<Value>) -> EvaluationContext<'a> {
+        let EvaluationContext {
+            ts,
+            global_store,
+            fresh_inputs,
+            fresh_outputs,
+            parameter,
+            lambda_parameter: _,
+        } = self;
+        EvaluationContext {
+            ts: *ts,
+            global_store,
+            fresh_inputs,
+            fresh_outputs,
+            parameter,
+            lambda_parameter: Some(inst),
+        }
     }
 }
 
@@ -4033,5 +4078,66 @@ mod tests {
         assert_eq!(eval.peek_value(avg, &[Signed(2)], 0).unwrap(), Unsigned(1));
         assert_eq!(eval.peek_value(avg, &[Signed(3)], 0).unwrap(), Unsigned(2));
         assert_eq!(eval.peek_value(avg, &[Signed(5)], 0).unwrap(), Unsigned(1));
+    }
+
+    #[test]
+    fn filtered_instance_aggregation() {
+        let (_, eval, mut time) = setup(
+            "input a:  Int64
+        input b : Int64
+        output c(p) spawn with a
+        eval @a with c(p).offset(by: -1).defaults(to: 0) + 1
+        output d eval @a&&b with c.aggregate(over_instances: all(where: (p) => p > b), using: count)",
+        );
+
+        let mut eval = eval.into_evaluator();
+        let mut tracer = NoTracer::default();
+
+        let d_ref = StreamReference::Out(1);
+
+        eval.eval_event(&[Signed(1), Signed(2)], time, &mut tracer);
+        assert_eq!(eval.peek_value(d_ref, &[], 0).unwrap(), Unsigned(0));
+        time += Duration::from_secs(1);
+        eval.eval_event(&[Signed(3), Signed(2)], time, &mut tracer);
+        assert_eq!(eval.peek_value(d_ref, &[], 0).unwrap(), Unsigned(1));
+        time += Duration::from_secs(1);
+        eval.eval_event(&[Signed(5), Signed(0)], time, &mut tracer);
+        assert_eq!(eval.peek_value(d_ref, &[], 0).unwrap(), Unsigned(3));
+    }
+
+    #[test]
+    fn instance_aggregation_grouping() {
+        let (_, eval, mut time) = setup(
+            "input a:  Int64
+        input b : Int64
+        output c(p1,p2)
+            spawn with (a,b)
+            eval when a == p1 && b == p2 with p1 + p2
+        output d(p)
+            spawn with a
+            eval @true with c.aggregate(over_instances: all(where: (p1,p2) => p1==p), using: sum)",
+        );
+
+        let mut eval = eval.into_evaluator();
+        let mut tracer = NoTracer::default();
+
+        let d_ref = StreamReference::Out(1);
+
+        eval.eval_event(&[Signed(1), Signed(2)], time, &mut tracer);
+        time += Duration::from_secs(1);
+        eval.eval_event(&[Signed(2), Signed(3)], time, &mut tracer);
+        time += Duration::from_secs(1);
+        eval.eval_event(&[Signed(1), Signed(5)], time, &mut tracer);
+        time += Duration::from_secs(1);
+        eval.eval_event(&[Signed(4), Signed(2)], time, &mut tracer);
+        time += Duration::from_secs(1);
+        eval.eval_event(&[Signed(4), Signed(1)], time, &mut tracer);
+        time += Duration::from_secs(1);
+        eval.eval_event(&[Signed(2), Signed(5)], time, &mut tracer);
+        time += Duration::from_secs(1);
+        eval.eval_event(&[Signed(2), Signed(4)], time, &mut tracer);
+        assert_eq!(eval.peek_value(d_ref, &[Signed(1)], 0).unwrap(), Signed(9));
+        assert_eq!(eval.peek_value(d_ref, &[Signed(2)], 0).unwrap(), Signed(18));
+        assert_eq!(eval.peek_value(d_ref, &[Signed(4)], 0).unwrap(), Signed(11));
     }
 }

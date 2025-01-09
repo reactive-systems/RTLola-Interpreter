@@ -10,7 +10,7 @@ use rtlola_frontend::mir::{
     Stream, StreamAccessKind, StreamReference, Type, WindowReference,
 };
 
-use super::{InstanceAggregationTrait, Value};
+use super::Value;
 use crate::storage::instance_aggregations::InstanceAggregation;
 use crate::storage::SlidingWindow;
 use crate::Time;
@@ -562,7 +562,7 @@ pub(crate) struct GlobalStore {
     inputs: Vec<InstanceStore>,
 
     /// Transforms a output stream reference into the respective index of the stream vectors ((non-)parametrized).
-    stream_index_map: Vec<usize>,
+    pub(crate) stream_index_map: Vec<usize>,
 
     /// Non-parametrized outputs. Access by the index stored in the stream_index_map.
     /// A typical access looks like this: `np_outputs[stream_index_map[output_reference]]`
@@ -570,7 +570,7 @@ pub(crate) struct GlobalStore {
 
     /// parameterized outputs. Accessed by the index stored in the stream_index_map.
     /// /// A typical access looks like this: `p_outputs[stream_index_map[output_reference]]`
-    p_outputs: Vec<InstanceCollection>,
+    pub(crate) p_outputs: Vec<InstanceCollection>,
 
     /// Transforms a sliding window reference into the respective index of the window vectors ((non-)parametrized).
     window_index_map: Vec<usize>,
@@ -609,7 +609,7 @@ pub(crate) struct GlobalStore {
     both_p_discrete_windows: Vec<TwoLayerSlidingWindowCollection>,
 
     /// Instance aggregations indexed directly by their window reference.
-    instance_aggregations: Vec<InstanceAggregation>,
+    pub(crate) instance_aggregations: Vec<InstanceAggregation>,
 }
 
 impl GlobalStore {
@@ -981,17 +981,6 @@ impl GlobalStore {
             &mut self.instance_aggregations[idx]
         } else {
             unreachable!("Called get_instance_aggregation_mut for non instance");
-        }
-    }
-
-    /// Immediately evaluates the instance aggregation given all instances.
-    pub(crate) fn eval_instance_aggregation(&self, window: WindowReference) -> Value {
-        if let WindowReference::Instance(idx) = window {
-            let aggr = &self.instance_aggregations[idx];
-            let target = &self.p_outputs[self.stream_index_map[aggr.target.out_ix()]];
-            aggr.get_value(target)
-        } else {
-            unreachable!("Called update_instance_aggregation for non instance");
         }
     }
 

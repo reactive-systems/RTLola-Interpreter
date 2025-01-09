@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `FromValues` trait and `StructVerdictFactory` to easily construct custom datatypes from monitor verdicts.
 - `AssociatedVerdictFactory` that links a type to the respective `VerdictFactory`.
+- `ConditionalFreshAggregation` and `ConditionalAllAggregation` to instance aggregation.
 
 ### Changed
 - The trigger field in `IncrementalVerdict` now contains `TriggerReferences`, not `OutputReferences`.
