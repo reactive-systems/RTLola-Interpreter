@@ -102,6 +102,9 @@ impl Expr for Expression {
             ParameterAccess(_target, idx) => {
                 CompiledExpr::new(move |ctx| ctx.parameter[idx].clone())
             }
+            LambdaParameterAccess { wref: _, pref } => {
+                CompiledExpr::new(move |ctx| ctx.lambda_parameter.unwrap()[pref].clone())
+            }
             ArithLog(op, operands) => {
                 let f_operands: Vec<CompiledExpr> =
                     operands.into_iter().map(|e| e.compile()).collect();

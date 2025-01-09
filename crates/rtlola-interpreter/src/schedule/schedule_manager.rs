@@ -18,6 +18,8 @@ pub(crate) enum EvaluationTask {
     Spawn(OutputReference),
     /// Evaluate the close condition for a specific instance.
     Close(OutputReference, Vec<Value>),
+    /// Evaluate the close condition of all instances of the output stream.
+    CloseInstances(OutputReference),
 }
 
 impl From<Task> for EvaluationTask {
@@ -25,7 +27,7 @@ impl From<Task> for EvaluationTask {
         match task {
             Task::Evaluate(idx) => EvaluationTask::EvaluateInstances(idx),
             Task::Spawn(idx) => EvaluationTask::Spawn(idx),
-            Task::Close(idx) => EvaluationTask::Close(idx, vec![]),
+            Task::Close(idx) => EvaluationTask::CloseInstances(idx),
         }
     }
 }
@@ -37,7 +39,7 @@ impl EvaluationTask {
                 ir.outputs[*idx].eval_layer().inner()
             }
             EvaluationTask::Spawn(idx) => ir.outputs[*idx].spawn_layer().inner(),
-            EvaluationTask::Close(_, _) => usize::MAX,
+            EvaluationTask::Close(_, _) | EvaluationTask::CloseInstances(_) => usize::MAX,
         }
     }
 }

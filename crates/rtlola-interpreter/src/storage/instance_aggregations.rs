@@ -8,6 +8,8 @@ use rtlola_frontend::mir::{InstanceOperation, InstanceSelection, StreamReference
 use rust_decimal::Decimal;
 
 use super::window::{WindowDecimal, WindowFloat, WindowGeneric};
+use crate::closuregen::{CompiledExpr, Expr};
+use crate::evaluator::EvaluationContext;
 use crate::storage::stores::InstanceCollection;
 use crate::storage::InstanceStore;
 use crate::Value;
@@ -19,7 +21,7 @@ pub(crate) struct InstanceAggregation {
 
 impl From<&mir::InstanceAggregation> for InstanceAggregation {
     fn from(value: &mir::InstanceAggregation) -> Self {
-        let inner: Box<dyn InstanceAggregationTrait> = match value.selection {
+        let inner: Box<dyn InstanceAggregationTrait> = match &value.selection {
             InstanceSelection::Fresh => match value.aggr {
                 InstanceOperation::Count => Box::new(FreshAggregation(Count::neutral(value.ty()))),
                 InstanceOperation::Min => Box::new(FreshAggregation(Min::neutral(value.ty()))),
@@ -136,12 +138,191 @@ impl From<&mir::InstanceAggregation> for InstanceAggregation {
                     _ => unreachable!(),
                 },
             },
+            InstanceSelection::FilteredFresh {
+                parameters: _,
+                cond,
+            } => match value.aggr {
+                InstanceOperation::Count => Box::new(ConditionalFreshAggregation {
+                    op: Count::neutral(value.ty()),
+                    condition: cond.clone().compile(),
+                }),
+                InstanceOperation::Min => Box::new(ConditionalFreshAggregation {
+                    op: Min::neutral(value.ty()),
+                    condition: cond.clone().compile(),
+                }),
+                InstanceOperation::Max => Box::new(ConditionalFreshAggregation {
+                    op: Max::neutral(value.ty()),
+                    condition: cond.clone().compile(),
+                }),
+                InstanceOperation::Sum => Box::new(ConditionalFreshAggregation {
+                    op: Sum::neutral(value.ty()),
+                    condition: cond.clone().compile(),
+                }),
+                InstanceOperation::Product => Box::new(ConditionalFreshAggregation {
+                    op: Product::neutral(value.ty()),
+                    condition: cond.clone().compile(),
+                }),
+                InstanceOperation::Average => Box::new(ConditionalFreshAggregation {
+                    op: Avg::neutral(value.ty()),
+                    condition: cond.clone().compile(),
+                }),
+                InstanceOperation::Conjunction => Box::new(ConditionalFreshAggregation {
+                    op: All::neutral(value.ty()),
+                    condition: cond.clone().compile(),
+                }),
+                InstanceOperation::Disjunction => Box::new(ConditionalFreshAggregation {
+                    op: Any::neutral(value.ty()),
+                    condition: cond.clone().compile(),
+                }),
+                InstanceOperation::Variance => match value.ty() {
+                    Type::Fixed(_) | Type::UFixed(_) => Box::new(ConditionalFreshAggregation {
+                        op: Variance::<WindowDecimal>::neutral(value.ty()),
+                        condition: cond.clone().compile(),
+                    }),
+                    Type::Float(_) => Box::new(ConditionalFreshAggregation {
+                        op: Variance::<WindowFloat>::neutral(value.ty()),
+                        condition: cond.clone().compile(),
+                    }),
+                    _ => unreachable!(),
+                },
+                InstanceOperation::Covariance => match value.ty() {
+                    Type::Fixed(_) | Type::UFixed(_) => Box::new(ConditionalFreshAggregation {
+                        op: CoVar::<WindowDecimal>::neutral(value.ty()),
+                        condition: cond.clone().compile(),
+                    }),
+                    Type::Float(_) => Box::new(ConditionalFreshAggregation {
+                        op: CoVar::<WindowFloat>::neutral(value.ty()),
+                        condition: cond.clone().compile(),
+                    }),
+                    _ => unreachable!(),
+                },
+                InstanceOperation::StandardDeviation => match value.ty() {
+                    Type::Fixed(_) | Type::UFixed(_) => Box::new(ConditionalFreshAggregation {
+                        op: StdDev::<WindowDecimal>::neutral(value.ty()),
+                        condition: cond.clone().compile(),
+                    }),
+                    Type::Float(_) => Box::new(ConditionalFreshAggregation {
+                        op: StdDev::<WindowFloat>::neutral(value.ty()),
+                        condition: cond.clone().compile(),
+                    }),
+                    _ => unreachable!(),
+                },
+                InstanceOperation::NthPercentile(pctl) => match value.ty() {
+                    Type::Fixed(_) | Type::UFixed(_) => Box::new(ConditionalFreshAggregation {
+                        op: Percentile::<WindowDecimal>::new(pctl),
+                        condition: cond.clone().compile(),
+                    }),
+                    Type::Float(_) => Box::new(ConditionalFreshAggregation {
+                        op: Percentile::<WindowFloat>::new(pctl),
+                        condition: cond.clone().compile(),
+                    }),
+                    _ => unreachable!(),
+                },
+            },
+            InstanceSelection::FilteredAll {
+                parameters: _,
+                cond,
+            } => match value.aggr {
+                InstanceOperation::Count => Box::new(ConditionalAllAggregation {
+                    op: Count::neutral(value.ty()),
+                    condition: cond.clone().compile(),
+                }),
+                InstanceOperation::Min => Box::new(ConditionalAllAggregation {
+                    op: Min::neutral(value.ty()),
+                    condition: cond.clone().compile(),
+                }),
+                InstanceOperation::Max => Box::new(ConditionalAllAggregation {
+                    op: Max::neutral(value.ty()),
+                    condition: cond.clone().compile(),
+                }),
+                InstanceOperation::Sum => Box::new(ConditionalAllAggregation {
+                    op: Sum::neutral(value.ty()),
+                    condition: cond.clone().compile(),
+                }),
+                InstanceOperation::Product => Box::new(ConditionalAllAggregation {
+                    op: Product::neutral(value.ty()),
+                    condition: cond.clone().compile(),
+                }),
+                InstanceOperation::Average => Box::new(ConditionalAllAggregation {
+                    op: Avg::neutral(value.ty()),
+                    condition: cond.clone().compile(),
+                }),
+                InstanceOperation::Conjunction => Box::new(ConditionalAllAggregation {
+                    op: All::neutral(value.ty()),
+                    condition: cond.clone().compile(),
+                }),
+                InstanceOperation::Disjunction => Box::new(ConditionalAllAggregation {
+                    op: Any::neutral(value.ty()),
+                    condition: cond.clone().compile(),
+                }),
+                InstanceOperation::Variance => match value.ty() {
+                    Type::Fixed(_) | Type::UFixed(_) => Box::new(ConditionalAllAggregation {
+                        op: Variance::<WindowDecimal>::neutral(value.ty()),
+                        condition: cond.clone().compile(),
+                    }),
+                    Type::Float(_) => Box::new(ConditionalAllAggregation {
+                        op: Variance::<WindowFloat>::neutral(value.ty()),
+                        condition: cond.clone().compile(),
+                    }),
+                    _ => unreachable!(),
+                },
+                InstanceOperation::Covariance => match value.ty() {
+                    Type::Fixed(_) | Type::UFixed(_) => Box::new(ConditionalAllAggregation {
+                        op: CoVar::<WindowDecimal>::neutral(value.ty()),
+                        condition: cond.clone().compile(),
+                    }),
+                    Type::Float(_) => Box::new(ConditionalAllAggregation {
+                        op: CoVar::<WindowFloat>::neutral(value.ty()),
+                        condition: cond.clone().compile(),
+                    }),
+                    _ => unreachable!(),
+                },
+                InstanceOperation::StandardDeviation => match value.ty() {
+                    Type::Fixed(_) | Type::UFixed(_) => Box::new(ConditionalAllAggregation {
+                        op: StdDev::<WindowDecimal>::neutral(value.ty()),
+                        condition: cond.clone().compile(),
+                    }),
+                    Type::Float(_) => Box::new(ConditionalAllAggregation {
+                        op: StdDev::<WindowFloat>::neutral(value.ty()),
+                        condition: cond.clone().compile(),
+                    }),
+                    _ => unreachable!(),
+                },
+                InstanceOperation::NthPercentile(pctl) => match value.ty() {
+                    Type::Fixed(_) | Type::UFixed(_) => Box::new(ConditionalAllAggregation {
+                        op: Percentile::<WindowDecimal>::new(pctl),
+                        condition: cond.clone().compile(),
+                    }),
+                    Type::Float(_) => Box::new(ConditionalAllAggregation {
+                        op: Percentile::<WindowFloat>::new(pctl),
+                        condition: cond.clone().compile(),
+                    }),
+                    _ => unreachable!(),
+                },
+            },
         };
         InstanceAggregation {
             inner,
             target: value.target,
         }
     }
+}
+
+pub(crate) trait InstanceAggregationTrait {
+    fn accept_value(&mut self, _value: Value) {}
+
+    fn remove_value(&mut self, _value: Value) {}
+
+    #[cfg(test)]
+    fn get_value_without_ctx(&self, instances: &InstanceCollection) -> Value {
+        self.get_value(instances, None)
+    }
+
+    fn get_value_with_ctx(&self, instances: &InstanceCollection, ctx: &EvaluationContext) -> Value {
+        self.get_value(instances, Some(ctx))
+    }
+
+    fn get_value(&self, instances: &InstanceCollection, ctx: Option<&EvaluationContext>) -> Value;
 }
 
 impl InstanceAggregationTrait for InstanceAggregation {
@@ -153,22 +334,14 @@ impl InstanceAggregationTrait for InstanceAggregation {
         self.inner.remove_value(value);
     }
 
-    fn get_value(&self, instances: &InstanceCollection) -> Value {
-        self.inner.get_value(instances)
+    fn get_value(&self, instances: &InstanceCollection, ctx: Option<&EvaluationContext>) -> Value {
+        self.inner.get_value(instances, ctx)
     }
-}
-
-pub(crate) trait InstanceAggregationTrait {
-    fn accept_value(&mut self, _value: Value) {}
-
-    fn remove_value(&mut self, _value: Value) {}
-
-    fn get_value(&self, instances: &InstanceCollection) -> Value;
 }
 
 struct FreshAggregation<OP: TotalOp>(OP);
 impl<OP: TotalOp> InstanceAggregationTrait for FreshAggregation<OP> {
-    fn get_value(&self, instances: &InstanceCollection) -> Value {
+    fn get_value(&self, instances: &InstanceCollection, _ctx: Option<&EvaluationContext>) -> Value {
         let fresh = instances
             .fresh()
             .map(|inst| instances.instance(inst).unwrap());
@@ -176,11 +349,47 @@ impl<OP: TotalOp> InstanceAggregationTrait for FreshAggregation<OP> {
     }
 }
 
+struct ConditionalFreshAggregation<OP: TotalOp> {
+    op: OP,
+    condition: CompiledExpr,
+}
+
+impl<OP: TotalOp> InstanceAggregationTrait for ConditionalFreshAggregation<OP> {
+    fn get_value(&self, instances: &InstanceCollection, ctx: Option<&EvaluationContext>) -> Value {
+        let filtered = instances
+            .fresh()
+            .filter(|inst| {
+                let ctx = ctx.unwrap().with_new_instance(inst);
+                self.condition.execute(&ctx).as_bool()
+            })
+            .map(|inst| instances.instance(inst).unwrap());
+        self.op.for_instances(filtered)
+    }
+}
+
+struct ConditionalAllAggregation<OP: TotalOp> {
+    op: OP,
+    condition: CompiledExpr,
+}
+
+impl<OP: TotalOp> InstanceAggregationTrait for ConditionalAllAggregation<OP> {
+    fn get_value(&self, instances: &InstanceCollection, ctx: Option<&EvaluationContext>) -> Value {
+        let filtered = instances
+            .all_parameter()
+            .filter(|inst| {
+                let ctx = ctx.unwrap().with_new_instance(inst);
+                self.condition.execute(&ctx).as_bool()
+            })
+            .map(|inst| instances.instance(inst).unwrap());
+        self.op.for_instances(filtered)
+    }
+}
+
 struct AllAggregation<OP: InstanceOp>(OP);
 
 struct Total<OP: TotalOp>(AllAggregation<OP>);
 impl<OP: TotalOp> InstanceAggregationTrait for Total<OP> {
-    fn get_value(&self, instances: &InstanceCollection) -> Value {
+    fn get_value(&self, instances: &InstanceCollection, _ctx: Option<&EvaluationContext>) -> Value {
         self.0 .0.for_instances(instances.instances())
     }
 }
@@ -196,7 +405,7 @@ impl<OP: IncrementalOp> InstanceAggregationTrait for Incremental<OP> {
         self.0 .0.sub(value);
     }
 
-    fn get_value(&self, _instances: &InstanceCollection) -> Value {
+    fn get_value(&self, _instances: &InstanceCollection, _: Option<&EvaluationContext>) -> Value {
         self.0 .0.value()
     }
 }
@@ -812,6 +1021,7 @@ impl<G: WindowGeneric> TotalOp for Percentile<G> {
 
 #[cfg(test)]
 mod tests {
+
     use rtlola_frontend::mir::{FixedTy, FloatTy, MemorizationBound, Type};
     use rust_decimal::Decimal;
 
@@ -894,8 +1104,8 @@ mod tests {
         let mut all = Incremental(AllAggregation(Count::neutral(&FLOAT_TY)));
         apply_incremental(values, &mut all);
 
-        assert_eq!(fresh.get_value(&store), Value::Unsigned(4));
-        assert_eq!(all.get_value(&store), Value::Unsigned(4));
+        assert_eq!(fresh.get_value_without_ctx(&store), Value::Unsigned(4));
+        assert_eq!(all.get_value_without_ctx(&store), Value::Unsigned(4));
     }
 
     #[test]
@@ -906,8 +1116,8 @@ mod tests {
         let fresh = FreshAggregation(Min::neutral(&FLOAT_TY));
         let all = Total(AllAggregation(Min::neutral(&FLOAT_TY)));
 
-        assert_eq!(fresh.get_value(&store), float(-13.0));
-        assert_eq!(all.get_value(&store), float(-13.0));
+        assert_eq!(fresh.get_value_without_ctx(&store), float(-13.0));
+        assert_eq!(all.get_value_without_ctx(&store), float(-13.0));
     }
 
     #[test]
@@ -918,8 +1128,8 @@ mod tests {
         let fresh = FreshAggregation(Max::neutral(&FLOAT_TY));
         let all = Total(AllAggregation(Max::neutral(&FLOAT_TY)));
 
-        assert_eq!(fresh.get_value(&store), float(42.0));
-        assert_eq!(all.get_value(&store), float(42.0));
+        assert_eq!(fresh.get_value_without_ctx(&store), float(42.0));
+        assert_eq!(all.get_value_without_ctx(&store), float(42.0));
     }
 
     #[test]
@@ -931,8 +1141,8 @@ mod tests {
         let mut all = Incremental(AllAggregation(Sum::neutral(&FLOAT_TY)));
         apply_incremental(values, &mut all);
 
-        assert_eq!(fresh.get_value(&store), float(41.0));
-        assert_eq!(all.get_value(&store), float(41.0));
+        assert_eq!(fresh.get_value_without_ctx(&store), float(41.0));
+        assert_eq!(all.get_value_without_ctx(&store), float(41.0));
     }
 
     #[test]
@@ -944,8 +1154,8 @@ mod tests {
         let mut all = Incremental(AllAggregation(Sum::neutral(&DECIMAL_TY)));
         apply_incremental_decimals(values, &mut all);
 
-        assert_eq!(fresh.get_value(&store), decimal(41.0));
-        assert_eq!(all.get_value(&store), decimal(41.0));
+        assert_eq!(fresh.get_value_without_ctx(&store), decimal(41.0));
+        assert_eq!(all.get_value_without_ctx(&store), decimal(41.0));
     }
 
     #[test]
@@ -957,8 +1167,8 @@ mod tests {
         let mut all = Incremental(AllAggregation(Avg::neutral(&FLOAT_TY)));
         apply_incremental(values, &mut all);
 
-        assert_eq!(fresh.get_value(&store), float(10.25));
-        assert_eq!(all.get_value(&store), float(10.25));
+        assert_eq!(fresh.get_value_without_ctx(&store), float(10.25));
+        assert_eq!(all.get_value_without_ctx(&store), float(10.25));
     }
 
     #[test]
@@ -970,8 +1180,8 @@ mod tests {
         let mut all = Incremental(AllAggregation(Avg::neutral(&DECIMAL_TY)));
         apply_incremental_decimals(values, &mut all);
 
-        assert_eq!(fresh.get_value(&store), decimal(10.25));
-        assert_eq!(all.get_value(&store), decimal(10.25));
+        assert_eq!(fresh.get_value_without_ctx(&store), decimal(10.25));
+        assert_eq!(all.get_value_without_ctx(&store), decimal(10.25));
     }
 
     #[test]
@@ -983,8 +1193,8 @@ mod tests {
         let mut all = Incremental(AllAggregation(Product::neutral(&FLOAT_TY)));
         apply_incremental(values, &mut all);
 
-        assert_eq!(fresh.get_value(&store), float(-19110.0));
-        assert_eq!(all.get_value(&store), float(-19110.0));
+        assert_eq!(fresh.get_value_without_ctx(&store), float(-19110.0));
+        assert_eq!(all.get_value_without_ctx(&store), float(-19110.0));
     }
 
     #[test]
@@ -1001,8 +1211,8 @@ mod tests {
         let mut all = Incremental(AllAggregation(All::neutral(&BOOL_TY)));
         apply_incremental_cb(values, &mut all, |idx| Value::Bool(idx % 2 == 0));
 
-        assert_eq!(fresh.get_value(&store), Value::Bool(false));
-        assert_eq!(all.get_value(&store), Value::Bool(false));
+        assert_eq!(fresh.get_value_without_ctx(&store), Value::Bool(false));
+        assert_eq!(all.get_value_without_ctx(&store), Value::Bool(false));
     }
 
     #[test]
@@ -1019,8 +1229,8 @@ mod tests {
         let mut all = Incremental(AllAggregation(Any::neutral(&BOOL_TY)));
         apply_incremental_cb(values, &mut all, |idx| Value::Bool(idx % 2 == 0));
 
-        assert_eq!(fresh.get_value(&store), Value::Bool(true));
-        assert_eq!(all.get_value(&store), Value::Bool(true));
+        assert_eq!(fresh.get_value_without_ctx(&store), Value::Bool(true));
+        assert_eq!(all.get_value_without_ctx(&store), Value::Bool(true));
     }
 
     #[test]
@@ -1032,8 +1242,8 @@ mod tests {
         let mut all = Incremental(AllAggregation(Variance::<WindowFloat>::neutral(&FLOAT_TY)));
         apply_incremental(values, &mut all);
 
-        assert_eq!(fresh.get_value(&store), float(396.6875));
-        assert_eq!(all.get_value(&store), float(396.6875));
+        assert_eq!(fresh.get_value_without_ctx(&store), float(396.6875));
+        assert_eq!(all.get_value_without_ctx(&store), float(396.6875));
     }
 
     #[test]
@@ -1047,8 +1257,8 @@ mod tests {
         )));
         apply_incremental_decimals(values, &mut all);
 
-        assert_eq!(fresh.get_value(&store), decimal(396.6875));
-        assert_eq!(all.get_value(&store), decimal(396.6875));
+        assert_eq!(fresh.get_value_without_ctx(&store), decimal(396.6875));
+        assert_eq!(all.get_value_without_ctx(&store), decimal(396.6875));
     }
 
     #[test]
@@ -1060,8 +1270,11 @@ mod tests {
         let mut all = Incremental(AllAggregation(StdDev::<WindowFloat>::neutral(&FLOAT_TY)));
         apply_incremental(values, &mut all);
 
-        assert_eq!(fresh.get_value(&store), float(19.917015338649513));
-        assert_eq!(all.get_value(&store), float(19.917015338649513));
+        assert_eq!(
+            fresh.get_value_without_ctx(&store),
+            float(19.917015338649513)
+        );
+        assert_eq!(all.get_value_without_ctx(&store), float(19.917015338649513));
     }
 
     #[test]
@@ -1075,11 +1288,11 @@ mod tests {
         )));
         apply_incremental_decimals(values, &mut all);
 
-        match fresh.get_value(&store) {
+        match fresh.get_value_without_ctx(&store) {
             Value::Decimal(d) => assert_eq!(d.round_dp(5), Decimal::try_from(19.91702).unwrap()),
             _ => panic!(),
         };
-        match all.get_value(&store) {
+        match all.get_value_without_ctx(&store) {
             Value::Decimal(d) => assert_eq!(d.round_dp(5), Decimal::try_from(19.91702).unwrap()),
             _ => panic!(),
         };
@@ -1102,8 +1315,8 @@ mod tests {
             tuple((idx + 5) as f64, (idx + 13) as f64)
         });
 
-        assert_eq!(fresh.get_value(&store), float(153.8125));
-        assert_eq!(all.get_value(&store), float(153.8125));
+        assert_eq!(fresh.get_value_without_ctx(&store), float(153.8125));
+        assert_eq!(all.get_value_without_ctx(&store), float(153.8125));
     }
 
     #[test]
@@ -1125,8 +1338,8 @@ mod tests {
             )
         });
 
-        assert_eq!(fresh.get_value(&store), decimal(153.8125));
-        assert_eq!(all.get_value(&store), decimal(153.8125));
+        assert_eq!(fresh.get_value_without_ctx(&store), decimal(153.8125));
+        assert_eq!(all.get_value_without_ctx(&store), decimal(153.8125));
     }
 
     #[test]
@@ -1137,26 +1350,26 @@ mod tests {
         let mut fresh = FreshAggregation(Percentile::<WindowFloat>::new(50));
         let mut all = Total(AllAggregation(Percentile::<WindowFloat>::new(50)));
 
-        assert_eq!(fresh.get_value(&store), float(6.0));
-        assert_eq!(all.get_value(&store), float(6.0));
+        assert_eq!(fresh.get_value_without_ctx(&store), float(6.0));
+        assert_eq!(all.get_value_without_ctx(&store), float(6.0));
 
         fresh = FreshAggregation(Percentile::new(25));
         all = Total(AllAggregation(Percentile::new(25)));
 
-        assert_eq!(fresh.get_value(&store), float(0.5));
-        assert_eq!(all.get_value(&store), float(0.5));
+        assert_eq!(fresh.get_value_without_ctx(&store), float(0.5));
+        assert_eq!(all.get_value_without_ctx(&store), float(0.5));
 
         fresh = FreshAggregation(Percentile::new(75));
         all = Total(AllAggregation(Percentile::new(75)));
 
-        assert_eq!(fresh.get_value(&store), float(15.75));
-        assert_eq!(all.get_value(&store), float(15.75));
+        assert_eq!(fresh.get_value_without_ctx(&store), float(15.75));
+        assert_eq!(all.get_value_without_ctx(&store), float(15.75));
 
         fresh = FreshAggregation(Percentile::new(42));
         all = Total(AllAggregation(Percentile::new(42)));
 
-        assert_eq!(fresh.get_value(&store), float(5.52));
-        assert_eq!(all.get_value(&store), float(5.52));
+        assert_eq!(fresh.get_value_without_ctx(&store), float(5.52));
+        assert_eq!(all.get_value_without_ctx(&store), float(5.52));
     }
 
     #[test]
@@ -1167,25 +1380,25 @@ mod tests {
         let mut fresh = FreshAggregation(Percentile::<WindowDecimal>::new(50));
         let mut all = Total(AllAggregation(Percentile::<WindowDecimal>::new(50)));
 
-        assert_eq!(fresh.get_value(&store), decimal(6.0));
-        assert_eq!(all.get_value(&store), decimal(6.0));
+        assert_eq!(fresh.get_value_without_ctx(&store), decimal(6.0));
+        assert_eq!(all.get_value_without_ctx(&store), decimal(6.0));
 
         fresh = FreshAggregation(Percentile::new(25));
         all = Total(AllAggregation(Percentile::new(25)));
 
-        assert_eq!(fresh.get_value(&store), decimal(0.5));
-        assert_eq!(all.get_value(&store), decimal(0.5));
+        assert_eq!(fresh.get_value_without_ctx(&store), decimal(0.5));
+        assert_eq!(all.get_value_without_ctx(&store), decimal(0.5));
 
         fresh = FreshAggregation(Percentile::new(75));
         all = Total(AllAggregation(Percentile::new(75)));
 
-        assert_eq!(fresh.get_value(&store), decimal(15.75));
-        assert_eq!(all.get_value(&store), decimal(15.75));
+        assert_eq!(fresh.get_value_without_ctx(&store), decimal(15.75));
+        assert_eq!(all.get_value_without_ctx(&store), decimal(15.75));
 
         fresh = FreshAggregation(Percentile::new(42));
         all = Total(AllAggregation(Percentile::new(42)));
 
-        assert_eq!(fresh.get_value(&store), decimal(5.52));
-        assert_eq!(all.get_value(&store), decimal(5.52));
+        assert_eq!(fresh.get_value_without_ctx(&store), decimal(5.52));
+        assert_eq!(all.get_value_without_ctx(&store), decimal(5.52));
     }
 }
