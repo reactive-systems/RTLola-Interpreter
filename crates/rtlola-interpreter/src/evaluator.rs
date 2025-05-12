@@ -459,7 +459,12 @@ impl Evaluator {
             .push_value(v.clone());
         self.fresh_inputs.insert(input);
         let extended = &self.ir.inputs[input];
-        for (_sr, win) in &extended.aggregated_by {
+        for (_sr, _origin, win) in extended.aggregated_by.iter().filter(|(_, _, w)| {
+            matches!(
+                w,
+                WindowReference::Sliding(_) | WindowReference::Discrete(_)
+            )
+        }) {
             self.extend_window(&[], *win, v.clone(), ts);
         }
     }
@@ -652,7 +657,12 @@ impl Evaluator {
         }
 
         //create window that aggregate over this stream
-        for (_, win_ref) in &stream.aggregated_by {
+        for (_, _origin, win_ref) in stream.aggregated_by.iter().filter(|(_, _, w)| {
+            matches!(
+                w,
+                WindowReference::Sliding(_) | WindowReference::Discrete(_)
+            )
+        }) {
             let WindowParameterization { kind, global } = self.window_parameterization(*win_ref);
             // Self is target of the window
             match (kind, global) {
@@ -720,7 +730,12 @@ impl Evaluator {
             }
 
             // close all windows referencing this instance
-            for (_, win_ref) in &stream.aggregated_by {
+            for (_, _origin, win_ref) in stream.aggregated_by.iter().filter(|(_, _, w)| {
+                matches!(
+                    w,
+                    WindowReference::Sliding(_) | WindowReference::Discrete(_)
+                )
+            }) {
                 // Self is target of the window
                 match self.window_parameterization(*win_ref).kind {
                     WindowParameterizationKind::None | WindowParameterizationKind::Caller => {
@@ -997,7 +1012,12 @@ impl Evaluator {
 
         // Check linked windows and inform them.
         let extended = &self.ir.outputs[ix];
-        for (_sr, win) in &extended.aggregated_by {
+        for (_sr, _origin, win) in extended.aggregated_by.iter().filter(|(_, _, w)| {
+            matches!(
+                w,
+                WindowReference::Sliding(_) | WindowReference::Discrete(_)
+            )
+        }) {
             self.extend_window(parameter, *win, res.clone(), ts);
         }
     }
@@ -1076,7 +1096,7 @@ impl Evaluator {
         &'a mut self,
         parameter: &'a [Value],
         ts: Time,
-    ) -> EvaluationContext {
+    ) -> EvaluationContext<'a> {
         EvaluationContext {
             ts,
             global_store: self.global_store,

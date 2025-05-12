@@ -171,6 +171,8 @@ impl SlidingWindow {
                     wait: window.wait,
                     op: window.op,
                     reference: window.reference,
+                    origin: window.origin,
+                    pacing: window.pacing.clone(),
                     ty: t.as_ref().clone(),
                 },
                 active,

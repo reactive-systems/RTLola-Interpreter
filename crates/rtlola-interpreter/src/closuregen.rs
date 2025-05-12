@@ -89,11 +89,6 @@ impl Expr for Expression {
                         }
                         Constant::Str(s) => Value::Str(s.into_boxed_str()),
                         Constant::Decimal(i) => Value::Decimal(i),
-                        Constant::Tuple(elements) => {
-                            let values: Vec<Value> =
-                                elements.into_iter().map(const_to_val).collect();
-                            Value::Tuple(values.into_boxed_slice())
-                        }
                     }
                 }
                 let v = const_to_val(c);
