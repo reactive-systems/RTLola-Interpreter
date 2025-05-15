@@ -1,6 +1,6 @@
 [package]
 name = "rtlola-io-plugins"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Input and ouput plugins to be used in the various frontends of the interpreter"
 readme = "README.md"
