@@ -1390,7 +1390,7 @@ dependencies = [
 
 [[package]]
 name = "rtlola-cli"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "atty",
  "clap",
@@ -1489,7 +1489,7 @@ dependencies = [
 
 [[package]]
 name = "rtlola-io-plugins"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bincode",
  "crossterm 0.27.0",
