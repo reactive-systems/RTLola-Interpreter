@@ -1,12 +1,12 @@
 use std::time::Duration;
 
 use rtlola_interpreter::config::OfflineMode;
-use rtlola_interpreter::input::{AssociatedFactory, EventFactory};
+use rtlola_interpreter::input::{AssociatedEventFactory, EventFactory};
 use rtlola_interpreter::monitor::Incremental;
 use rtlola_interpreter::time::{AbsoluteFloat, TimeRepresentation};
 use rtlola_interpreter::{ConfigBuilder, Monitor};
 use rtlola_interpreter_macros::{CompositFactory, ValueFactory};
-use rtlola_io_plugins::byte_plugin::time_converter::TimeConverter;
+use rtlola_io_plugins::inputs::byte_plugin::time_converter::TimeConverter;
 use serde::{Deserialize, Serialize};
 
 use super::SPEC;
@@ -53,7 +53,7 @@ impl TimeConverter<AbsoluteFloat> for TestInputWithMacros {
         &self,
     ) -> Result<
         <AbsoluteFloat as TimeRepresentation>::InnerTime,
-        <<Self as AssociatedFactory>::Factory as EventFactory>::Error,
+        <<Self as AssociatedEventFactory>::Factory as EventFactory>::Error,
     > {
         Ok(Duration::from_secs_f64(self.header.timestamp))
     }
@@ -64,7 +64,7 @@ pub(crate) fn create_monitor(
     let cfg = ConfigBuilder::new()
         .spec_str(SPEC)
         .offline::<AbsoluteFloat>()
-        .with_event_factory::<<TestInputWithMacros as AssociatedFactory>::Factory>()
+        .with_event_factory::<<TestInputWithMacros as AssociatedEventFactory>::Factory>()
         .with_verdict::<Incremental>()
         .output_time::<AbsoluteFloat>()
         .build();

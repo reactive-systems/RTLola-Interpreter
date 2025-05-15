@@ -24,7 +24,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use itertools::Itertools;
-use rtlola_frontend::mir::{InputReference, OutputReference, RtLolaMir, Type};
+use rtlola_frontend::mir::{InputReference, OutputReference, RtLolaMir, TriggerReference, Type};
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
@@ -63,7 +63,7 @@ pub trait VerdictRepresentation: Clone + Debug + Send + CondSerialize + 'static 
 Provides the functionality to collect additional tracing data during evaluation.
 The 'start' methods are guaranteed to be called before the 'end' method, while either both or none of them are called.
  */
-pub trait Tracer: Default + Clone + Debug + Send + CondSerialize + 'static {
+pub trait Tracer: Default + Clone + Debug + Send + 'static {
     /// This method is invoked at the start of event parsing
     fn parse_start(&mut self) {}
     /// This method is invoked at the end of event parsing
@@ -101,12 +101,15 @@ impl Tracer for NoTracer {}
 #[derive(Debug, Clone)]
 pub struct TracingVerdict<T: Tracer, V: VerdictRepresentation> {
     /// The contained tracing information.
+    #[cfg_attr(feature = "serde", serde(skip))]
     pub tracer: T,
     /// The verdict given in the chosen VerdictRepresentation
     pub verdict: V,
 }
 
-impl<T: Tracer, V: VerdictRepresentation<Tracing = NoTracer>> VerdictRepresentation for TracingVerdict<T, V> {
+impl<T: Tracer, V: VerdictRepresentation<Tracing = NoTracer>> VerdictRepresentation
+    for TracingVerdict<T, V>
+{
     type Tracing = T;
 
     fn create(data: RawVerdict) -> Self {
@@ -153,11 +156,9 @@ impl Display for Change {
         match self {
             Change::Spawn(para) => write!(f, "Spawn<{}>", para.iter().join(", ")),
             Change::Close(para) => write!(f, "Close<{}>", para.iter().join(", ")),
-            Change::Value(para, value) => {
-                match para {
-                    Some(para) => write!(f, "Instance<{}> = {}", para.iter().join(", "), value),
-                    None => write!(f, "Value = {}", value),
-                }
+            Change::Value(para, value) => match para {
+                Some(para) => write!(f, "Instance<{}> = {}", para.iter().join(", "), value),
+                None => write!(f, "Value = {}", value),
             },
         }
     }
@@ -172,16 +173,7 @@ impl VerdictRepresentation for Incremental {
     type Tracing = NoTracer;
 
     fn create(data: RawVerdict) -> Self {
-        data.eval
-            .peek_fresh_outputs()
-            .into_iter()
-            .chain(
-                data.eval
-                    .peek_violated_triggers()
-                    .into_iter()
-                    .map(|t| (t, vec![Change::Value(None, Value::Bool(true))])),
-            )
-            .collect()
+        data.eval.peek_fresh_outputs()
     }
 
     fn is_empty(&self) -> bool {
@@ -193,7 +185,7 @@ impl VerdictRepresentation for Incremental {
 Represents the changes of the monitor state divided into inputs, outputs and trigger.
 Changes of output streams are represented by a set of [Change]s.
 A change of an input is represented by its new [Value].
-A change of a trigger is represented by its formatted message.
+A change of a trigger is represented by its [TriggerReference].
 
 Note: Only streams that actually changed are included in the collections.
  */
@@ -205,7 +197,7 @@ pub struct TotalIncremental {
     /// The set of changed outputs.
     pub outputs: Vec<(OutputReference, Vec<Change>)>,
     /// The set of changed triggers. I.e. all triggers that were activated.
-    pub trigger: Vec<OutputReference>,
+    pub trigger: Vec<TriggerReference>,
 }
 
 impl VerdictRepresentation for TotalIncremental {
@@ -385,7 +377,10 @@ where
 
             self.eval.eval_time_driven_tasks(deadline, due, &mut tracer);
             tracer.eval_end();
-            timed.push((due, Verdict::create_with_trace(RawVerdict::from(&self.eval), tracer)))
+            timed.push((
+                due,
+                Verdict::create_with_trace(RawVerdict::from(&self.eval), tracer),
+            ))
         }
         timed
     }
@@ -558,7 +553,9 @@ where
     }
 
     /// Switch [VerdictRepresentation]s of the [Monitor].
-    pub fn with_verdict_representation<T: VerdictRepresentation>(self) -> Monitor<Source, Mode, T, VerdictTime> {
+    pub fn with_verdict_representation<T: VerdictRepresentation>(
+        self,
+    ) -> Monitor<Source, Mode, T, VerdictTime> {
         let Monitor {
             ir,
             eval,
@@ -581,6 +578,7 @@ where
 }
 
 #[cfg(test)]
+#[cfg(not(feature = "serde"))]
 mod tests {
     use std::convert::Infallible;
     use std::time::{Duration, Instant};
@@ -596,7 +594,12 @@ mod tests {
         spec: &str,
     ) -> (
         Instant,
-        Monitor<ArrayFactory<N, Infallible, [Value; N]>, OfflineMode<RelativeFloat>, V, RelativeFloat>,
+        Monitor<
+            ArrayFactory<N, Infallible, [Value; N]>,
+            OfflineMode<RelativeFloat>,
+            V,
+            RelativeFloat,
+        >,
     ) {
         // Init Monitor API
         let monitor = ConfigBuilder::new()
@@ -610,7 +613,10 @@ mod tests {
     }
 
     fn sort_total(res: Total) -> Total {
-        let Total { inputs, mut outputs } = res;
+        let Total {
+            inputs,
+            mut outputs,
+        } = res;
         outputs.iter_mut().for_each(|s| s.sort());
         Total { inputs, outputs }
     }
@@ -643,14 +649,18 @@ mod tests {
         assert_eq!(res.outputs[0][0], (None, Some(Value::Bool(true))));
         assert_eq!(res.outputs[1][0], (None, Some(Value::Unsigned(3))));
         assert_eq!(res.outputs[2][0], (None, Some(Value::Signed(-5))));
-        assert_eq!(res.outputs[3][0], (None, Some(Value::try_from(-123.456).unwrap())));
+        assert_eq!(
+            res.outputs[3][0],
+            (None, Some(Value::try_from(-123.456).unwrap()))
+        );
         assert_eq!(res.outputs[4][0], (None, Some(Value::Str("foobar".into()))));
     }
 
     #[test]
     fn test_count_window() {
-        let (_, mut monitor) =
-            setup::<1, Incremental>("input a: UInt16\noutput b: UInt16 @0.25Hz := a.aggregate(over: 40s, using: #)");
+        let (_, mut monitor) = setup::<1, Incremental>(
+            "input a: UInt16\noutput b: UInt16 @0.25Hz := a.aggregate(over: 40s, using: count)",
+        );
 
         let n = 25;
         let mut time = Duration::from_secs(45);
@@ -660,7 +670,9 @@ mod tests {
         assert!(res.event.is_empty());
         assert_eq!(res.timed.len(), 11);
         assert!(res.timed.iter().all(|(time, change)| {
-            time.as_secs() % 4 == 0 && change[0].0 == 0 && change[0].1[0] == Change::Value(None, Value::Unsigned(0))
+            time.as_secs() % 4 == 0
+                && change[0].0 == 0
+                && change[0].1[0] == Change::Value(None, Value::Unsigned(0))
         }));
         for v in 2..=n {
             time += Duration::from_secs(1);
@@ -671,7 +683,10 @@ mod tests {
             assert_eq!(res.event.len(), 0);
             if (v - 1) % 4 == 0 {
                 assert_eq!(res.timed.len(), 1);
-                assert_eq!(res.timed[0].1[0].1[0], Change::Value(None, Value::Unsigned(v - 1)));
+                assert_eq!(
+                    res.timed[0].1[0].1[0],
+                    Change::Value(None, Value::Unsigned(v - 1))
+                );
             } else {
                 assert_eq!(res.timed.len(), 0);
             }
@@ -701,7 +716,10 @@ mod tests {
         assert_eq!(res.timed.len(), 0);
 
         let res = monitor
-            .accept_event([Value::Signed(20), Value::Signed(7)], Duration::from_secs(2))
+            .accept_event(
+                [Value::Signed(20), Value::Signed(7)],
+                Duration::from_secs(2),
+            )
             .expect("Failed to accept value");
         let expected = Total {
             inputs: vec![Some(Value::Signed(20)), Some(Value::Signed(7))],

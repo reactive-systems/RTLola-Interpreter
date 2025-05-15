@@ -58,7 +58,13 @@ impl DynamicSchedule {
     }
 
     /// Schedule the close evaluation of a stream or of an instance if parameters are given.
-    pub(crate) fn schedule_close(&mut self, target: OutputReference, parameter: &[Value], now: Time, period: Duration) {
+    pub(crate) fn schedule_close(
+        &mut self,
+        target: OutputReference,
+        parameter: &[Value],
+        now: Time,
+        period: Duration,
+    ) {
         let task = ScheduledTask {
             task: EvaluationTask::Close(target, parameter.to_vec()),
             period,
@@ -67,7 +73,12 @@ impl DynamicSchedule {
     }
 
     /// Removes a scheduled evaluation from the schedule
-    pub(crate) fn remove_evaluation(&mut self, target: OutputReference, parameter: &[Value], period: Duration) {
+    pub(crate) fn remove_evaluation(
+        &mut self,
+        target: OutputReference,
+        parameter: &[Value],
+        period: Duration,
+    ) {
         let task = ScheduledTask {
             task: EvaluationTask::Evaluate(target, parameter.to_vec()),
             period,
@@ -76,7 +87,12 @@ impl DynamicSchedule {
     }
 
     /// Removes a scheduled close from the schedule
-    pub(crate) fn remove_close(&mut self, target: OutputReference, parameter: &[Value], period: Duration) {
+    pub(crate) fn remove_close(
+        &mut self,
+        target: OutputReference,
+        parameter: &[Value],
+        period: Duration,
+    ) {
         let task = ScheduledTask {
             task: EvaluationTask::Close(target, parameter.to_vec()),
             period,
@@ -91,7 +107,8 @@ impl DynamicSchedule {
         }
         let (task, task_due) = self.queue.pop().unwrap();
         // Reschedule Task
-        self.queue.push(task.clone(), Reverse(task_due.0 + task.period));
+        self.queue
+            .push(task.clone(), Reverse(task_due.0 + task.period));
 
         let mut deadlines: Vec<EvaluationTask> = vec![task.task];
         let due = task_due.0;
@@ -100,11 +117,15 @@ impl DynamicSchedule {
         while self.queue.peek().is_some() && self.queue.peek().unwrap().1 .0 == due {
             let (task, task_due) = self.queue.pop().unwrap();
             // Reschedule Task
-            self.queue.push(task.clone(), Reverse(task_due.0 + task.period));
+            self.queue
+                .push(task.clone(), Reverse(task_due.0 + task.period));
             deadlines.push(task.task);
         }
 
-        Some(DynamicDeadline { due, tasks: deadlines })
+        Some(DynamicDeadline {
+            due,
+            tasks: deadlines,
+        })
     }
 
     /// Return the time when the next deadline is due or None if there is no next deadline
@@ -192,13 +213,17 @@ mod tests {
         let res = schedule.get_next_deadline(Duration::from_secs(20)).unwrap();
         assert_eq!(res.due, Duration::from_secs(14));
         assert_eq!(res.tasks, vec![EvaluationTask::Evaluate(2, vec![])]);
-        assert!(schedule.get_next_deadline(Duration::from_secs(20)).is_none());
+        assert!(schedule
+            .get_next_deadline(Duration::from_secs(20))
+            .is_none());
 
         let res = schedule.get_next_deadline(Duration::from_secs(30)).unwrap();
         assert_eq!(res.due, Duration::from_secs(21));
         assert_eq!(res.tasks, vec![EvaluationTask::Evaluate(2, vec![])]);
         schedule.remove_evaluation(2, &[], Duration::from_secs(7));
-        assert!(schedule.get_next_deadline(Duration::from_secs(50)).is_none());
+        assert!(schedule
+            .get_next_deadline(Duration::from_secs(50))
+            .is_none());
     }
 
     #[test]
@@ -223,12 +248,16 @@ mod tests {
         let res = schedule.get_next_deadline(Duration::from_secs(10)).unwrap();
         assert_eq!(res.due, Duration::from_secs(5));
         assert!(res.tasks.contains(&EvaluationTask::Evaluate(0, vec![])));
-        assert!(res.tasks.contains(&EvaluationTask::Evaluate(3, para.clone())));
+        assert!(res
+            .tasks
+            .contains(&EvaluationTask::Evaluate(3, para.clone())));
 
         let res = schedule.get_next_deadline(Duration::from_secs(10)).unwrap();
         assert_eq!(res.due, Duration::from_secs(6));
         assert!(res.tasks.contains(&EvaluationTask::Close(1, vec![])));
-        assert!(res.tasks.contains(&EvaluationTask::Evaluate(3, para.clone())));
+        assert!(res
+            .tasks
+            .contains(&EvaluationTask::Evaluate(3, para.clone())));
 
         schedule.remove_evaluation(3, &para, Duration::from_secs(1));
 

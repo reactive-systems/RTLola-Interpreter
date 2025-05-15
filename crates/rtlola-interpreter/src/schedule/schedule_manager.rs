@@ -18,6 +18,8 @@ pub(crate) enum EvaluationTask {
     Spawn(OutputReference),
     /// Evaluate the close condition for a specific instance.
     Close(OutputReference, Vec<Value>),
+    /// Evaluate the close condition of all instances of the output stream.
+    CloseInstances(OutputReference),
 }
 
 impl From<Task> for EvaluationTask {
@@ -25,7 +27,7 @@ impl From<Task> for EvaluationTask {
         match task {
             Task::Evaluate(idx) => EvaluationTask::EvaluateInstances(idx),
             Task::Spawn(idx) => EvaluationTask::Spawn(idx),
-            Task::Close(idx) => EvaluationTask::Close(idx, vec![]),
+            Task::Close(idx) => EvaluationTask::CloseInstances(idx),
         }
     }
 }
@@ -35,9 +37,9 @@ impl EvaluationTask {
         match self {
             EvaluationTask::Evaluate(idx, _) | EvaluationTask::EvaluateInstances(idx) => {
                 ir.outputs[*idx].eval_layer().inner()
-            },
+            }
             EvaluationTask::Spawn(idx) => ir.outputs[*idx].spawn_layer().inner(),
-            EvaluationTask::Close(_, _) => usize::MAX,
+            EvaluationTask::Close(_, _) | EvaluationTask::CloseInstances(_) => usize::MAX,
         }
     }
 }
@@ -55,7 +57,10 @@ pub(crate) struct ScheduleManager {
 
 impl ScheduleManager {
     /// Creates a new TimeDrivenManager managing time-driven output streams.
-    pub(crate) fn setup(ir: RtLolaMir, dyn_schedule: Rc<RefCell<DynamicSchedule>>) -> Result<ScheduleManager, String> {
+    pub(crate) fn setup(
+        ir: RtLolaMir,
+        dyn_schedule: Rc<RefCell<DynamicSchedule>>,
+    ) -> Result<ScheduleManager, String> {
         let contains_time_driven = ir.has_time_driven_features();
         if !contains_time_driven {
             // return dummy
@@ -99,7 +104,11 @@ impl ScheduleManager {
 
     fn get_next_static_deadline(&mut self) -> Vec<EvaluationTask> {
         debug_assert!(!self.static_due_streams.is_empty() && self.next_static_deadline.is_some());
-        let res = self.static_due_streams.iter().map(|t| (*t).into()).collect();
+        let res = self
+            .static_due_streams
+            .iter()
+            .map(|t| (*t).into())
+            .collect();
         self.cur_static_deadline_idx = (self.cur_static_deadline_idx + 1) % self.deadlines.len();
         let deadline = &self.deadlines[self.cur_static_deadline_idx];
         assert!(deadline.pause > Duration::from_secs(0));
@@ -123,29 +132,31 @@ impl ScheduleManager {
                     .expect("Should not happen when there is a dynamic due time.");
                 dyn_deadline.sort(&self.ir);
                 dyn_deadline.tasks
-            },
+            }
             (Some(_), None) => self.get_next_static_deadline(),
-            (Some(sd), Some(dd)) => {
-                match sd.cmp(&dd) {
-                    Ordering::Less => self.get_next_static_deadline(),
-                    Ordering::Equal => {
-                        let static_deadline = self.get_next_static_deadline();
-                        let dyn_deadline = (*self.dyn_schedule).borrow_mut().get_next_deadline(now).unwrap().tasks;
-                        let mut res = static_deadline
-                            .into_iter()
-                            .chain(dyn_deadline)
-                            .collect::<Vec<EvaluationTask>>();
-                        res.sort_by_key(|t| t.get_sort_key(&self.ir));
-                        res
-                    },
-                    Ordering::Greater => {
-                        let mut dyn_deadline = (*self.dyn_schedule)
-                            .borrow_mut()
-                            .get_next_deadline(now)
-                            .expect("Should not happen when there is a dynamic due time.");
-                        dyn_deadline.sort(&self.ir);
-                        dyn_deadline.tasks
-                    },
+            (Some(sd), Some(dd)) => match sd.cmp(&dd) {
+                Ordering::Less => self.get_next_static_deadline(),
+                Ordering::Equal => {
+                    let static_deadline = self.get_next_static_deadline();
+                    let dyn_deadline = (*self.dyn_schedule)
+                        .borrow_mut()
+                        .get_next_deadline(now)
+                        .unwrap()
+                        .tasks;
+                    let mut res = static_deadline
+                        .into_iter()
+                        .chain(dyn_deadline)
+                        .collect::<Vec<EvaluationTask>>();
+                    res.sort_by_key(|t| t.get_sort_key(&self.ir));
+                    res
+                }
+                Ordering::Greater => {
+                    let mut dyn_deadline = (*self.dyn_schedule)
+                        .borrow_mut()
+                        .get_next_deadline(now)
+                        .expect("Should not happen when there is a dynamic due time.");
+                    dyn_deadline.sort(&self.ir);
+                    dyn_deadline.tasks
                 }
             },
         }

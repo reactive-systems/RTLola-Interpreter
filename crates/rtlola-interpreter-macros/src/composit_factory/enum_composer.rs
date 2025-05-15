@@ -5,8 +5,9 @@ use quote::{format_ident, quote, ToTokens};
 use syn::spanned::Spanned;
 use syn::{Data, DeriveInput, Fields, Type, Variant};
 
+use crate::composit_factory::ComposingDeriver;
 use crate::helper::new_snake_ident;
-use crate::{ComposingDeriver, FactoryAttr};
+use crate::FactoryAttr;
 
 pub(crate) struct EnumComposer {
     name: Ident,
@@ -119,7 +120,7 @@ impl EnumComposer {
             .map(|(ident, ty)| {
                 (
                     field_name(ident),
-                    quote! {<#ty as rtlola_interpreter::input::AssociatedFactory>::Factory},
+                    quote! {<#ty as rtlola_interpreter::input::AssociatedEventFactory>::Factory},
                 )
             })
             .unzip();

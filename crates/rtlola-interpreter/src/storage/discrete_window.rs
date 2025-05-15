@@ -17,7 +17,12 @@ pub(crate) struct DiscreteWindowInstance<IV: WindowIv> {
 
 impl<IV: WindowIv> DiscreteWindowInstance<IV> {
     /// Creates a new discrete window instance
-    pub(crate) fn new(size: usize, wait: bool, ts: Time, active: bool) -> DiscreteWindowInstance<IV> {
+    pub(crate) fn new(
+        size: usize,
+        wait: bool,
+        ts: Time,
+        active: bool,
+    ) -> DiscreteWindowInstance<IV> {
         let buckets = VecDeque::from(vec![IV::default(ts); size]);
         DiscreteWindowInstance {
             buckets,
@@ -78,7 +83,9 @@ impl<IV: WindowIv> WindowInstanceTrait for DiscreteWindowInstance<IV> {
     }
 }
 
-impl<G: WindowGeneric> WindowInstanceTrait for PercentileWindow<DiscreteWindowInstance<PercentileIv<G>>> {
+impl<G: WindowGeneric> WindowInstanceTrait
+    for PercentileWindow<DiscreteWindowInstance<PercentileIv<G>>>
+{
     fn get_value(&self, ts: Time) -> Value {
         let size = self.inner.buckets.len();
         self.inner

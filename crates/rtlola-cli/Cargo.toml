@@ -1,6 +1,6 @@
 [package]
 name = "rtlola-cli"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "A CLI interface for the RTLola interpreter."
 readme = "README.md"
@@ -23,9 +23,12 @@ authors = [
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rtlola-interpreter = "0.10.0"
-rtlola-io-plugins = { version = "0.2.0", default-features = false, features = [
+rtlola-interpreter = "0.11.0"
+rtlola-io-plugins = { version = "0.3.0", default-features = false, features = [
     "csv_plugin",
+    "json_plugin",
+    "statistics_plugin",
+    "log_printer",
 ] }
 clap = { version = "4.0.9", features = [
     "derive",
@@ -33,9 +36,10 @@ clap = { version = "4.0.9", features = [
     "wrap_help",
 ] } # command line parsing
 clap_complete = "4.0.2"
-crossterm = "0.25.0" # terminal output
 human-panic = { version = "1.0.1", optional = true }
 humantime = "2.0"
+atty = "0.2.14"
+termcolor = "1.4.1"
 
 [features]
 public = ["human-panic"]

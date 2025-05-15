@@ -5,11 +5,12 @@ use bimap::BiHashMap;
 use either::Either;
 use priority_queue::PriorityQueue;
 use rtlola_frontend::mir::{
-    DiscreteWindow as MirDiscreteWindow, InputReference, MemorizationBound, Origin, OutputReference, OutputStream,
-    RtLolaMir, SlidingWindow as MirSlidingWindow, Stream, StreamAccessKind, StreamReference, Type, WindowReference,
+    DiscreteWindow as MirDiscreteWindow, InputReference, MemorizationBound, Origin,
+    OutputReference, OutputStream, PacingType, RtLolaMir, SlidingWindow as MirSlidingWindow,
+    Stream, StreamAccessKind, StreamReference, Type, WindowReference,
 };
 
-use super::{InstanceAggregationTrait, Value};
+use super::Value;
 use crate::storage::instance_aggregations::InstanceAggregation;
 use crate::storage::SlidingWindow;
 use crate::Time;
@@ -78,7 +79,11 @@ impl InstanceCollection {
     pub(crate) fn delete_instances(&mut self) -> Vec<Value> {
         self.closed
             .iter()
-            .filter_map(|paras| self.instances.remove(paras).and_then(|inst| inst.get_value(0)))
+            .filter_map(|paras| {
+                self.instances
+                    .remove(paras)
+                    .and_then(|inst| inst.get_value(0))
+            })
             .collect()
     }
 
@@ -99,6 +104,15 @@ impl InstanceCollection {
     /// Returns a bool representing whether the instance identified by the parameter got a fresh value.
     pub(crate) fn is_fresh(&self, parameter: &[Value]) -> bool {
         self.fresh.contains(parameter)
+    }
+
+    /// Returns all fresh values of the stream
+    pub(crate) fn fresh_values(&self) -> HashMap<Vec<Value>, Value> {
+        self.instances
+            .iter()
+            .filter(|(param, _)| self.is_fresh(param.as_slice()))
+            .map(|(param, inst)| (param.clone(), inst.get_value(0).unwrap()))
+            .collect()
     }
 
     /// Returns an iterator over newly created instances
@@ -126,33 +140,33 @@ impl InstanceCollection {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// Represents the parameterization of the window
-pub(crate) enum WindowParameterization {
+/// Represents the parameterization kind of the window
+pub(crate) enum WindowParameterizationKind {
     /// The window is not parameterized. Yet it might be spawned.
-    None {
-        /// whether the window is spawned nonetheless
-        is_spawned: bool,
-    },
+    None,
     /// The caller of the window is parameterized.
     /// An instance of the window has to be created whenever a new instance of the caller spawns, as these windows could be on different timelines.
     Caller,
     /// The target of the window is parameterized.
     /// An instance of the windows has the be created whenever a new instance of the target spawns, as we can only determine at runtime over which instance exactly the caller aggregates.
-    Target {
-        /// whether the window is spawned nonetheless
-        is_spawned: bool,
-    },
+    Target,
     /// Both the target and caller of the window are parameterized.
     /// An instance has the be created for all instances of the caller and the target.
     Both,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Represents the parameterization of the window
+pub(crate) struct WindowParameterization {
+    /// The parameterization kind of the window
+    pub(crate) kind: WindowParameterizationKind,
+    /// Whether the window is evaluated at a global or local frequency
+    pub(crate) global: bool,
+}
+
 impl WindowParameterization {
-    pub(crate) fn is_spawned(&self) -> bool {
-        match self {
-            WindowParameterization::None { is_spawned } | WindowParameterization::Target { is_spawned } => *is_spawned,
-            WindowParameterization::Caller | WindowParameterization::Both => true,
-        }
+    fn new(kind: WindowParameterizationKind, global: bool) -> Self {
+        Self { kind, global }
     }
 }
 
@@ -166,11 +180,11 @@ pub(crate) struct SlidingWindowCollection {
 
 impl SlidingWindowCollection {
     /// Creates a new Collection for real-time sliding windows
-    pub(crate) fn new_for_sliding(window: &MirSlidingWindow) -> Self {
+    pub(crate) fn new_for_sliding(window: &MirSlidingWindow, active: bool) -> Self {
         SlidingWindowCollection {
             windows: HashMap::new(),
             mir_window: Either::Left(window.clone()),
-            default_window: SlidingWindow::from_sliding(Time::default(), window, false),
+            default_window: SlidingWindow::from_sliding(Time::default(), window, active),
             to_be_closed: PriorityQueue::new(),
         }
     }
@@ -197,13 +211,19 @@ impl SlidingWindowCollection {
     }
 
     /// Creates a new sliding window in the collection
-    pub(crate) fn create_window(&mut self, parameters: &[Value], start_time: Time) -> Option<&mut SlidingWindow> {
+    pub(crate) fn create_window(
+        &mut self,
+        parameters: &[Value],
+        start_time: Time,
+    ) -> Option<&mut SlidingWindow> {
         // remove from deletion list if it still exists
         self.to_be_closed.remove(parameters);
         if !self.windows.contains_key(parameters) {
             let window = match &self.mir_window {
                 Either::Left(w) => SlidingWindow::from_sliding(start_time, w, false),
-                Either::Right(w) => SlidingWindow::from_discrete(w.duration, w.wait, w.op, start_time, &w.ty, false),
+                Either::Right(w) => {
+                    SlidingWindow::from_discrete(w.duration, w.wait, w.op, start_time, &w.ty, false)
+                }
             };
             self.windows.insert(parameters.to_vec(), window);
             self.windows.get_mut(parameters)
@@ -236,17 +256,23 @@ impl SlidingWindowCollection {
         debug_assert!(self.windows.contains_key(parameter));
         match &self.mir_window {
             Either::Left(sw) => {
-                self.to_be_closed.push(parameter.to_vec(), Reverse(ts + sw.duration));
-            },
+                self.to_be_closed
+                    .push(parameter.to_vec(), Reverse(ts + sw.duration));
+            }
             Either::Right(_) => {
                 // Todo reevaluate this
                 self.windows.remove(parameter);
-            },
+            }
         }
     }
 
     fn delete_expired_windows(&mut self, ts: Time) {
-        while self.to_be_closed.peek().map(|(_, due)| ts > due.0).unwrap_or(false) {
+        while self
+            .to_be_closed
+            .peek()
+            .map(|(_, due)| ts > due.0)
+            .unwrap_or(false)
+        {
             let (params, _) = self.to_be_closed.pop().unwrap();
             self.windows.remove(params.as_slice());
         }
@@ -268,10 +294,19 @@ impl SlidingWindowCollection {
     }
 
     /// Activates all windows in the collection with the given time
-    pub(crate) fn activate_all(&mut self, ts: Time) {
-        self.windows.iter_mut().for_each(|(_, w)| {
+    /// Add all fresh target values to the window
+    pub(crate) fn activate_all(
+        &mut self,
+        mut fresh_values: HashMap<Vec<Value>, Value>,
+        start_time: Time,
+        ts: Time,
+    ) {
+        self.windows.iter_mut().for_each(|(params, w)| {
             if !w.is_active() {
-                w.activate(ts);
+                w.activate(start_time);
+                if let Some(val) = fresh_values.remove(params) {
+                    w.accept_value(val, ts);
+                }
             }
         });
     }
@@ -348,7 +383,14 @@ impl TwoLayerSlidingWindowCollection {
     fn create_window(&self, start_time: Time, active: bool) -> SlidingWindow {
         match &self.mir_window {
             Either::Left(sw) => SlidingWindow::from_sliding(start_time, sw, active),
-            Either::Right(dw) => SlidingWindow::from_discrete(dw.duration, dw.wait, dw.op, start_time, &dw.ty, active),
+            Either::Right(dw) => SlidingWindow::from_discrete(
+                dw.duration,
+                dw.wait,
+                dw.op,
+                start_time,
+                &dw.ty,
+                active,
+            ),
         }
     }
 
@@ -359,7 +401,8 @@ impl TwoLayerSlidingWindowCollection {
     pub(crate) fn spawn_target_instance(&mut self, parameter: &[Value]) {
         self.to_be_closed.remove(parameter);
         let next_target_id = self.windows.len();
-        self.target_parameters.insert(parameter.to_vec(), next_target_id);
+        self.target_parameters
+            .insert(parameter.to_vec(), next_target_id);
         self.windows.push(self.caller_instances.clone());
     }
 
@@ -375,14 +418,22 @@ impl TwoLayerSlidingWindowCollection {
             // Move last element in windows to position of removed instance
             let replacement_id = self.windows.len() - 1;
             let replacement = self.windows.pop().unwrap();
-            let (replacement_paras, _) = self.target_parameters.remove_by_right(&replacement_id).unwrap();
+            let (replacement_paras, _) = self
+                .target_parameters
+                .remove_by_right(&replacement_id)
+                .unwrap();
             self.windows[id] = replacement;
             self.target_parameters.insert(replacement_paras, id);
         }
     }
 
     fn delete_expired_windows(&mut self, ts: Time) {
-        while self.to_be_closed.peek().map(|(_, due)| ts > due.0).unwrap_or(false) {
+        while self
+            .to_be_closed
+            .peek()
+            .map(|(_, due)| ts > due.0)
+            .unwrap_or(false)
+        {
             let (params, _) = self.to_be_closed.pop().unwrap();
             self.remove_target_instance(params.as_slice());
         }
@@ -391,20 +442,55 @@ impl TwoLayerSlidingWindowCollection {
     pub(crate) fn close_target_instance(&mut self, parameter: &[Value], ts: Time) {
         match &self.mir_window {
             Either::Left(sw) => {
-                self.to_be_closed.push(parameter.to_vec(), Reverse(ts + sw.duration));
-            },
+                self.to_be_closed
+                    .push(parameter.to_vec(), Reverse(ts + sw.duration));
+            }
             Either::Right(_) => {
                 self.remove_target_instance(parameter);
-            },
+            }
         }
     }
 
-    pub(crate) fn spawn_caller_instance(&mut self, parameters: &[Value], ts: Time) {
-        let next_caller_id = self.caller_instances.len();
-        self.caller_parameters.insert(parameters.to_vec(), next_caller_id);
-        let window = self.create_window(ts, true);
-        self.caller_instances.push(window.clone());
-        self.windows.iter_mut().for_each(|callers| callers.push(window.clone()));
+    pub(crate) fn spawn_caller_instance(
+        &mut self,
+        fresh_target_values: HashMap<Vec<Value>, Value>,
+        parameters: &[Value],
+        start_time: Time,
+        ts: Time,
+    ) {
+        if !self.caller_parameters.contains_left(parameters) {
+            let next_caller_id = self.caller_instances.len();
+            self.caller_parameters
+                .insert(parameters.to_vec(), next_caller_id);
+            let window = self.create_window(ts, true);
+            self.caller_instances.push(window.clone());
+            self.windows
+                .iter_mut()
+                .enumerate()
+                .for_each(|(target_idx, callers)| {
+                    let target_params = self.target_parameters.get_by_right(&target_idx).unwrap();
+                    let mut new_window = window.clone();
+                    if let Some(val) = fresh_target_values.get(target_params) {
+                        new_window.accept_value(val.clone(), ts);
+                    }
+                    callers.push(new_window);
+                });
+        } else {
+            let caller_idx = *self.caller_parameters.get_by_left(parameters).unwrap();
+            self.windows
+                .iter_mut()
+                .enumerate()
+                .for_each(|(target_idx, callers)| {
+                    let window = &mut callers[caller_idx];
+                    let target_params = self.target_parameters.get_by_right(&target_idx).unwrap();
+                    if !window.is_active() {
+                        window.activate(start_time);
+                        if let Some(val) = fresh_target_values.get(target_params) {
+                            window.accept_value(val.clone(), ts);
+                        }
+                    }
+                });
+        }
     }
 
     pub(crate) fn close_caller_instance(&mut self, parameter: &[Value]) {
@@ -423,7 +509,10 @@ impl TwoLayerSlidingWindowCollection {
             let replacement_id = self.caller_instances.len() - 1;
             let replacement = self.caller_instances.pop().unwrap();
             self.caller_instances[id] = replacement;
-            let (replacement_paras, _) = self.caller_parameters.remove_by_right(&replacement_id).unwrap();
+            let (replacement_paras, _) = self
+                .caller_parameters
+                .remove_by_right(&replacement_id)
+                .unwrap();
             self.caller_parameters.insert(replacement_paras, id);
 
             self.windows
@@ -433,7 +522,11 @@ impl TwoLayerSlidingWindowCollection {
     }
 
     /// Returns a reference to the sliding window corresponding to the parameters
-    pub(crate) fn window(&self, target_parameter: &[Value], caller_parameter: &[Value]) -> Option<&SlidingWindow> {
+    pub(crate) fn window(
+        &self,
+        target_parameter: &[Value],
+        caller_parameter: &[Value],
+    ) -> Option<&SlidingWindow> {
         self.target_parameters
             .get_by_left(target_parameter)
             .and_then(|target_id| {
@@ -453,7 +546,10 @@ impl TwoLayerSlidingWindowCollection {
 
     /// Adds a new value to all windows in the collection with the given time
     pub(crate) fn accept_value(&mut self, target_parameter: &[Value], value: Value, ts: Time) {
-        let id = *self.target_parameters.get_by_left(target_parameter).unwrap();
+        let id = *self
+            .target_parameters
+            .get_by_left(target_parameter)
+            .unwrap();
         self.windows[id]
             .iter_mut()
             .for_each(|w| w.accept_value(value.clone(), ts));
@@ -466,7 +562,7 @@ pub(crate) struct GlobalStore {
     inputs: Vec<InstanceStore>,
 
     /// Transforms a output stream reference into the respective index of the stream vectors ((non-)parametrized).
-    stream_index_map: Vec<usize>,
+    pub(crate) stream_index_map: Vec<usize>,
 
     /// Non-parametrized outputs. Access by the index stored in the stream_index_map.
     /// A typical access looks like this: `np_outputs[stream_index_map[output_reference]]`
@@ -474,7 +570,7 @@ pub(crate) struct GlobalStore {
 
     /// parameterized outputs. Accessed by the index stored in the stream_index_map.
     /// /// A typical access looks like this: `p_outputs[stream_index_map[output_reference]]`
-    p_outputs: Vec<InstanceCollection>,
+    pub(crate) p_outputs: Vec<InstanceCollection>,
 
     /// Transforms a sliding window reference into the respective index of the window vectors ((non-)parametrized).
     window_index_map: Vec<usize>,
@@ -513,7 +609,7 @@ pub(crate) struct GlobalStore {
     both_p_discrete_windows: Vec<TwoLayerSlidingWindowCollection>,
 
     /// Instance aggregations indexed directly by their window reference.
-    instance_aggregations: Vec<InstanceAggregation>,
+    pub(crate) instance_aggregations: Vec<InstanceAggregation>,
 }
 
 impl GlobalStore {
@@ -521,12 +617,12 @@ impl GlobalStore {
     ///
     ///  # Arguments
     /// * `ir` - An intermediate representation of the specification
-    /// * `time` - The starting time of the monitor
-    pub(crate) fn new(ir: &RtLolaMir, ts: Time) -> GlobalStore {
+    pub(crate) fn new(ir: &RtLolaMir) -> GlobalStore {
         //Create stream index map
         let mut stream_index_map: Vec<Option<usize>> = vec![None; ir.outputs.len()];
 
-        let (ps, nps): (Vec<&OutputStream>, Vec<&OutputStream>) = ir.outputs.iter().partition(|o| o.is_parameterized());
+        let (ps, nps): (Vec<&OutputStream>, Vec<&OutputStream>) =
+            ir.outputs.iter().partition(|o| o.is_parameterized());
         let ps_refs: Vec<StreamReference> = ps.iter().map(|o| o.reference).collect();
 
         for (np_ix, o) in nps.iter().enumerate() {
@@ -540,7 +636,8 @@ impl GlobalStore {
 
         //Create window index map
         let mut window_index_map: Vec<Option<usize>> = vec![None; ir.sliding_windows.len()];
-        let mut window_parameterization: Vec<Option<WindowParameterization>> = vec![None; ir.sliding_windows.len()];
+        let mut window_parameterization: Vec<Option<WindowParameterization>> =
+            vec![None; ir.sliding_windows.len()];
 
         let mut np_sliding_windows: Vec<&MirSlidingWindow> = vec![];
         let mut p_sliding_windows: Vec<&MirSlidingWindow> = vec![];
@@ -551,46 +648,58 @@ impl GlobalStore {
                 .accesses
                 .iter()
                 .flat_map(|(_, accs)| accs)
-                .find_map(|(orig, kind)| {
-                    match kind {
-                        StreamAccessKind::SlidingWindow(w) if *w == window.reference => Some(orig),
-                        _ => None,
-                    }
+                .find_map(|(orig, kind)| match kind {
+                    StreamAccessKind::SlidingWindow(w) if *w == window.reference => Some(orig),
+                    _ => None,
                 })
                 .expect("Window to actually occur in caller");
-            let is_spawned = match origin {
-                Origin::Eval(_) | Origin::Filter(_) => caller.is_spawned(),
-                Origin::Close => caller.close.has_self_reference && caller.is_spawned(),
-                _ => false,
+            let is_global = match origin {
+                Origin::Eval(idx) | Origin::Filter(idx) => {
+                    matches!(
+                        &caller.eval.clauses[idx].pacing,
+                        PacingType::GlobalPeriodic(_)
+                    )
+                }
+                Origin::Close => {
+                    matches!(&caller.close.pacing, PacingType::GlobalPeriodic(_))
+                }
+                Origin::Spawn => true,
             };
 
             let (idx, kind) = match (
                 ps_refs.contains(&window.target),
-                ps_refs.contains(&window.caller) && is_spawned,
+                ps_refs.contains(&window.caller) && !is_global,
             ) {
                 (false, true) => {
                     p_sliding_windows.push(window);
-                    (p_sliding_windows.len() - 1, WindowParameterization::Caller)
-                },
+                    (
+                        p_sliding_windows.len() - 1,
+                        WindowParameterizationKind::Caller,
+                    )
+                }
                 (true, false) => {
                     p_sliding_windows.push(window);
                     (
                         p_sliding_windows.len() - 1,
-                        WindowParameterization::Target { is_spawned },
+                        WindowParameterizationKind::Target,
                     )
-                },
+                }
                 (false, false) => {
                     np_sliding_windows.push(window);
                     (
                         np_sliding_windows.len() - 1,
-                        WindowParameterization::None { is_spawned },
+                        WindowParameterizationKind::None,
                     )
-                },
+                }
                 (true, true) => {
                     both_p_sliding_windows.push(window);
-                    (both_p_sliding_windows.len() - 1, WindowParameterization::Both)
-                },
+                    (
+                        both_p_sliding_windows.len() - 1,
+                        WindowParameterizationKind::Both,
+                    )
+                }
             };
+            let kind = WindowParameterization::new(kind, is_global);
             window_index_map[window.reference.idx()] = Some(idx);
             window_parameterization[window.reference.idx()] = Some(kind);
         }
@@ -601,66 +710,40 @@ impl GlobalStore {
             window_parameterization.into_iter().flatten().collect();
 
         //Create discrete window index map
-        let mut discrete_window_index_map: Vec<Option<usize>> = vec![None; ir.discrete_windows.len()];
+        let mut discrete_window_index_map: Vec<Option<usize>> =
+            vec![None; ir.discrete_windows.len()];
         let mut discrete_window_parameterization: Vec<Option<WindowParameterization>> =
             vec![None; ir.discrete_windows.len()];
         let mut np_discrete_windows: Vec<&MirDiscreteWindow> = vec![];
         let mut p_discrete_windows: Vec<&MirDiscreteWindow> = vec![];
-        let mut both_p_discrete_windows: Vec<&MirDiscreteWindow> = vec![];
+        let both_p_discrete_windows: Vec<&MirDiscreteWindow> = vec![];
         for window in ir.discrete_windows.iter() {
-            let caller = ir.output(window.caller);
-            let origin = *caller
-                .accesses
-                .iter()
-                .flat_map(|(_, accs)| accs)
-                .find_map(|(orig, kind)| {
-                    match kind {
-                        StreamAccessKind::DiscreteWindow(w) if *w == window.reference => Some(orig),
-                        _ => None,
-                    }
-                })
-                .expect("Window to actually occur in caller");
-            let is_spawned = match origin {
-                Origin::Eval(_) | Origin::Filter(_) => caller.is_spawned(),
-                Origin::Close => caller.close.has_self_reference && caller.is_spawned(),
-                _ => false,
-            };
-
-            let (idx, kind) = match (
-                ps_refs.contains(&window.target),
-                ps_refs.contains(&window.caller) && is_spawned,
-            ) {
-                (false, false) => {
-                    np_discrete_windows.push(window);
-                    (
-                        np_discrete_windows.len() - 1,
-                        WindowParameterization::None { is_spawned },
-                    )
-                },
-                (true, false) => {
-                    p_discrete_windows.push(window);
-                    (
-                        p_discrete_windows.len() - 1,
-                        WindowParameterization::Target { is_spawned },
-                    )
-                },
-                (false, true) => {
-                    p_discrete_windows.push(window);
-                    (p_discrete_windows.len() - 1, WindowParameterization::Caller)
-                },
-                (true, true) => {
-                    both_p_discrete_windows.push(window);
-                    (both_p_discrete_windows.len() - 1, WindowParameterization::Both)
-                },
+            let (idx, kind) = if ps_refs.contains(&window.target) {
+                p_discrete_windows.push(window);
+                (
+                    p_discrete_windows.len() - 1,
+                    WindowParameterizationKind::Target,
+                )
+            } else {
+                np_discrete_windows.push(window);
+                (
+                    np_discrete_windows.len() - 1,
+                    WindowParameterizationKind::None,
+                )
             };
             discrete_window_index_map[window.reference.idx()] = Some(idx);
-            discrete_window_parameterization[window.reference.idx()] = Some(kind);
+            // discrete windows do not depend on start time of the window so they are always regarded as global
+            discrete_window_parameterization[window.reference.idx()] =
+                Some(WindowParameterization::new(kind, true));
         }
         debug_assert!(discrete_window_index_map.iter().all(Option::is_some));
         debug_assert!(discrete_window_parameterization.iter().all(Option::is_some));
         let discrete_window_index_map = discrete_window_index_map.into_iter().flatten().collect();
         let discrete_window_parameterization: Vec<WindowParameterization> =
-            discrete_window_parameterization.into_iter().flatten().collect();
+            discrete_window_parameterization
+                .into_iter()
+                .flatten()
+                .collect();
 
         let np_outputs = nps
             .iter()
@@ -677,11 +760,22 @@ impl GlobalStore {
             .collect();
         let np_windows = np_sliding_windows
             .iter()
-            .map(|w| SlidingWindow::from_sliding(ts, w, !window_parameterization[w.reference.idx()].is_spawned()))
+            .map(|w| {
+                SlidingWindow::from_sliding(
+                    Time::default(),
+                    w,
+                    window_parameterization[w.reference.idx()].global,
+                )
+            })
             .collect();
         let p_windows = p_sliding_windows
             .iter()
-            .map(|w| SlidingWindowCollection::new_for_sliding(w))
+            .map(|w| {
+                SlidingWindowCollection::new_for_sliding(
+                    w,
+                    window_parameterization[w.reference.idx()].global,
+                )
+            })
             .collect();
         let both_p_windows = both_p_sliding_windows
             .iter()
@@ -694,9 +788,9 @@ impl GlobalStore {
                     w.duration,
                     w.wait,
                     w.op,
-                    ts,
+                    Time::default(),
                     &w.ty,
-                    !discrete_window_parameterization[w.reference.idx()].is_spawned(),
+                    discrete_window_parameterization[w.reference.idx()].global,
                 )
             })
             .collect();
@@ -709,7 +803,11 @@ impl GlobalStore {
             .map(|w| TwoLayerSlidingWindowCollection::new_for_discrete(w))
             .collect();
 
-        let instance_aggregations = ir.instance_aggregations.iter().map(InstanceAggregation::from).collect();
+        let instance_aggregations = ir
+            .instance_aggregations
+            .iter()
+            .map(InstanceAggregation::from)
+            .collect();
 
         GlobalStore {
             inputs,
@@ -764,7 +862,10 @@ impl GlobalStore {
 
     /// Returns all InstanceStores (mutable) of this output as an [InstanceCollection]
     /// Note: OutputReference *must* point to parameterized stream
-    pub(crate) fn get_out_instance_collection_mut(&mut self, inst: OutputReference) -> &mut InstanceCollection {
+    pub(crate) fn get_out_instance_collection_mut(
+        &mut self,
+        inst: OutputReference,
+    ) -> &mut InstanceCollection {
         let ix = inst;
         &mut self.p_outputs[self.stream_index_map[ix]]
     }
@@ -774,8 +875,12 @@ impl GlobalStore {
     pub(crate) fn get_window(&self, window: WindowReference) -> &SlidingWindow {
         match window {
             WindowReference::Sliding(x) => &self.np_windows[self.window_index_map[x]],
-            WindowReference::Discrete(x) => &self.np_discrete_windows[self.discrete_window_index_map[x]],
-            WindowReference::Instance(_) => unreachable!("Called window function with instance aggregation reference"),
+            WindowReference::Discrete(x) => {
+                &self.np_discrete_windows[self.discrete_window_index_map[x]]
+            }
+            WindowReference::Instance(_) => {
+                unreachable!("Called window function with instance aggregation reference")
+            }
         }
     }
 
@@ -784,26 +889,44 @@ impl GlobalStore {
     pub(crate) fn get_window_mut(&mut self, window: WindowReference) -> &mut SlidingWindow {
         match window {
             WindowReference::Sliding(x) => &mut self.np_windows[self.window_index_map[x]],
-            WindowReference::Discrete(x) => &mut self.np_discrete_windows[self.discrete_window_index_map[x]],
-            WindowReference::Instance(_) => unreachable!("Called window function with instance aggregation reference"),
+            WindowReference::Discrete(x) => {
+                &mut self.np_discrete_windows[self.discrete_window_index_map[x]]
+            }
+            WindowReference::Instance(_) => {
+                unreachable!("Called window function with instance aggregation reference")
+            }
         }
     }
 
     /// Returns the mutable collection of all sliding window instances
-    pub(crate) fn get_window_collection_mut(&mut self, window: WindowReference) -> &mut SlidingWindowCollection {
+    pub(crate) fn get_window_collection_mut(
+        &mut self,
+        window: WindowReference,
+    ) -> &mut SlidingWindowCollection {
         match window {
             WindowReference::Sliding(x) => &mut self.p_windows[self.window_index_map[x]],
-            WindowReference::Discrete(x) => &mut self.p_discrete_windows[self.discrete_window_index_map[x]],
-            WindowReference::Instance(_) => unreachable!("Called window function with instance aggregation reference"),
+            WindowReference::Discrete(x) => {
+                &mut self.p_discrete_windows[self.discrete_window_index_map[x]]
+            }
+            WindowReference::Instance(_) => {
+                unreachable!("Called window function with instance aggregation reference")
+            }
         }
     }
 
     /// Returns the immutable collection of all sliding window instances
-    pub(crate) fn get_window_collection(&self, window: WindowReference) -> &SlidingWindowCollection {
+    pub(crate) fn get_window_collection(
+        &self,
+        window: WindowReference,
+    ) -> &SlidingWindowCollection {
         match window {
             WindowReference::Sliding(x) => &self.p_windows[self.window_index_map[x]],
-            WindowReference::Discrete(x) => &self.p_discrete_windows[self.discrete_window_index_map[x]],
-            WindowReference::Instance(_) => unreachable!("Called window function with instance aggregation reference"),
+            WindowReference::Discrete(x) => {
+                &self.p_discrete_windows[self.discrete_window_index_map[x]]
+            }
+            WindowReference::Instance(_) => {
+                unreachable!("Called window function with instance aggregation reference")
+            }
         }
     }
 
@@ -813,43 +936,51 @@ impl GlobalStore {
     ) -> &mut TwoLayerSlidingWindowCollection {
         match window {
             WindowReference::Sliding(x) => &mut self.both_p_windows[self.window_index_map[x]],
-            WindowReference::Discrete(x) => &mut self.both_p_discrete_windows[self.discrete_window_index_map[x]],
-            WindowReference::Instance(_) => unreachable!("Called window function with instance aggregation reference"),
+            WindowReference::Discrete(x) => {
+                &mut self.both_p_discrete_windows[self.discrete_window_index_map[x]]
+            }
+            WindowReference::Instance(_) => {
+                unreachable!("Called window function with instance aggregation reference")
+            }
         }
     }
 
-    pub(crate) fn get_two_layer_window_collection(&self, window: WindowReference) -> &TwoLayerSlidingWindowCollection {
+    pub(crate) fn get_two_layer_window_collection(
+        &self,
+        window: WindowReference,
+    ) -> &TwoLayerSlidingWindowCollection {
         match window {
             WindowReference::Sliding(x) => &self.both_p_windows[self.window_index_map[x]],
-            WindowReference::Discrete(x) => &self.both_p_discrete_windows[self.discrete_window_index_map[x]],
-            WindowReference::Instance(_) => unreachable!("Called window function with instance aggregation reference"),
+            WindowReference::Discrete(x) => {
+                &self.both_p_discrete_windows[self.discrete_window_index_map[x]]
+            }
+            WindowReference::Instance(_) => {
+                unreachable!("Called window function with instance aggregation reference")
+            }
         }
     }
 
-    pub(crate) fn window_parameterization(&self, window: WindowReference) -> WindowParameterization {
+    pub(crate) fn window_parameterization(
+        &self,
+        window: WindowReference,
+    ) -> WindowParameterization {
         match window {
             WindowReference::Sliding(x) => self.window_parameterization[x],
             WindowReference::Discrete(x) => self.discrete_window_parameterization[x],
-            WindowReference::Instance(_) => unreachable!("Called window function with instance aggregation reference"),
+            WindowReference::Instance(_) => {
+                unreachable!("Called window function with instance aggregation reference")
+            }
         }
     }
 
-    pub(crate) fn get_instance_aggregation_mut(&mut self, window: WindowReference) -> &mut InstanceAggregation {
+    pub(crate) fn get_instance_aggregation_mut(
+        &mut self,
+        window: WindowReference,
+    ) -> &mut InstanceAggregation {
         if let WindowReference::Instance(idx) = window {
             &mut self.instance_aggregations[idx]
         } else {
             unreachable!("Called get_instance_aggregation_mut for non instance");
-        }
-    }
-
-    /// Immediately evaluates the instance aggregation given all instances.
-    pub(crate) fn eval_instance_aggregation(&self, window: WindowReference) -> Value {
-        if let WindowReference::Instance(idx) = window {
-            let aggr = &self.instance_aggregations[idx];
-            let target = &self.p_outputs[self.stream_index_map[aggr.target.out_ix()]];
-            aggr.get_value(target)
-        } else {
-            unreachable!("Called update_instance_aggregation for non instance");
         }
     }
 
@@ -885,19 +1016,15 @@ impl InstanceStore {
     /// Returns the storage of a stream instance, by setting the size of the buffer to the given bound
     pub(crate) fn new(_type: &Type, bound: MemorizationBound, active: bool) -> InstanceStore {
         match bound {
-            MemorizationBound::Bounded(limit) => {
-                InstanceStore {
-                    buffer: VecDeque::with_capacity(limit as usize),
-                    bound,
-                    active,
-                }
+            MemorizationBound::Bounded(limit) => InstanceStore {
+                buffer: VecDeque::with_capacity(limit as usize),
+                bound,
+                active,
             },
-            MemorizationBound::Unbounded => {
-                InstanceStore {
-                    buffer: VecDeque::with_capacity(SIZE),
-                    bound,
-                    active,
-                }
+            MemorizationBound::Unbounded => InstanceStore {
+                buffer: VecDeque::with_capacity(SIZE),
+                bound,
+                active,
             },
         }
     }

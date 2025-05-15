@@ -1,27 +1,28 @@
 //! This module contains all configuration related structures.
 
 use std::error::Error;
-use std::fmt::{Display, Formatter};
-use std::fs::File;
-use std::io::{stderr, stdout, BufWriter};
+use std::io::Write;
 use std::marker::PhantomData;
 use std::thread;
 use std::time::SystemTime;
 
 use clap::ValueEnum;
-use crossterm::style::Color;
 use rtlola_interpreter::config::{ExecutionMode, OfflineMode, OnlineMode};
-use rtlola_interpreter::input::{AssociatedFactory, EventFactory, InputMap, MappedFactory};
+use rtlola_interpreter::input::{AssociatedEventFactory, EventFactory, InputMap, MappedFactory};
 use rtlola_interpreter::monitor::{TotalIncremental, TracingVerdict};
 use rtlola_interpreter::rtlola_mir::RtLolaMir;
 use rtlola_interpreter::time::{OutputTimeRepresentation, RealTime, TimeRepresentation};
 use rtlola_interpreter::QueuedMonitor;
-use rtlola_io_plugins::csv_plugin::CsvInputSourceKind;
+use rtlola_io_plugins::inputs::csv_plugin::CsvInputSourceKind;
 #[cfg(feature = "pcap_interface")]
-use rtlola_io_plugins::pcap_plugin::PcapInputSource;
-use rtlola_io_plugins::EventSource;
+use rtlola_io_plugins::inputs::pcap_plugin::PcapInputSource;
+use rtlola_io_plugins::inputs::EventSource;
+use rtlola_io_plugins::outputs::csv_plugin::CsvVerbosity;
+use rtlola_io_plugins::outputs::json_plugin::JsonVerbosity;
+use rtlola_io_plugins::outputs::statistics_plugin::{EvalTimeTracer, StatisticsVerdictSink};
+use rtlola_io_plugins::outputs::{log_printer, VerdictsSink};
 
-use crate::output::{EvalTimeTracer, OutputChannel, OutputHandler};
+use crate::output::OutputHandler;
 
 /**
 `Config` combines an RTLola specification in [RtLolaMir] form with various configuration parameters for the interpreter.
@@ -34,23 +35,21 @@ pub(crate) struct Config<
     Mode: ExecutionMode<SourceTime = InputTime>,
     InputTime: TimeRepresentation,
     OutputTime: OutputTimeRepresentation,
+    VerdictSink: VerdictsSink<TotalIncremental, OutputTime>,
+    W: Write,
 > {
     /// The representation of the specification
     pub(crate) ir: RtLolaMir,
     /// The source of events
     pub(crate) source: Source,
-    /// A statistics module
-    pub(crate) statistics: Statistics,
-    /// The verbosity to use
-    pub(crate) verbosity: Verbosity,
-    /// Where the output should go
-    pub(crate) output_channel: OutputChannel,
     /// In which mode the evaluator is executed
     pub(crate) mode: Mode,
     /// Which format to use to output time
     pub(crate) output_time_representation: PhantomData<OutputTime>,
     /// The start time to assume
     pub(crate) start_time: Option<SystemTime>,
+    pub(crate) verdict_sink: VerdictSink,
+    pub(crate) stats_sink: Option<StatisticsVerdictSink<W, OutputTime>>,
 }
 
 /// Used to define the level of statistics that should be computed.
@@ -68,33 +67,68 @@ pub(crate) enum Statistics {
 pub enum Verbosity {
     /// Suppresses any kind of logging.
     Silent,
-    /// Prints only triggers and runtime warnings.
+    /// Only print trigger violations.
+    #[clap(alias = "trigger")]
+    Violations,
+    /// Print trigger violations and warning trigger.
+    Warnings,
     #[default]
-    Trigger,
+    /// Print new stream values for public output streams.
+    Public,
+    /// Prints new stream values for outputs (and triggers).
+    Outputs,
     /// Prints new stream values for every stream.
     Streams,
     /// Prints fine-grained debug information. Not suitable for production.
     Debug,
 }
 
-impl Display for Verbosity {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Verbosity::Silent => write!(f, "Silent"),
-            Verbosity::Trigger => write!(f, "Trigger"),
-            Verbosity::Streams => write!(f, "Stream"),
-            Verbosity::Debug => write!(f, "Debug"),
+impl TryFrom<Verbosity> for CsvVerbosity {
+    type Error = String;
+
+    fn try_from(value: Verbosity) -> Result<Self, Self::Error> {
+        match value {
+            Verbosity::Silent => Ok(CsvVerbosity::Silent),
+            Verbosity::Warnings => Ok(CsvVerbosity::Warnings),
+            Verbosity::Violations => Ok(CsvVerbosity::Violations),
+            Verbosity::Public => Ok(CsvVerbosity::Public),
+            Verbosity::Outputs => Ok(CsvVerbosity::Outputs),
+            Verbosity::Streams => Ok(CsvVerbosity::Streams),
+            Verbosity::Debug => Err(
+                "Debug verbosity not supported with csv output format. Use JSON instead.".into(),
+            ),
         }
     }
 }
 
-impl From<Verbosity> for Color {
-    fn from(v: Verbosity) -> Self {
-        match v {
-            Verbosity::Silent => Color::White,
-            Verbosity::Trigger => Color::DarkRed,
-            Verbosity::Streams => Color::DarkGrey,
-            Verbosity::Debug => Color::Grey,
+impl TryFrom<Verbosity> for JsonVerbosity {
+    type Error = String;
+
+    fn try_from(value: Verbosity) -> Result<Self, Self::Error> {
+        match value {
+            Verbosity::Silent => Ok(JsonVerbosity::Silent),
+            Verbosity::Warnings => Ok(JsonVerbosity::Warnings),
+            Verbosity::Violations => Ok(JsonVerbosity::Violations),
+            Verbosity::Public => Ok(JsonVerbosity::Public),
+            Verbosity::Outputs => Ok(JsonVerbosity::Outputs),
+            Verbosity::Streams => Ok(JsonVerbosity::Streams),
+            Verbosity::Debug => Ok(JsonVerbosity::Debug),
+        }
+    }
+}
+
+impl TryFrom<Verbosity> for log_printer::Verbosity {
+    type Error = String;
+
+    fn try_from(value: Verbosity) -> Result<Self, Self::Error> {
+        match value {
+            Verbosity::Silent => Ok(log_printer::Verbosity::Silent),
+            Verbosity::Warnings => Ok(log_printer::Verbosity::Warnings),
+            Verbosity::Violations => Ok(log_printer::Verbosity::Violations),
+            Verbosity::Public => Ok(log_printer::Verbosity::Public),
+            Verbosity::Outputs => Ok(log_printer::Verbosity::Outputs),
+            Verbosity::Streams => Ok(log_printer::Verbosity::Streams),
+            Verbosity::Debug => Ok(log_printer::Verbosity::Debug),
         }
     }
 }
@@ -116,11 +150,16 @@ pub enum EventSourceConfig {
     Pcap(PcapInputSource),
 }
 
-impl<Source: EventSource<InputTime> + 'static, InputTime: TimeRepresentation, OutputTime: OutputTimeRepresentation>
-    Config<Source, OfflineMode<InputTime>, InputTime, OutputTime>
+impl<
+        Source: EventSource<InputTime> + 'static,
+        InputTime: TimeRepresentation,
+        OutputTime: OutputTimeRepresentation,
+        VerdictSink: VerdictsSink<TotalIncremental, OutputTime, Return = (), Error: Error + 'static> + Send + 'static,
+        W: Write + Send + 'static,
+    > Config<Source, OfflineMode<InputTime>, InputTime, OutputTime, VerdictSink, W>
 where
-    Source::Factory:
-        InputMap<CreationData = <<Source::Factory as AssociatedFactory>::Factory as EventFactory>::CreationData>,
+    Source::Record:
+        InputMap<CreationData = <<Source::Record as AssociatedEventFactory>::Factory as EventFactory>::CreationData>,
 {
     pub(crate) fn run(self) -> Result<(), Box<dyn Error>> {
         // Convert config
@@ -128,15 +167,14 @@ where
         let Config {
             ir,
             mut source,
-            statistics,
-            verbosity,
-            output_channel,
             mode,
             output_time_representation,
             start_time,
+            verdict_sink,
+            stats_sink,
         } = self;
 
-        let output: OutputHandler<OutputTime> = OutputHandler::new(&ir, verbosity, statistics);
+        let output: OutputHandler<_, _, _> = OutputHandler::new(verdict_sink, stats_sink);
 
         let cfg = InterpreterConfig {
             ir,
@@ -147,26 +185,19 @@ where
 
         // init monitor
         let mut monitor: QueuedMonitor<
-            MappedFactory<Source::Factory>,
+            MappedFactory<Source::Record>,
             OfflineMode<InputTime>,
             TracingVerdict<EvalTimeTracer, TotalIncremental>,
             OutputTime,
         > = <QueuedMonitor<
-            MappedFactory<Source::Factory>,
+            MappedFactory<Source::Record>,
             OfflineMode<InputTime>,
             TracingVerdict<EvalTimeTracer, TotalIncremental>,
             OutputTime,
         >>::setup(cfg, source.init_data()?);
 
         let queue = monitor.output_queue();
-        let output_handler = match output_channel {
-            OutputChannel::StdOut => thread::spawn(move || output.run(stdout(), queue)),
-            OutputChannel::StdErr => thread::spawn(move || output.run(stderr(), queue)),
-            OutputChannel::File(f) => {
-                let file = File::create(f.as_path()).expect("Could not open output file!");
-                thread::spawn(move || output.run(BufWriter::new(file), queue))
-            },
-        };
+        let output_handler = thread::spawn(move || output.run(queue));
 
         // start evaluation
         monitor.start()?;
@@ -181,11 +212,15 @@ where
     }
 }
 
-impl<Source: EventSource<RealTime> + 'static, OutputTime: OutputTimeRepresentation>
-    Config<Source, OnlineMode, RealTime, OutputTime>
+impl<
+        Source: EventSource<RealTime> + 'static,
+        OutputTime: OutputTimeRepresentation,
+        VerdictSink: VerdictsSink<TotalIncremental, OutputTime, Return = (), Error: Error + 'static> + Send + 'static,
+        W: Write + Send + 'static,
+    > Config<Source, OnlineMode, RealTime, OutputTime, VerdictSink, W>
 where
-    Source::Factory:
-        InputMap<CreationData = <<Source::Factory as AssociatedFactory>::Factory as EventFactory>::CreationData>,
+    Source::Record:
+        InputMap<CreationData = <<Source::Record as AssociatedEventFactory>::Factory as EventFactory>::CreationData>,
 {
     pub(crate) fn run(self) -> Result<(), Box<dyn Error>> {
         // Convert config
@@ -193,15 +228,14 @@ where
         let Config {
             ir,
             mut source,
-            statistics,
-            verbosity,
-            output_channel,
             mode,
             output_time_representation,
             start_time,
+            verdict_sink,
+            stats_sink,
         } = self;
 
-        let output: OutputHandler<OutputTime> = OutputHandler::new(&ir, verbosity, statistics);
+        let output: OutputHandler<_, _, _> = OutputHandler::new(verdict_sink, stats_sink);
 
         let cfg = InterpreterConfig {
             ir,
@@ -212,26 +246,19 @@ where
 
         // init monitor
         let mut monitor: QueuedMonitor<
-            MappedFactory<Source::Factory>,
+            MappedFactory<Source::Record>,
             OnlineMode,
             TracingVerdict<EvalTimeTracer, TotalIncremental>,
             OutputTime,
         > = <QueuedMonitor<
-            MappedFactory<Source::Factory>,
+            MappedFactory<Source::Record>,
             OnlineMode,
             TracingVerdict<EvalTimeTracer, TotalIncremental>,
             OutputTime,
         >>::setup(cfg, source.init_data()?);
 
         let queue = monitor.output_queue();
-        let output_handler = match output_channel {
-            OutputChannel::StdOut => thread::spawn(move || output.run(stdout(), queue)),
-            OutputChannel::StdErr => thread::spawn(move || output.run(stderr(), queue)),
-            OutputChannel::File(f) => {
-                let file = File::create(f.as_path()).expect("Could not open output file!");
-                thread::spawn(move || output.run(BufWriter::new(file), queue))
-            },
-        };
+        let output_handler = thread::spawn(move || output.run(queue));
 
         // start evaluation
         monitor.start()?;

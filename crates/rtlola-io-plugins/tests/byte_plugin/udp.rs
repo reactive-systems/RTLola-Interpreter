@@ -4,9 +4,9 @@ use std::{thread, vec};
 
 use ntest::timeout;
 use rtlola_interpreter::time::AbsoluteFloat;
-use rtlola_io_plugins::byte_plugin::upd::{CheckUdpError, CheckedUdpSocket, UdpReader};
-use rtlola_io_plugins::byte_plugin::{ByteEventSource, ByteEventSourceError};
-use rtlola_io_plugins::EventSource;
+use rtlola_io_plugins::inputs::byte_plugin::upd::{CheckUdpError, CheckedUdpSocket, UdpReader};
+use rtlola_io_plugins::inputs::byte_plugin::{ByteEventSource, ByteEventSourceError};
+use rtlola_io_plugins::inputs::EventSource;
 
 use crate::byte_plugin::socket_addr;
 use crate::byte_plugin::structs::{check_verdict, create_verdicts};
@@ -40,7 +40,9 @@ fn udp_unchecked() {
         let mut counter = 0;
         let mut monitor = crate::byte_plugin::structs::input_map::create_monitor();
         let mut expected_verdicts = create_verdicts().into_iter();
-        while let (Some((ev, ts)), expected) = (input_source.next_event().unwrap(), expected_verdicts.next()) {
+        while let (Some((ev, ts)), expected) =
+            (input_source.next_event().unwrap(), expected_verdicts.next())
+        {
             let v = monitor.accept_event(ev, ts).unwrap();
             check_verdict(v, expected.unwrap());
             counter += 1;
@@ -74,11 +76,16 @@ fn timed_udp() {
     let thread_2 = thread::spawn(move || {
         thread::sleep(Duration::from_secs(1));
         let receiver = UdpSocket::bind(receiver_addr).unwrap();
-        receiver.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
-        let mut input_source = ByteEventSource::<UdpReader, _, AbsoluteFloat, 50>::from_source(receiver.into());
+        receiver
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut input_source =
+            ByteEventSource::<UdpReader, _, AbsoluteFloat, 50>::from_source(receiver.into());
         let mut monitor = crate::byte_plugin::structs::input_map::create_monitor();
         let mut expected_verdicts = create_verdicts().into_iter();
-        while let (Some((ev, ts)), expected) = (input_source.next_event().unwrap(), expected_verdicts.next()) {
+        while let (Some((ev, ts)), expected) =
+            (input_source.next_event().unwrap(), expected_verdicts.next())
+        {
             let v = monitor.accept_event(ev, ts).unwrap();
             check_verdict(v, expected.unwrap());
         }
@@ -110,9 +117,14 @@ fn checked_udp() {
     });
     let thread_receiver = thread::spawn(move || {
         let receiver = UdpSocket::bind(receiver_addr).unwrap();
-        receiver.set_read_timeout(Some(Duration::from_secs(4))).unwrap();
+        receiver
+            .set_read_timeout(Some(Duration::from_secs(4)))
+            .unwrap();
         let receiver = CheckedUdpSocket::new(receiver, vec![sender_addr]);
-        let mut input_source = ByteEventSource::<CheckedUdpSocket, _, AbsoluteFloat, 100>::from_source(receiver.into());
+        let mut input_source =
+            ByteEventSource::<CheckedUdpSocket, _, AbsoluteFloat, 100>::from_source(
+                receiver.into(),
+            );
         let mut monitor = crate::byte_plugin::structs::input_map::create_monitor();
         let mut expected_verdicts = create_verdicts().into_iter();
         loop {
@@ -121,12 +133,12 @@ fn checked_udp() {
                     let expected = expected_verdicts.next();
                     let v = monitor.accept_event(ev, ts).unwrap();
                     check_verdict(v, expected.unwrap());
-                },
+                }
                 Ok(None) => break,
                 Err(ByteEventSourceError::Source(CheckUdpError::InvalidSender(sender))) => {
                     eprintln!("Intruder {sender}");
                     continue;
-                },
+                }
                 Err(e) => panic!("{e}"),
             }
         }
@@ -176,7 +188,9 @@ fn udp_unchecked_with_input_macros() {
         let mut counter = 0;
         let mut monitor = crate::byte_plugin::structs::input_macros::create_monitor();
         let mut expected_verdicts = create_verdicts().into_iter();
-        while let (Some((ev, ts)), expected) = (input_source.next_event().unwrap(), expected_verdicts.next()) {
+        while let (Some((ev, ts)), expected) =
+            (input_source.next_event().unwrap(), expected_verdicts.next())
+        {
             let v = monitor.accept_event(ev, ts).unwrap();
             check_verdict(v, expected.unwrap());
             counter += 1;

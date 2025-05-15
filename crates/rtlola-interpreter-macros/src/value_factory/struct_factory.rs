@@ -98,7 +98,10 @@ pub(crate) fn expand_unnamed_struct(input: &DeriveInput) -> TokenStream {
 
     let factory = format_ident!("{name}Factory");
     let num_inputs = fields.len();
-    let from_type: Vec<_> = fields.iter().map(|_| quote! {rtlola_interpreter::Value}).collect();
+    let from_type: Vec<_> = fields
+        .iter()
+        .map(|_| quote! {rtlola_interpreter::Value})
+        .collect();
     let field_names: Vec<_> = fields
         .iter()
         .enumerate()
@@ -114,7 +117,7 @@ pub(crate) fn expand_unnamed_struct(input: &DeriveInput) -> TokenStream {
     let type_args: Vec<_> = generics.params.iter().collect();
 
     quote! {
-        impl #impl_generics rtlola_interpreter::input::AssociatedFactory for #name #ty_generics #where_clause {
+        impl #impl_generics rtlola_interpreter::input::AssociatedEventFactory for #name #ty_generics #where_clause {
             type Factory = #factory #ty_generics;
         }
 
@@ -144,12 +147,14 @@ pub(crate) fn expand_unnamed_struct(input: &DeriveInput) -> TokenStream {
 
 pub(crate) fn expand_unit_struct(input: &DeriveInput) -> TokenStream {
     let DeriveInput {
-        ident: name, generics, ..
+        ident: name,
+        generics,
+        ..
     } = input;
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     quote! {
-        impl #impl_generics rtlola_interpreter::input::AssociatedFactory for #name #ty_generics #where_clause {
+        impl #impl_generics rtlola_interpreter::input::AssociatedEventFactory for #name #ty_generics #where_clause {
             type Factory = rtlola_interpreter::input::EmptyFactory<Self>;
         }
     }

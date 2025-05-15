@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 15.05.2025
+
+### Added
+- `FromValues` trait and `StructVerdictFactory` to easily construct custom datatypes from monitor verdicts.
+- `AssociatedVerdictFactory` that links a type to the respective `VerdictFactory`.
+- `ConditionalFreshAggregation` and `ConditionalAllAggregation` to instance aggregation.
+
+### Changed
+- The trigger field in `IncrementalVerdict` now contains `TriggerReferences`, not `OutputReferences`.
+- Renamed `AssociatedFactory` to `AssociatedEventFactory`.
+
+### Fixed
+- Fix bug where `Incremental` verdict representation included trigger twice.
+- Inform tracer about event parsing times also in the `QueuedMonitor`.
+- Format `Value::String` with surrounding quotation marks.
+- Bug in sliding windows preventing them from accepting values in the same iteration in which they are spawned.
+
 ## [0.10.1] - 02.07.2024
 
 ### Fixed

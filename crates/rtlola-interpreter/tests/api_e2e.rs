@@ -13,13 +13,16 @@ use clap::{Parser, ValueEnum};
 use crossterm::style::Stylize;
 use csv::StringRecord;
 use itertools::{Itertools, Position};
-use junit_report::{Duration as JunitDuration, OffsetDateTime, ReportBuilder, TestCase, TestSuiteBuilder};
+use junit_report::{
+    Duration as JunitDuration, OffsetDateTime, ReportBuilder, TestCase, TestSuiteBuilder,
+};
 use ordered_float::NotNan;
 use rtlola_frontend::mir::Type;
 use rtlola_interpreter::input::{InputMap, MappedFactory};
 use rtlola_interpreter::monitor::{Monitor, TriggerMessages};
 use rtlola_interpreter::time::RelativeFloat;
 use rtlola_interpreter::{ConfigBuilder, Value};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 // inspired by: https://github.com/johnterickson/cargo2junit/blob/master/src/main.rs
@@ -163,15 +166,18 @@ fn timestamp_to_duration(ts: &str) -> Result<Duration, String> {
             let nanos = nanos
                 .char_indices()
                 .fold(Some(0u32), |val, (pos, c)| {
-                    val.and_then(|val| c.to_digit(10).map(|c| val + c * (10u32.pow(8 - pos as u32))))
+                    val.and_then(|val| {
+                        c.to_digit(10)
+                            .map(|c| val + c * (10u32.pow(8 - pos as u32)))
+                    })
                 })
                 .ok_or("invalid character in number literal")?;
             Ok(Duration::new(secs, nanos))
-        },
+        }
         None => {
             let secs = u64::from_str(ts).map_err(|e| e.to_string())?;
             Ok(Duration::from_secs(secs))
-        },
+        }
     }
 }
 
@@ -251,14 +257,22 @@ impl Test {
         let mut spec_file = PathBuf::from(repo_base);
         spec_file.push("tests");
         spec_file.push(spec_file_relative);
-        assert!(spec_file.is_file(), "Spec file path of Test '{}' is invalid", name);
+        assert!(
+            spec_file.is_file(),
+            "Spec file path of Test '{}' is invalid",
+            name
+        );
 
         let input_file = PathBuf::from(input_file);
         let input_file_relative: PathBuf = input_file.iter().skip(1).collect();
         let mut input_file = PathBuf::from(repo_base);
         input_file.push("tests");
         input_file.push(input_file_relative);
-        assert!(input_file.is_file(), "Input file path of Test '{}' is invalid", name);
+        assert!(
+            input_file.is_file(),
+            "Input file path of Test '{}' is invalid",
+            name
+        );
 
         Ok(Test {
             name,
@@ -316,8 +330,9 @@ impl Test {
             })
             .collect();
 
-        let mut monitor: Monitor<MappedFactory<CsvRecord>, _, TriggerMessages, _> =
-            config.monitor_with_data(inputs).expect("Failed to create Monitor");
+        let mut monitor: Monitor<MappedFactory<CsvRecord>, _, TriggerMessages, _> = config
+            .monitor_with_data(inputs)
+            .expect("Failed to create Monitor");
 
         let mut actual = Vec::new();
         for (pos, line) in csv.records().with_position() {
@@ -325,20 +340,25 @@ impl Test {
             let line = line?;
             let time = timestamp_to_duration(&line[time_idx])?;
 
-            let verdict = monitor.accept_event(line.into(), time).expect("Failed to accept event");
-            let triggers = verdict.event.into_iter().map(move |(_, _, name)| (name, time)).chain(
-                verdict
-                    .timed
-                    .into_iter()
-                    .flat_map(|(time, trig)| trig.into_iter().map(move |(_, _, name)| (name, time))),
-            );
+            let verdict = monitor
+                .accept_event(line.into(), time)
+                .expect("Failed to accept event");
+            let triggers = verdict
+                .event
+                .into_iter()
+                .map(move |(_, _, name)| (name, time))
+                .chain(verdict.timed.into_iter().flat_map(|(time, trig)| {
+                    trig.into_iter().map(move |(_, _, name)| (name, time))
+                }));
             actual.extend(triggers);
 
             if is_last {
                 let triggers = monitor
                     .accept_time(time)
                     .into_iter()
-                    .flat_map(|(time, trig)| trig.into_iter().map(move |(_, _, name)| (name, time)));
+                    .flat_map(|(time, trig)| {
+                        trig.into_iter().map(move |(_, _, name)| (name, time))
+                    });
                 actual.extend(triggers);
             }
         }
@@ -351,7 +371,10 @@ impl Test {
         let expected = &self.triggers;
         for (trigger, when) in actual.difference(expected) {
             fail = true;
-            messages.push(format!("Unexpected trigger occurred: '{}' at {:?}", trigger, when));
+            messages.push(format!(
+                "Unexpected trigger occurred: '{}' at {:?}",
+                trigger, when
+            ));
         }
         for (trigger, when) in expected.difference(&actual) {
             fail = true;
@@ -385,8 +408,11 @@ fn parse_tests(directory: &Path, repo_base: &Path) -> Result<Vec<Test>, Box<dyn 
         .map::<Result<JsonTest, std::io::Error>, _>(|file_path| {
             let file = File::open(file_path.as_path())?;
             let reader = BufReader::new(file);
-            let mut test: JsonTest = serde_json::from_reader(reader).map_err(std::io::Error::from)?;
-            test.name = file_path.file_stem().and_then(|s| s.to_str().map(|s| s.to_string()));
+            let mut test: JsonTest =
+                serde_json::from_reader(reader).map_err(std::io::Error::from)?;
+            test.name = file_path
+                .file_stem()
+                .and_then(|s| s.to_str().map(|s| s.to_string()));
             Ok(test)
         })
         .collect::<Result<Vec<JsonTest>, _>>()?;
@@ -419,6 +445,9 @@ fn value_from_string(str: &str, ty: &Type) -> Result<Value, Box<dyn Error>> {
         Type::UInt(_) => Value::Unsigned(u64::from_str(str)?),
         Type::Float(_) => Value::Float(NotNan::new(f64::from_str(str)?)?),
         Type::String => Value::Str(str.into()),
+        Type::Fixed(_) | Type::UFixed(_) => {
+            Value::Decimal(Decimal::from_str(str).map_err(|_| "error parsing fixed-point number")?)
+        }
         Type::Bytes | Type::Tuple(_) | Type::Option(_) | Type::Function { .. } => unimplemented!(),
     })
 }
@@ -447,7 +476,10 @@ struct HumanOutput {
 impl OutputFormat for HumanOutput {
     fn pre(&mut self, tests: &[Test]) {
         self.total = tests.len();
-        println!("==================== {} =====================", "API e2e tests".bold());
+        println!(
+            "==================== {} =====================",
+            "API e2e tests".bold()
+        );
         println!("Running {} tests", tests.len());
     }
 
@@ -482,8 +514,15 @@ impl OutputFormat for HumanOutput {
     }
 
     fn post(&mut self) {
-        println!("\n==================== {} =====================\n", "Summary".bold());
-        println!("{}:\n{}\n", "Failed tests".bold(), self.failed_names.join("\n"));
+        println!(
+            "\n==================== {} =====================\n",
+            "Summary".bold()
+        );
+        println!(
+            "{}:\n{}\n",
+            "Failed tests".bold(),
+            self.failed_names.join("\n")
+        );
         println!(
             "{}: {} | {}: {} | {}: {} | Total: {}",
             "Failed".red(),
@@ -640,12 +679,14 @@ impl OutputFormat for XmlOutput {
     }
 
     fn ignored(&mut self, test: &Test) {
-        self.suite.add_testcase(TestCase::skipped(test.name.as_str()));
+        self.suite
+            .add_testcase(TestCase::skipped(test.name.as_str()));
     }
 
     fn passed(&mut self, test: &Test) {
         let dur = JunitDuration::try_from(self.start_time.elapsed().unwrap()).unwrap();
-        self.suite.add_testcase(TestCase::success(test.name.as_str(), dur));
+        self.suite
+            .add_testcase(TestCase::success(test.name.as_str(), dur));
     }
 
     fn failed(&mut self, test: &Test, msg: String) {
@@ -707,15 +748,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         match test.run() {
             Outcome::Passed => {
                 output.passed(&test);
-            },
+            }
             Outcome::Failed(msg) => {
                 output.failed(&test, msg);
                 failed = true;
-            },
+            }
             Outcome::Panic(e) => {
                 output.panic(&test, e);
                 failed = true;
-            },
+            }
         }
     }
 

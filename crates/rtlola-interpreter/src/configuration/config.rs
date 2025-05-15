@@ -145,21 +145,32 @@ impl<
         self,
         data: Source::CreationData,
     ) -> QueuedMonitor<Source, OfflineMode<SourceTime>, Verdict, VerdictTime> {
-        <QueuedMonitor<Source, OfflineMode<SourceTime>, Verdict, VerdictTime>>::setup(self.config, data)
+        <QueuedMonitor<Source, OfflineMode<SourceTime>, Verdict, VerdictTime>>::setup(
+            self.config,
+            data,
+        )
     }
 
     /// Transforms the configuration into a [QueuedMonitor]
-    pub fn queued_monitor(self) -> QueuedMonitor<Source, OfflineMode<SourceTime>, Verdict, VerdictTime>
+    pub fn queued_monitor(
+        self,
+    ) -> QueuedMonitor<Source, OfflineMode<SourceTime>, Verdict, VerdictTime>
     where
         Source: EventFactory<CreationData = ()>,
     {
-        <QueuedMonitor<Source, OfflineMode<SourceTime>, Verdict, VerdictTime>>::setup(self.config, ())
+        <QueuedMonitor<Source, OfflineMode<SourceTime>, Verdict, VerdictTime>>::setup(
+            self.config,
+            (),
+        )
     }
 }
 
 #[cfg(feature = "queued-api")]
-impl<Source: EventFactory + 'static, Verdict: VerdictRepresentation, VerdictTime: OutputTimeRepresentation>
-    MonitorConfig<Source, OnlineMode, Verdict, VerdictTime>
+impl<
+        Source: EventFactory + 'static,
+        Verdict: VerdictRepresentation,
+        VerdictTime: OutputTimeRepresentation,
+    > MonitorConfig<Source, OnlineMode, Verdict, VerdictTime>
 {
     /// Transforms the configuration into a [QueuedMonitor] using the provided data to setup the input source.
     pub fn queued_monitor_with_data(

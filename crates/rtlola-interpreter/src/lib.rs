@@ -34,7 +34,6 @@ pub use itertools::izip;
 pub use rtlola_frontend;
 pub use rtlola_frontend::mir as rtlola_mir;
 
-pub use crate::api::input;
 pub use crate::api::input::ValueGetter;
 // Serialize and Deserialize traits for serde support
 pub use crate::api::monitor;
@@ -43,6 +42,7 @@ pub use crate::api::monitor::Monitor;
 pub use crate::api::queued;
 #[cfg(feature = "queued-api")]
 pub use crate::api::queued::QueuedMonitor;
+pub use crate::api::{input, output};
 pub use crate::configuration::config_builder::ConfigBuilder;
 pub use crate::configuration::{config, time};
 pub use crate::storage::{Value, ValueConvertError};
